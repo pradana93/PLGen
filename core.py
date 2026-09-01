@@ -958,18 +958,23 @@ outlet_dropdown.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
 frame_dest.grid_columnconfigure(1, weight=1)
 
 # --- NEW: LIVE OUTLET PREVIEW CARD ---
-preview_frame = tk.Frame(frame_dest, bg="#e8f4f8", bd=1, relief="solid")
+preview_frame = tk.Frame(frame_dest, bg=addons.COLORS["border_light"], bd=1, relief="solid")
 preview_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 10))
 
-tk.Label(preview_frame, text="PREVIEW:", font=(addons.PREMIUM_FONT, 9, "bold"), bg="#e8f4f8", fg="#2c3e50").grid(row=0, column=0, sticky="w", padx=10, pady=(8, 2))
+tk.Label(preview_frame, text="PREVIEW:", font=(addons.PREMIUM_FONT, 9, "bold"), 
+         bg=addons.COLORS["border_light"], fg=addons.COLORS["text_primary"]).grid(row=0, column=0, sticky="w", padx=10, pady=(8, 2))
 
-lbl_receiver = tk.Label(preview_frame, text="👤 Receiver: -", font=(addons.PREMIUM_FONT, 9), bg="#e8f4f8", fg="#34495e", anchor="w")
+lbl_receiver = tk.Label(preview_frame, text="👤 Receiver: -", font=(addons.PREMIUM_FONT, 9), 
+                        bg=addons.COLORS["border_light"], fg=addons.COLORS["text_secondary"], anchor="w")
 lbl_receiver.grid(row=1, column=0, sticky="w", padx=10, pady=2)
 
-lbl_phone = tk.Label(preview_frame, text="📞 Phone: -", font=(addons.PREMIUM_FONT, 9), bg="#e8f4f8", fg="#34495e", anchor="w")
+lbl_phone = tk.Label(preview_frame, text="📞 Phone: -", font=(addons.PREMIUM_FONT, 9), 
+                     bg=addons.COLORS["border_light"], fg=addons.COLORS["text_secondary"], anchor="w")
 lbl_phone.grid(row=2, column=0, sticky="w", padx=10, pady=2)
 
-lbl_address = tk.Label(preview_frame, text="📍 Address: Select an outlet to view details", font=(addons.PREMIUM_FONT, 9), bg="#e8f4f8", fg="#34495e", anchor="w", wraplength=350, justify="left")
+lbl_address = tk.Label(preview_frame, text="📍 Address: Select an outlet to view details", 
+                       font=(addons.PREMIUM_FONT, 9), bg=addons.COLORS["border_light"], 
+                       fg=addons.COLORS["text_secondary"], anchor="w", wraplength=350, justify="left")
 lbl_address.grid(row=3, column=0, sticky="w", padx=10, pady=(2, 8))
 
 def update_outlet_preview(event=None):
@@ -1032,13 +1037,16 @@ update_outlet_suggestions(tk.Event())
 
 # --- NEW: LOGGED-IN OPERATOR BADGE ---
 operator_alias = addons.HWID_ALIASES.get(addons.get_hwid(), "Operator")
-logged_in_label = tk.Label(frame_feed, text=f"👤 Logged In As: {operator_alias}", font=(addons.PREMIUM_FONT, 10, "bold"), fg="#8e44ad")
+logged_in_label = tk.Label(frame_feed, text=f"👤 Logged In As: {operator_alias}", 
+                           font=(addons.PREMIUM_FONT, 10, "bold"), fg=addons.COLORS["accent_purple"],
+                           bg=addons.COLORS["bg_primary"])
 logged_in_label.pack(anchor="e", pady=(0, 5))
 # -------------------------------------
 
 live_est_var = tk.StringVar()
 live_est_var.set("📦 Live Koli Estimate: 0")
-est_label = tk.Label(frame_feed, textvariable=live_est_var, font=(addons.PREMIUM_FONT, 11, "bold"), fg="#7f8c8d")
+est_label = tk.Label(frame_feed, textvariable=live_est_var, font=(addons.PREMIUM_FONT, 11, "bold"), 
+                     fg=addons.COLORS["text_secondary"], bg=addons.COLORS["bg_primary"])
 est_label.pack(anchor="e", pady=(0, 10))
 
 table_container = tk.Frame(frame_feed)
@@ -1055,22 +1063,23 @@ if DND_AVAILABLE:
     tabs = ttk.Notebook(frame_entry)
     tabs.pack(fill="both", expand=True, pady=2, padx=2)
 
-    tab_scan = tk.Frame(tabs, bg="#ecf0f1")
-    tab_manual = tk.Frame(tabs)
+    tab_scan = tk.Frame(tabs, bg=addons.COLORS["bg_primary"])
+    tab_manual = tk.Frame(tabs, bg=addons.COLORS["bg_primary"])
 
     tabs.add(tab_scan, text="🚀 AUTO-DROPZONE")
     tabs.add(tab_manual, text="🛠️ MANUAL OVERRIDE")
     
     drop_label = tk.Label(tab_scan, text="📄 DRAG & DROP\nPDF HERE", 
-                          font=(addons.PREMIUM_FONT, 14, "bold"), bg="#bdc3c7", fg="#2c3e50", relief="sunken", bd=4)
+                          font=(addons.PREMIUM_FONT, 14, "bold"), bg=addons.COLORS["border_light"], 
+                          fg=addons.COLORS["text_primary"], relief="sunken", bd=4)
     drop_label.pack(fill="both", expand=True, padx=15, pady=15)
 
     # --- PREMIUM UPGRADE: INTERACTIVE DRAG & DROP FEEDBACK ---
     def on_drag_enter(event):
-        drop_label.config(bg="#27ae60", fg="white", text="📥 DROP FILE HERE")
+        drop_label.config(bg=addons.COLORS["accent_green"], fg="white", text="📥 DROP FILE HERE")
 
     def on_drag_leave(event):
-        drop_label.config(bg="#bdc3c7", fg="#2c3e50", text="📄 DRAG & DROP\nPDF HERE")
+        drop_label.config(bg=addons.COLORS["border_light"], fg=addons.COLORS["text_primary"], text="📄 DRAG & DROP\nPDF HERE")
 
     drop_label.dnd_bind("<<DragEnter>>", on_drag_enter)
     drop_label.dnd_bind("<<DragLeave>>", on_drag_leave)
@@ -1201,34 +1210,45 @@ tk.Button(btn_frame, text="- Subtract Item", command=subtract_item, bg="#e74c3c"
 
 # ==========================================
 #     NEW: SIMPLIFIED SYSTEM ACTIONS
-# ==========================================
-# Row 0: Primary Actions
-tk.Button(frame_actions, text="🧮 Calculate Routing", command=on_calculate, bg="#2980b9", fg="white", font=(addons.PREMIUM_FONT, 10, "bold")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-tk.Button(frame_actions, text="💾 Export & Save Data", command=on_print, bg="#27ae60", fg="white", font=(addons.PREMIUM_FONT, 10, "bold")).grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+# ==========================================# Row 0: Primary Actions
+tk.Button(frame_actions, text="🧮 Calculate Routing", command=on_calculate, 
+          bg=addons.COLORS["accent_blue"], fg="white", font=(addons.PREMIUM_FONT, 10, "bold")).grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+tk.Button(frame_actions, text="💾 Export & Save Data", command=on_print, 
+          bg=addons.COLORS["accent_green"], fg="white", font=(addons.PREMIUM_FONT, 10, "bold")).grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
 # Row 1: Tools Grid
-tk.Button(frame_actions, text="📂 Scanner", command=lambda: addons.open_auto_mode(root, order, sku_lookup, update_order_display), bg="#8e44ad", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=1, column=0, sticky="ew", padx=5, pady=2)
-tk.Button(frame_actions, text="🔄 Live Sync Data", command=refresh_master_data, bg="#16a085", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=1, column=1, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="📂 Scanner", command=lambda: addons.open_auto_mode(root, order, sku_lookup, update_order_display), 
+          bg=addons.COLORS["accent_purple"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=1, column=0, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="🔄 Live Sync Data", command=refresh_master_data, 
+          bg="#16a085", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=1, column=1, sticky="ew", padx=5, pady=2)
 
 # Row 2: Tools Grid
-tk.Button(frame_actions, text="🖨️ Printer Settings", command=lambda: addons.open_printer_settings(root), bg="#95a5a6", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=2, column=0, sticky="ew", padx=5, pady=2)
-tk.Button(frame_actions, text="📊 Shift Report", command=lambda: addons.view_shift_report(root), bg="#f39c12", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=2, column=1, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="🖨️ Printer Settings", command=lambda: addons.open_printer_settings(root), 
+          bg="#95a5a6", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=2, column=0, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="📊 Shift Report", command=lambda: addons.view_shift_report(root), 
+          bg=addons.COLORS["accent_orange"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=2, column=1, sticky="ew", padx=5, pady=2)
 
 # Row 3: Admin & Extras
-tk.Button(frame_actions, text="💳 Wallet", command=lambda: addons.open_wallet_ui(root, addons.get_hwid()), bg="#8e44ad", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=3, column=0, sticky="ew", padx=5, pady=2)
-tk.Button(frame_actions, text="📡 Live Board", command=lambda: addons.open_packing_board(root), bg="#3498db", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=3, column=1, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="💳 Wallet", command=lambda: addons.open_wallet_ui(root, addons.get_hwid()), 
+          bg=addons.COLORS["accent_purple"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=3, column=0, sticky="ew", padx=5, pady=2)
+tk.Button(frame_actions, text="📡 Live Board", command=lambda: addons.open_packing_board(root), 
+          bg=addons.COLORS["accent_blue"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=3, column=1, sticky="ew", padx=5, pady=2)
 
 # Row 4: Updates
-tk.Button(frame_actions, text="🔄 Check for Updates", command=lambda: addons.check_for_updates(root, CURRENT_VERSION, silent=False), bg="#f39c12", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+tk.Button(frame_actions, text="🔄 Check for Updates", command=lambda: addons.check_for_updates(root, CURRENT_VERSION, silent=False), 
+          bg=addons.COLORS["accent_orange"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 # Row 5: Danger Zone
-tk.Button(frame_actions, text="🗑️ CLEAR CURRENT ORDER", command=clear_order, bg="#e74c3c", fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=(5, 10))
+tk.Button(frame_actions, text="🗑️ CLEAR CURRENT ORDER", command=clear_order, 
+          bg=addons.COLORS["accent_red"], fg="white", font=(addons.PREMIUM_FONT, 9, "bold")).grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=(5, 10))
 
 frame_actions.grid_columnconfigure(0, weight=1)
 frame_actions.grid_columnconfigure(1, weight=1)
 # ==========================================
 
-status_bar = tk.Label(root, textvariable=status_var, bd=1, relief=tk.SUNKEN, anchor="w", font=(addons.PREMIUM_FONT, 9, "italic"), fg="#2c3e50", padx=10, bg="#ecf0f1")
+status_bar = tk.Label(root, textvariable=status_var, bd=1, relief=tk.SUNKEN, anchor="w", 
+                      font=(addons.PREMIUM_FONT, 9, "italic"), fg=addons.COLORS["text_primary"], 
+                      padx=10, bg=addons.COLORS["border_light"])
 status_bar.grid(row=4, column=0, columnspan=2, sticky="ew")
 
 root.bind('<Return>', add_item)             
