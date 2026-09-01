@@ -36,6 +36,51 @@ from PIL import Image, ImageTk
 
 # --- NEW: PREMIUM UI CONFIGURATION ---
 PREMIUM_FONT = "Segoe UI"
+
+# 🎨 COLOR PALETTE - MODERN THEME
+COLORS = {
+    "bg_primary": "#f4f6f9",        # Light gray-blue background
+    "bg_secondary": "#ffffff",      # Pure white cards
+    "bg_dark": "#2c3e50",           # Dark blue-gray for headers
+    "accent_blue": "#3498db",       # Primary action color
+    "accent_green": "#27ae60",      # Success actions
+    "accent_red": "#e74c3c",        # Error/danger
+    "accent_orange": "#f39c12",     # Warnings
+    "accent_purple": "#9b59b6",     # Premium features
+    "text_primary": "#2c3e50",      # Main text
+    "text_secondary": "#7f8c8d",    # Muted text
+    "border_light": "#ecf0f1",      # Subtle borders
+    "shadow": "rgba(0,0,0,0.1)",    # Shadow color
+    
+    # Category Colors
+    "frozen": "#3498db",            # Blue for frozen items
+    "kentang": "#f39c12",           # Orange for potato items
+    "sauce": "#e74c3c",             # Red for sauces
+    "packaging": "#27ae60",         # Green for packaging
+    "apparel": "#9b59b6",           # Purple for apparel
+    "big": "#e67e22",               # Dark orange for big items
+    "bread": "#f1c40f",             # Yellow for bread
+    "bundle": "#1abc9c",            # Teal for bundles
+}
+
+# DARK MODE COLORS
+DARK_COLORS = {
+    "bg_primary": "#1a1a2e",        # Dark navy background
+    "bg_secondary": "#16213e",      # Darker cards
+    "bg_dark": "#0f3460",           # Header background
+    "accent_blue": "#4fc3f7",       # Lighter blue for dark mode
+    "accent_green": "#81c784",      # Softer green
+    "accent_red": "#e57373",        # Softer red
+    "accent_orange": "#ffb74d",     # Softer orange
+    "accent_purple": "#ba68c8",     # Softer purple
+    "text_primary": "#eceff1",      # Light text
+    "text_secondary": "#b0bec5",    # Muted light text
+    "border_light": "#2c3e50",      # Darker borders
+    "shadow": "rgba(0,0,0,0.3)",    
+}
+
+# Global theme state
+CURRENT_THEME = "light"  # "light" or "dark"
 # -------------------------------------
 
 # --- NEW: Company Switch ---
@@ -1638,20 +1683,45 @@ def save_outlet_history(new_outlet):
         except Exception as e: print(f"Could not save outlet history: {e}")
 
 def build_dashboard_zones(parent):
-    frame_dest = tk.LabelFrame(parent, text="📍 Destination Details", font=(PREMIUM_FONT, 10, "bold"), padx=15, pady=10, fg="#2c3e50")
-    frame_entry = tk.LabelFrame(parent, text="🍔 Order Entry", font=(PREMIUM_FONT, 10, "bold"), padx=15, pady=10, fg="#2c3e50")
-    frame_actions = tk.LabelFrame(parent, text="⚙️ System Actions", font=(PREMIUM_FONT, 10, "bold"), padx=15, pady=10, fg="#2c3e50")
-    frame_feed = tk.LabelFrame(parent, text="📋 Active Manifest", font=(PREMIUM_FONT, 10, "bold"), padx=10, pady=10, fg="#2c3e50")
+    colors = get_current_colors()
+    
+    frame_dest = tk.LabelFrame(parent, text="📍 Destination Details", font=(PREMIUM_FONT, 10, "bold"), 
+                               padx=15, pady=10, fg=colors["text_primary"], bg=colors["bg_primary"])
+    frame_entry = tk.LabelFrame(parent, text="🍔 Order Entry", font=(PREMIUM_FONT, 10, "bold"), 
+                                padx=15, pady=10, fg=colors["text_primary"], bg=colors["bg_primary"])
+    frame_actions = tk.LabelFrame(parent, text="⚙️ System Actions", font=(PREMIUM_FONT, 10, "bold"), 
+                                  padx=15, pady=10, fg=colors["text_primary"], bg=colors["bg_primary"])
+    frame_feed = tk.LabelFrame(parent, text="📋 Active Manifest", font=(PREMIUM_FONT, 10, "bold"), 
+                               padx=10, pady=10, fg=colors["text_primary"], bg=colors["bg_primary"])
+    
+    # Style the frames
+    for frame in [frame_dest, frame_entry, frame_actions, frame_feed]:
+        frame.configure(bg=colors["bg_primary"])
+    
     return frame_dest, frame_entry, frame_actions, frame_feed
 
 def build_order_table(parent):
+    colors = get_current_colors()
     style = ttk.Style()
     style.theme_use("default")
     
-    # Premium styling
-    style.configure("Treeview", background="#ffffff", foreground="#2c3e50", rowheight=30, fieldbackground="#ffffff", borderwidth=0, font=(PREMIUM_FONT, 10))
-    style.map('Treeview', background=[('selected', '#3498db')], foreground=[('selected', 'white')])
-    style.configure("Treeview.Heading", background="#ecf0f1", foreground="#2c3e50", font=(PREMIUM_FONT, 10, "bold"), borderwidth=1, relief="flat")
+    # Premium styling with theme support
+    style.configure("Treeview", 
+                    background=colors["bg_secondary"], 
+                    foreground=colors["text_primary"], 
+                    rowheight=30, 
+                    fieldbackground=colors["bg_secondary"], 
+                    borderwidth=0, 
+                    font=(PREMIUM_FONT, 10))
+    style.map('Treeview', 
+              background=[('selected', colors["accent_blue"])], 
+              foreground=[('selected', colors["bg_secondary"])])
+    style.configure("Treeview.Heading", 
+                    background=colors["border_light"], 
+                    foreground=colors["text_primary"], 
+                    font=(PREMIUM_FONT, 10, "bold"), 
+                    borderwidth=1, 
+                    relief="flat")
 
     columns = ("SKU", "Qty", "Note")
     tree = ttk.Treeview(parent, columns=columns, show="headings", height=15)
@@ -1664,15 +1734,15 @@ def build_order_table(parent):
     
     scrollbar = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scrollbar.set)
-    tree.tag_configure("evenrow", background="#f9f9f9")
-    tree.tag_configure("oddrow", background="#ffffff")
-    tree.tag_configure("special_note", foreground="#e74c3c", font=(PREMIUM_FONT, 10, "bold")) 
+    tree.tag_configure("evenrow", background=colors["border_light"])
+    tree.tag_configure("oddrow", background=colors["bg_secondary"])
+    tree.tag_configure("special_note", foreground=COLORS["accent_red"], font=(PREMIUM_FONT, 10, "bold")) 
     
     # Empty state watermark
     empty_label = tk.Label(parent, text="📦 Drag & Drop a PDF or Add Items to begin...", 
-                           font=(PREMIUM_FONT, 12, "italic"), fg="#bdc3c7", bg="#ffffff")
+                           font=(PREMIUM_FONT, 12, "italic"), fg=colors["text_secondary"], bg=colors["bg_secondary"])
     empty_label.place(relx=0.5, rely=0.5, anchor="center")
-    tree.empty_label = empty_label # Attach to tree object so we can access it later
+    tree.empty_label = empty_label
     
     return tree, scrollbar
 
@@ -2363,7 +2433,38 @@ def apply_ironclad_shutdown(root, get_current_order_func):
         signal.signal(signal.SIGTERM, lambda sig, frame: safe_exit())
     except Exception: pass
 
+def get_current_colors():
+    """Returns the current color palette based on theme."""
+    global CURRENT_THEME
+    return DARK_COLORS if CURRENT_THEME == "dark" else COLORS
+
+def toggle_theme(root):
+    """Switches between light and dark themes."""
+    global CURRENT_THEME
+    CURRENT_THEME = "dark" if CURRENT_THEME == "light" else "light"
+    apply_modern_theme(root)
+    # Save preference
+    try:
+        with open("logs/theme_preference.json", "w") as f:
+            json.dump({"theme": CURRENT_THEME}, f)
+    except: pass
+    return CURRENT_THEME
+
+def load_theme_preference():
+    """Loads saved theme preference."""
+    global CURRENT_THEME
+    try:
+        with open("logs/theme_preference.json", "r") as f:
+            data = json.load(f)
+            CURRENT_THEME = data.get("theme", "light")
+    except:
+        CURRENT_THEME = "light"
+    return CURRENT_THEME
+
 def apply_modern_theme(root):
+    """Applies the modern theme with support for light/dark modes."""
+    colors = get_current_colors()
+    
     # 1. Anti-flicker center boot (forces the app to load dead center)
     root.update_idletasks()
     width = 1250
@@ -2373,33 +2474,72 @@ def apply_modern_theme(root):
     root.geometry(f'{width}x{height}+{x}+{y}')
 
     # 2. Modern Flat Background
-    root.configure(bg="#f4f6f9")
+    root.configure(bg=colors["bg_primary"])
     
     # 3. Overhaul the native style engine
     style = ttk.Style()
     if "clam" in style.theme_names():
-        style.theme_use("clam") # Clam allows us to strip away 3D borders easily
+        style.theme_use("clam")
         
-    style.configure("TLabelframe", background="#f4f6f9", bordercolor="#bdc3c7", borderwidth=1)
-    style.configure("TLabelframe.Label", background="#f4f6f9", foreground="#2c3e50", font=(PREMIUM_FONT, 11, "bold"))
-    style.configure("TFrame", background="#f4f6f9")
+    style.configure("TLabelframe", 
+                    background=colors["bg_primary"], 
+                    bordercolor=colors["border_light"], 
+                    borderwidth=1)
+    style.configure("TLabelframe.Label", 
+                    background=colors["bg_primary"], 
+                    foreground=colors["text_primary"], 
+                    font=(PREMIUM_FONT, 11, "bold"))
+    style.configure("TFrame", background=colors["bg_primary"])
+    style.configure("TButton", 
+                    background=colors["accent_blue"],
+                    foreground=colors["bg_secondary"],
+                    font=(PREMIUM_FONT, 10, "bold"))
     
     # 4. Sleek Manifest Table (More breathing room)
     style.configure("Treeview", 
-                    background="#ffffff", 
-                    foreground="#2c3e50", 
+                    background=colors["bg_secondary"], 
+                    foreground=colors["text_primary"], 
                     rowheight=32, 
-                    fieldbackground="#ffffff", 
+                    fieldbackground=colors["bg_secondary"], 
                     borderwidth=0)
-    style.map('Treeview', background=[('selected', '#2980b9')], foreground=[('selected', 'white')])
+    style.map('Treeview', 
+              background=[('selected', colors["accent_blue"])], 
+              foreground=[('selected', colors["bg_secondary"])])
     style.configure("Treeview.Heading", 
-                    background="#ecf0f1", 
-                    foreground="#2c3e50", 
+                    background=colors["border_light"], 
+                    foreground=colors["text_primary"], 
                     font=(PREMIUM_FONT, 10, "bold"), 
                     borderwidth=1)
     
     # 5. Clean Comboboxes
-    style.configure("TCombobox", padding=5)
+    style.configure("TCombobox", 
+                    padding=5,
+                    fieldbackground=colors["bg_secondary"],
+                    foreground=colors["text_primary"])
+    
+    # 6. Update all existing widgets
+    for widget in root.winfo_children():
+        update_widget_theme(widget, colors)
+
+def update_widget_theme(widget, colors):
+    """Recursively updates widget colors based on current theme."""
+    try:
+        # Update background and foreground for common widgets
+        if isinstance(widget, (tk.Label, tk.Button, tk.Frame, tk.LabelFrame)):
+            if isinstance(widget, tk.Label) and widget.cget("bg") not in [None, ""]:
+                # Only update labels that have explicit bg set
+                if widget.cget("bg") in ["#f4f6f9", "#ffffff", "#2c3e50", "#ecf0f1"]:
+                    widget.configure(bg=colors["bg_primary"], fg=colors["text_primary"])
+        elif isinstance(widget, ttk.Treeview):
+            # Treeview is handled by style configuration
+            pass
+    except:
+        pass
+    
+    # Recursively update children
+    if hasattr(widget, 'winfo_children'):
+        for child in widget.winfo_children():
+            update_widget_theme(child, colors)
 
 def apply_button_hovers(parent):
     """Recursively finds all tk.Button widgets and adds a subtle dark-hover effect instantly."""
@@ -2424,25 +2564,29 @@ def apply_button_hovers(parent):
             apply_button_hovers(widget)
 
 def show_toast(root, message, toast_type="success"):
-    """Displays a modern, non-blocking fade-in/fade-out notification."""
+    """Displays a modern, non-blocking fade-in/fade-out notification with theme support."""
+    colors = get_current_colors()
+    
     toast = tk.Toplevel(root)
-    toast.overrideredirect(True) # Removes standard Windows borders/titlebar
+    toast.overrideredirect(True)
     toast.attributes("-topmost", True)
-    toast.attributes("-alpha", 0.0) # Start completely transparent
+    toast.attributes("-alpha", 0.0)
 
-    # Set colors based on type
+    # Set colors based on type (using theme-aware palette)
     if toast_type == "success":
-        bg_color = "#27ae60" # Vibrant Green
+        bg_color = COLORS["accent_green"]
     elif toast_type == "error":
-        bg_color = "#e74c3c" # Bright Red
+        bg_color = COLORS["accent_red"]
+    elif toast_type == "warning":
+        bg_color = COLORS["accent_orange"]
     else:
-        bg_color = "#34495e" # Dark Blue/Gray for info
+        bg_color = colors["accent_blue"]
 
     # Build the UI inside the borderless window
     frame = tk.Frame(toast, bg=bg_color, highlightbackground=bg_color, highlightthickness=2)
     frame.pack(fill="both", expand=True)
     
-    lbl = tk.Label(frame, text=message, bg=bg_color, fg="white", font=(PREMIUM_FONT, 10, "bold"), padx=20, pady=10)
+    lbl = tk.Label(frame, text=message, bg=bg_color, fg="#ffffff", font=(PREMIUM_FONT, 10, "bold"), padx=20, pady=10)
     lbl.pack()
 
     # Wait for the window to render to get its actual size, then position it
@@ -2462,7 +2606,6 @@ def show_toast(root, message, toast_type="success"):
             toast.attributes("-alpha", alpha)
             root.after(20, lambda: fade_in(alpha))
         else:
-            # Once fully visible, wait 2.5 seconds then start fading out
             root.after(2500, fade_out)
 
     def fade_out(alpha=0.95):
@@ -2471,9 +2614,8 @@ def show_toast(root, message, toast_type="success"):
             toast.attributes("-alpha", alpha)
             root.after(20, lambda: fade_out(alpha))
         else:
-            toast.destroy() # Delete the window to free up memory
+            toast.destroy()
 
-    # Start the animation
     fade_in()
 
 # ==========================================
