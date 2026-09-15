@@ -5,7 +5,6 @@ import Admin from "./pages/Admin";
 import Manifests from "./pages/Manifests";
 import Inbound from "./pages/Inbound";
 import ScanPage from "./pages/ScanPage";
-import Devmode from "./pages/Devmode";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
@@ -24,7 +23,6 @@ function Nav(){
         {link("/manifests","Manifests")}
         {link("/inbound","Inbound")}
         {link("/admin","Admin")}
-        {link("/devmode","PIN")}
       </div>
       <div className="ml-auto flex items-center gap-2">
         {user ? (
@@ -62,7 +60,6 @@ function AppRoutes(){
         <Route path="/inbound" element={<Protected><Inbound /></Protected>} />
         <Route path="/admin" element={<Protected roles={["SuperAdmin","Admin"]}><Admin /></Protected>} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
-        <Route path="/devmode" element={<Protected><Devmode /></Protected>} />
       </Routes>
       <footer className="text-center text-xs text-gray-500 py-6">Made by A. Majesta P. • Burger Bangor Logistics • Production-Live v2.0 | Login via Supabase • PythonAnywhere Master Data</footer>
     </>
