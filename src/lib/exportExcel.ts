@@ -2,7 +2,6 @@
 // Preserves: A4 portrait layout, QR embed (B44), header rows, palette fills, thick borders, row heights, print area
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
-import QRCode from "qrcode";
 import { Box, Order, getNextDeliveryNumber, getDeliveryDateWIB, buildDisplayRows, getOutletPalette } from "./packing";
 
 const ARIA = "Arial";
@@ -24,8 +23,6 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const companyName = companyCode === "BBT" ? "PT BANGOR BERANI TERUKUR" : "PT BANGOR BERKEMBANG BERSAMA";
   const totalKoli = boxes.length;
 
-  let qrDataUrl = "";
-  try { qrDataUrl = await QRCode.toDataURL(`https://jestu93.pythonanywhere.com/scan/${encodeURIComponent(deliveryNo)}`, { width: 200 }); } catch {}
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Packing List");
@@ -69,7 +66,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   // ═══════════════════════════════════════════
   ws.mergeCells("A1:E1");
   const banner1 = ws.getCell("A1");
-  banner1.value = companyName;
+  banner1.value = "BURGER BANGOR";
   banner1.font = { name: ARIA_BLACK, size: 18, bold: true, color: { argb: WHITE } };
   banner1.alignment = { horizontal: "center", vertical: "middle" };
   setFill(banner1, NAVY);
@@ -77,11 +74,11 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
 
   ws.mergeCells("A2:E2");
   const banner2 = ws.getCell("A2");
-  banner2.value = "LOGISTICS DIVISION — PACKING LIST";
-  banner2.font = { name: ARIA, size: 10, bold: true, color: { argb: WHITE } };
+  banner2.value = "PACKING LIST";
+  banner2.font = { name: ARIA, size: 11, bold: true, color: { argb: WHITE } };
   banner2.alignment = { horizontal: "center", vertical: "middle" };
   setFill(banner2, NAVY);
-  ws.getRow(2).height = 20;
+  ws.getRow(2).height = 18;
 
   // ═══════════════════════════════════════════
   //  SECTION 2: INFO PANEL (rows 4-7)
@@ -247,16 +244,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   totalWt.border = { top: medium, left: thin, bottom: medium, right: medium };
 
   // ═══════════════════════════════════════════
-  //  SECTION 7: QR CODE (bottom-right area)
-  // ═══════════════════════════════════════════
-  if (qrDataUrl) {
-    const base64 = qrDataUrl.split(",")[1];
-    const imgId = wb.addImage({ base64, extension: "png" });
-    ws.addImage(imgId, "D" + (totalRow + 2) + ":E" + (totalRow + 5));
-  }
-
-  // ═══════════════════════════════════════════
-  //  SECTION 8: SIGNATURE BLOCK
+  //  SECTION 7: SIGNATURE BLOCK
   // ═══════════════════════════════════════════
   const sigRow = totalRow + 7;
   ws.getRow(sigRow).height = 16;
