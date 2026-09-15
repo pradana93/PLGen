@@ -11,18 +11,25 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "majesta93";
 const API_BEARER = process.env.API_BEARER || "JESTA-SECURE-99X";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const IS_VERCEL = !!process.env.VERCEL;
 
-// Middleware
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+// Middleware - on Vercel allow all origins
+app.use(cors({ origin: IS_VERCEL ? true : CORS_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Storage setup - file based (Supabase optional storage - see supabase/schema.sql)
-const DATA_DIR = path.join(__dirname, "..", "data");
+// Storage setup - Vercel has read-only FS except /tmp
+// On Vercel we use /tmp (ephemeral) + Supabase (persistent) — see supabase/schema.sql
+const DATA_DIR = IS_VERCEL ? path.join("/tmp", "plgen_data") : path.join(__dirname, "..", "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Supabase detection helper (if configured, persistence is via Supabase; file is cache)
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+export const isSupabaseConfigured = !!SUPABASE_URL && !!SUPABASE_SERVICE_KEY;
 
 function jsonRead<T>(file: string, fallback: T): T {
   const p = path.join(DATA_DIR, file);
@@ -570,6 +577,41 @@ app.post("/upload_shift", (req,res)=>{
   res.json({ status:"ok" });
 });
 
+// Offline PIN generator - port of Devmode.py (Jesta Offline Vault 2026)
+import crypto from "crypto";
+const MAJESTA_SECRET_SALT = process.env.MAJESTA_SECRET_SALT || "JESTA_OFFLINE_VAULT_2026";
+function generateOfflinePin(hwid: string, dateStr: string): string {
+  const raw = `${hwid}|${dateStr}|${MAJESTA_SECRET_SALT}`;
+  const hash = crypto.createHash("sha256").update(raw).digest("hex");
+  const digits = hash.replace(/\D/g, "");
+  return digits.slice(0,6).padEnd(6,"0");
+}
+app.get("/api/offline_pin", (req,res)=>{
+  const hwid = String(req.query.hwid||"").toUpperCase().trim();
+  if(!hwid || hwid.length!==16) return res.status(400).json({ error:"HWID must be 16 chars" });
+  const today = new Date();
+  const fmt = (d:Date)=> `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+  const todayStr = fmt(today);
+  const yest = new Date(today); yest.setDate(yest.getDate()-1);
+  const yestStr = fmt(yest);
+  res.json({
+    hwid,
+    today: todayStr,
+    yesterday: yestStr,
+    pin_today: generateOfflinePin(hwid, todayStr),
+    pin_yesterday: generateOfflinePin(hwid, yestStr),
+    note: "Verify license status in Admin Panel before sharing PIN"
+  });
+});
+app.post("/api/offline_pin/verify", (req,res)=>{
+  const { hwid, pin } = req.body;
+  if(!hwid || !pin) return res.status(400).json({ error:"Missing hwid/pin" });
+  const today = new Date();
+  const fmt = (d:Date)=> `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+  const valid = pin === generateOfflinePin(String(hwid).toUpperCase(), fmt(today)) || pin === generateOfflinePin(String(hwid).toUpperCase(), fmt(new Date(today.getTime()-86400000)));
+  res.json({ valid });
+});
+
 // Version
 app.get("/static/version.txt", (req,res)=> res.send("2.0.0"));
 app.get("/static/core_update.sha256", (req,res)=> res.send("mock-hash"));
@@ -580,8 +622,13 @@ app.use("/uploads", express.static(UPLOAD_DIR));
 // Fallback
 app.use((req,res)=> res.status(404).json({ error:"Not found", path:req.path }));
 
-app.listen(PORT, ()=> {
-  console.log(`✅ PLGen Backend 2.0.0 running on http://localhost:${PORT}`);
-  console.log(`   WIB Time: ${wibNowStr()} | CORS: ${CORS_ORIGIN}`);
-  console.log(`   Admin secret: ${ADMIN_SECRET.slice(0,3)}*** | API bearer: ${API_BEARER.slice(0,4)}***`);
-});
+// Export for Vercel serverless, listen only when run directly
+export default app;
+if (!IS_VERCEL && require.main === module) {
+  app.listen(PORT, ()=> {
+    console.log(`✅ PLGen Backend 2.0.0 running on http://localhost:${PORT}`);
+    console.log(`   WIB Time: ${wibNowStr()} | CORS: ${CORS_ORIGIN} | Vercel:${IS_VERCEL} | Supabase:${isSupabaseConfigured}`);
+    console.log(`   Admin secret: ${ADMIN_SECRET.slice(0,3)}*** | API bearer: ${API_BEARER.slice(0,4)}***`);
+    if (IS_VERCEL && !isSupabaseConfigured) console.warn("⚠️  Vercel without Supabase: file DB is ephemeral (/tmp) — set SUPABASE_URL+KEY for persistence");
+  });
+}

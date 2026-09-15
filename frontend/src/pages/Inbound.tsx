@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 export default function Inbound(){
   const [logs,setLogs]=useState<any[]>([]);
-  useEffect(()=>{ fetch(`${import.meta.env.VITE_API_URL||"http://localhost:4000"}/api/inbound_logs?admin_key=majesta93`).then(r=>r.json()).then(setLogs).catch(()=>{}); },[]);
+  useEffect(()=>{ const b=import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"); fetch(`${b}/api/inbound_logs?admin_key=majesta93`).then(r=>r.json()).then(setLogs).catch(()=>{}); },[]);
   return (
     <div className="max-w-5xl mx-auto p-4">
       <div className="bg-white rounded-xl shadow p-4">

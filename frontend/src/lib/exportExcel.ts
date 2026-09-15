@@ -50,10 +50,11 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.columns.forEach(c=> c.width=18);
   ws.getColumn(2).width=32;
 
-  // Log packing status to backend (fire-and-forget)
+  // Log packing status to backend (fire-and-forget) - Vercel uses relative /api
+  const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
   try {
-    await fetch(`${import.meta.env.VITE_API_URL||"http://localhost:4000"}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
-    await fetch(`${import.meta.env.VITE_API_URL||"http://localhost:4000"}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
+    await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
+    await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
   } catch {}
 
   const buf = await wb.xlsx.writeBuffer();

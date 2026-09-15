@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
 
 export async function apiGet(path: string) {
   const r = await fetch(`${BASE}${path}`, { headers: { Authorization: "Bearer JESTA-SECURE-99X" } });

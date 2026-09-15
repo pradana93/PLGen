@@ -47,9 +47,42 @@ PLGen/
 - Multipliers (`Beef Patty ×18` etc.) in `store/usePackingStore.ts` match `core.py:add_item/subtract_item`
 - Delivery No format & WIB timezone in `lib/packing.ts:getNextDeliveryNumber` mirrors `core.py:get_next_delivery_number`
 
-## 🛠️ Quick Start
+## ☁️ Deploy to Vercel (One-Click)
 
-### Backend
+**This repo is fully Vercel-deployable** — frontend (Vite SPA) + backend (Express via `api/index.ts` serverless).
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/pradana93/PLGen)
+
+1. Click **Deploy with Vercel** → import `pradana93/PLGen` → Vercel auto-detects `vercel.json` (`buildCommand: npm run build`, `outputDirectory: frontend/dist`)
+2. Add **Environment Variables** in Vercel Project Settings → Environment Variables (or via `vercel env add`):
+   ```
+   ADMIN_SECRET=majesta93
+   API_BEARER=JESTA-SECURE-99X
+   MAJESTA_SECRET_SALT=JESTA_OFFLINE_VAULT_2026
+   SUPABASE_URL=https://your-project.supabase.co          # required for persistence (Vercel FS is ephemeral /tmp)
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   SUPABASE_ANON_KEY=your-anon-key
+   CORS_ORIGIN=*
+   ```
+   > ⚠️ Without Supabase, Vercel file DB (`/tmp`) resets on each cold start — set Supabase for production.
+
+3. Deploy — Vercel will: `npm install` (workspaces) → `npm run build` (backend tsc + frontend vite) → serve `frontend/dist` as SPA, proxy `/api/*`, `/static/*`, `/check`, `/scan/*`, `/uploads/*` to `api/index.ts` (Express).
+
+4. After first deploy, if Supabase not yet linked locally:
+   ```
+   supabase link --project-ref YOUR_REF    # after `supabase login --token $SUPABASE_ACCESS_TOKEN`
+   # then in Supabase Dashboard → SQL Editor → run supabase/schema.sql
+   ```
+
+**Local Vercel emulation:**
+```bash
+vercel --prod              # deploy
+vercel dev                 # dev with vercel.json rewrites (or use npm run dev for Vite proxy)
+```
+
+### 🛠️ Local Dev (without Vercel)
+
+**Backend**
 ```bash
 cd backend
 cp .env.example .env   # set PORT, ADMIN_SECRET, SUPABASE_URL etc if you have Supabase
@@ -57,19 +90,19 @@ npm install
 npm run dev            # http://localhost:4000
 ```
 
-### Frontend
+**Frontend**
 ```bash
 cd frontend
 npm install
 npm run dev            # http://localhost:5173 (proxies /api → :4000)
 ```
 
-### Supabase (when project is created)
-1. Create Supabase project → copy URL + anon/service keys into `backend/.env`
+**Supabase (when project is created)**
+1. Create Supabase project → copy URL + anon/service keys into `backend/.env` **and** Vercel env
 2. In Supabase SQL Editor: paste & run `supabase/schema.sql`
 3. (Optional) `supabase link --project-ref YOUR_REF` + `supabase db push`
 
-The backend auto-falls back to `backend/data/*.json` when Supabase env is absent, so it works immediately without Supabase.
+The backend auto-falls back to `backend/data/*.json` (or `/tmp` on Vercel) when Supabase env is absent, so it works immediately without Supabase for local dev.
 
 ## 🔌 API Parity (flask_app.py → Express)
 

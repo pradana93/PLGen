@@ -1,0 +1,16 @@
+# Keep Vercel slug small — ignore Python legacy + logs
+*.pyc
+__pycache__/
+venv/
+.venv/
+logs/
+Labels/
+*.log
+*.tmp
+backend/data/
+backend/uploads/
+frontend/node_modules/
+backend/node_modules/
+dist/
+.DS_Store
+.git/

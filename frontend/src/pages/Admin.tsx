@@ -20,7 +20,7 @@ export default function Admin(){
     if(!role) return;
     apiGet("/api/master_data").then(setMaster).catch(()=>{});
     apiGet("/api/checkers").then(d=> setCheckers(d.checkers||[])).catch(()=>{});
-    fetch(`${import.meta.env.VITE_API_URL||"http://localhost:4000"}/list_users?admin_key=majesta93`).then(r=>r.json()).then(setUsers).catch(()=>{});
+    fetch(`${import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000")}/list_users?admin_key=majesta93`).then(r=>r.json()).then(setUsers).catch(()=>{});
   },[role]);
   if(!role){
     return (
@@ -68,7 +68,7 @@ export default function Admin(){
             ))}
           </div>
           <div className="mt-3 flex gap-2">
-            <button onClick={async()=>{ await fetch(`${import.meta.env.VITE_API_URL||"http://localhost:4000"}/api/master_data`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({admin_key:"majesta93", master_data:master})}); alert("Deployed"); }} className="px-4 py-2 bg-[#3498db] text-white rounded-lg text-sm font-bold">🚀 Deploy to Cloud</button>
+            <button onClick={async()=>{ await fetch(`${import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000")}/api/master_data`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({admin_key:"majesta93", master_data:master})}); alert("Deployed"); }} className="px-4 py-2 bg-[#3498db] text-white rounded-lg text-sm font-bold">🚀 Deploy to Cloud</button>
             <button onClick={()=> setMaster({...master, BOX_TOLERANCE: Number((master.BOX_TOLERANCE+0.01).toFixed(3))})} className="px-3 py-2 bg-gray-200 rounded text-sm">+0.01 Tolerance</button>
           </div>
         </div>

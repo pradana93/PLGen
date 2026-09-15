@@ -19,7 +19,7 @@ export default function ScanPage(){
   },[dn]);
   const confirm=async()=>{
     if(!sel) return setMsg("❌ Select checker");
-    const base=import.meta.env.VITE_API_URL||"http://localhost:4000";
+    const base=import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
     const r=await fetch(`${base}/api/scan/${encodeURIComponent(dn)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ checker:sel, dus_l:dusL, dus_s:dusS, dus_besar:dusB })});
     if(r.ok){ setMsg("✅ Verified — READY for dispatch"); setStatus((s:any)=>({ ...s, status:"READY" })); }
     else setMsg("❌ Failed: "+await r.text());

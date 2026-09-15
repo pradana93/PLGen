@@ -5,6 +5,7 @@ import Admin from "./pages/Admin";
 import Manifests from "./pages/Manifests";
 import Inbound from "./pages/Inbound";
 import ScanPage from "./pages/ScanPage";
+import Devmode from "./pages/Devmode";
 
 function Nav(){
   const loc = useLocation();
@@ -20,6 +21,7 @@ function Nav(){
         {link("/manifests","Manifests")}
         {link("/inbound","Inbound")}
         {link("/admin","Admin")}
+        {link("/devmode","PIN")}
       </div>
       <div className="ml-auto text-xs opacity-70 hidden md:block">Interactive WebApp • React/TypeScript • Supabase Ready</div>
     </nav>
@@ -37,6 +39,7 @@ export default function App(){
         <Route path="/inbound" element={<Inbound />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
+        <Route path="/devmode" element={<Devmode />} />
       </Routes>
       <footer className="text-center text-xs text-gray-500 py-6">Made by A. Majesta P. • Burger Bangor Logistics • Production-Live v2.0 | Logic preserved 1:1 from Python core</footer>
     </BrowserRouter>
