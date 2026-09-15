@@ -70,6 +70,18 @@ export default function Admin(){
     fetchUsers();
   };
 
+  const handleChangePassword = async (id:string, email:string)=>{
+    const np = prompt(`New password for ${email} (min 6):`);
+    if(!np || np.length<6) return alert("Min 6 characters");
+    const h = await authHeader();
+    const res = await fetch(`${import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000")}/api/users/${id}`, {
+      method:"PATCH", headers: { "Content-Type":"application/json", ...h }, body: JSON.stringify({ password: np })
+    });
+    const j = await res.json();
+    if(!res.ok) return alert(`❌ ${j.error}`);
+    alert(`✅ Password updated for ${email}`);
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-4">
       <div className="bg-white rounded-xl shadow p-4 flex items-center justify-between">
@@ -121,6 +133,7 @@ export default function Admin(){
                         ) : (
                           <>
                             <button onClick={()=> setEditing({...editing, [u.id]: { role: u.role, alias: u.alias || "" }})} className="text-xs bg-[#3498db] text-white px-2 py-1 rounded">Edit</button>
+                            <button onClick={()=> handleChangePassword(u.id, u.email)} className="text-xs bg-[#f39c12] text-white px-2 py-1 rounded">🔑 Password</button>
                             <button onClick={()=> handleDelete(u.id)} className="text-xs bg-[#e74c3c] text-white px-2 py-1 rounded" disabled={u.id===profile?.id}>Delete</button>
                           </>
                         )}

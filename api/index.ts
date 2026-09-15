@@ -284,12 +284,19 @@ app.post("/api/users", requireSupabaseAdmin, async (req, res) => {
   res.json({ status: "success", id: uid });
 });
 
-// PATCH /api/users/:id — Admin edits role/alias
+// PATCH /api/users/:id — Admin edits role/alias/password (Change Password)
 app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
-  const { role, alias } = req.body;
+  const { role, alias, password } = req.body;
   const id = req.params.id;
   const sb = await getSupabase();
   if (!sb) return res.status(500).json({ error: "Supabase not configured" });
+  // Handle password change (Admin can reset any user's password)
+  if (password !== undefined) {
+    if (String(password).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    const { error: pwErr } = await sb.auth.admin.updateUserById(id, { password: String(password) });
+    if (pwErr) return res.status(400).json({ error: pwErr.message });
+    if (!role && alias === undefined) return res.json({ status: "success" });
+  }
   const updates: any = {};
   if (role) {
     const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
@@ -299,10 +306,12 @@ app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
     updates.role = role;
   }
   if (alias !== undefined) updates.alias = alias;
-  if (Object.keys(updates).length===0) return res.status(400).json({ error: "No updates" });
+  if (Object.keys(updates).length===0) {
+    if (password !== undefined) return res.json({ status: "success" });
+    return res.status(400).json({ error: "No updates" });
+  }
   const { error } = await sb.from("profiles").update(updates).eq("id", id);
   if (error) return res.status(400).json({ error: error.message });
-  // Also update auth user_metadata if alias
   if (alias) try { await sb.auth.admin.updateUserById(id, { user_metadata: { alias } }); } catch {}
   res.json({ status: "success" });
 });
