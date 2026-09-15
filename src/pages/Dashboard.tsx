@@ -398,24 +398,25 @@ export default function Dashboard(){
 
       {shortage && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
-            <div className="bg-[#c0392b] text-white rounded-t-xl p-4 text-center">
-              <div className="text-xl font-extrabold">🚨 STOCK SHORTAGE DETECTED</div>
-              <div className="text-sm opacity-90">Scanned document requires more stock than available — same as addons.py validate_stock_levels</div>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="bg-[#c0392b] text-white rounded-t-xl px-4 py-3 text-center">
+              <div className="text-base font-extrabold">🚨 Stock Shortage — {shortage.shortages.length} SKUs</div>
+              <div className="text-xs opacity-90 truncate">{shortage.fileName} • {shortage.company}</div>
             </div>
-            <div className="p-4">
-              <div className="text-sm font-bold mb-2">File: {shortage.fileName} — Company: {shortage.company}</div>
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-[#f4f6f9]"><tr><th className="p-2 text-left">SKU</th><th className="p-2">Required</th><th className="p-2">Available</th><th className="p-2 text-red-600">Shortage</th></tr></thead>
-                  <tbody>{shortage.shortages.map(s=> <tr key={s.sku} className="border-t"><td className="p-2">{s.sku}</td><td className="p-2 text-center">{s.req}</td><td className="p-2 text-center">{s.avail}</td><td className="p-2 text-center font-bold text-red-600">-{s.short}</td></tr>)}</tbody>
-                </table>
+            <div className="p-3 flex-1 overflow-hidden flex flex-col min-h-0">
+              <div className="border rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
+                <div className="max-h-[38vh] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-1.5 text-left">SKU</th><th className="p-1.5">Req</th><th className="p-1.5">Have</th><th className="p-1.5 text-red-600">Short</th></tr></thead>
+                    <tbody>{shortage.shortages.map(s=> <tr key={s.sku} className="border-t hover:bg-gray-50"><td className="p-1.5 font-medium truncate max-w-[180px]" title={s.sku}>{s.sku}</td><td className="p-1.5 text-center">{s.req}</td><td className="p-1.5 text-center text-gray-500">{s.avail}</td><td className="p-1.5 text-center font-bold text-red-600">-{s.short}</td></tr>)}</tbody>
+                  </table>
+                </div>
               </div>
-              <div className="text-xs text-gray-500 mt-2">Admin has been notified (early warning). Choose to cancel or force import anyway.</div>
+              <div className="text-[11px] text-gray-500 mt-2">Admin notified • {shortage.shortages.length} items exceed stock. Choose action.</div>
             </div>
-            <div className="p-4 flex gap-2">
-              <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast("⚠️ Import cancelled due to stock shortages"); }} className="flex-1 bg-[#e74c3c] text-white rounded-lg py-3 font-bold">❌ CANCEL IMPORT</button>
-              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported despite shortages"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-3 font-bold">⚠️ FORCE IMPORT ANYWAY</button>
+            <div className="p-3 flex gap-2 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast("⚠️ Import cancelled"); }} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-lg py-2.5 font-bold text-sm">Cancel</button>
+              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${(r as any).note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-2.5 font-bold text-sm">Force Import</button>
             </div>
           </div>
         </div>
