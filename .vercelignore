@@ -7,8 +7,7 @@ logs/
 Labels/
 *.log
 *.tmp
-backend/data/
-backend/uploads/
+data/
 node_modules/
 .DS_Store
 .git/

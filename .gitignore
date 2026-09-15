@@ -22,10 +22,9 @@ yarn-debug.log*
 *.env.*
 !*.env.example
 
-# Backend data (local file DB)
-backend/data/
-!backend/data/.gitkeep
-backend/uploads/
+# Local file DB (ephemeral on Vercel -> /tmp, persistent via Supabase)
+data/
+!data/.gitkeep
 
 # Supabase
 .supabase/
