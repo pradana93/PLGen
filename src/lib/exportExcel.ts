@@ -333,28 +333,34 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const sigStart = totalRow + 3;
   ws.getRow(sigStart).height = 18;
   ws.getRow(sigStart + 1).height = 18;
-  ws.getRow(sigStart + 2).height = 14;
+  ws.getRow(sigStart + 2).height = 16;
 
+  // Each block is merged across its column range to prevent overflow overlap
   const sigBlocks = [
-    { col: 1, label: "Prepared By", role: preparedBy || "" },
-    { col: 3, label: "Checked By",  role: "(CHECKER)" },
-    { col: 5, label: "Received By", role: "(PENERIMA)" },
+    { c1: 1, c2: 2, label: "Prepared By", role: preparedBy || "" },   // A-B (41 wide)
+    { c1: 3, c2: 4, label: "Checked By",  role: "(CHECKER)" },        // C-D (21 wide)
+    { c1: 5, c2: 5, label: "Received By", role: "(PENERIMA)" },       // E  (22 wide)
   ];
-  for (const { col, label, role } of sigBlocks) {
-    const lblCell = ws.getCell(sigStart, col);
+  for (const { c1, c2, label, role } of sigBlocks) {
+    const merge = (r: number) => { if (c2 > c1) ws.mergeCells(r, c1, r, c2); };
+
+    merge(sigStart);
+    const lblCell = ws.getCell(sigStart, c1);
     lblCell.value = label;
     lblCell.font = { name: "Arial", size: 9, bold: true, color: { argb: NAVY } };
     lblCell.alignment = { horizontal: "center", vertical: "bottom" };
 
-    const lineCell = ws.getCell(sigStart + 1, col);
+    merge(sigStart + 1);
+    const lineCell = ws.getCell(sigStart + 1, c1);
     lineCell.value = "________________________";
     lineCell.font = { name: "Arial", size: 9, color: { argb: LIGHT_LINE } };
     lineCell.alignment = { horizontal: "center", vertical: "top" };
 
-    const roleCell = ws.getCell(sigStart + 2, col);
+    merge(sigStart + 2);
+    const roleCell = ws.getCell(sigStart + 2, c1);
     roleCell.value = role;
     roleCell.font = { name: "Arial", size: 8, italic: true, color: { argb: MID_GRAY } };
-    roleCell.alignment = { horizontal: "center", vertical: "top" };
+    roleCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
   }
 
   // Bottom line disclaimer
