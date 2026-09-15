@@ -8,7 +8,7 @@ const ARIA = "Arial";
 const ARIA_BLACK = "Arial Black";
 
 // Packing List export — polished professional layout
-export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string) {
+export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string, preparedBy?: string) {
   const deliveryDate = getDeliveryDateWIB(1, master.HOLIDAYS||[]);
   const deliveryNo = getNextDeliveryNumber(master.companyCode||"BBB");
   const totalWeight = Object.entries(order).reduce((acc,[sku,data])=>{
@@ -147,9 +147,9 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.mergeCells("A6:C6");
   setAll(ws.getCell("A6"), {
     value: "BANGOR — " + outlet.toUpperCase(),
-    font: { name: "Arial Black", size: 14, bold: true, color: { argb: NAVY } },
+    font: { name: "Arial Black", size: 12, bold: true, color: { argb: NAVY } },
     fill: WARM_LIGHT,
-    align: { horizontal: "left", vertical: "middle", indent: 1 },
+    align: { horizontal: "left", vertical: "middle", indent: 1, wrapText: true },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
   ws.getRow(6).height = 26;
@@ -336,7 +336,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.getRow(sigStart + 2).height = 14;
 
   const sigBlocks = [
-    { col: 1, label: "Prepared By", role: "(PPIC LOGISTIK)" },
+    { col: 1, label: "Prepared By", role: preparedBy || "" },
     { col: 3, label: "Checked By",  role: "(CHECKER)" },
     { col: 5, label: "Received By", role: "(PENERIMA)" },
   ];

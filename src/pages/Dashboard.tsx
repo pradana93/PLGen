@@ -4,9 +4,11 @@ import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
+import { useAuth } from "../context/AuthContext";
 import KoliReviewer from "../components/KoliReviewer";
 
 export default function Dashboard(){
+  const { profile } = useAuth();
   const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes } = usePackingStore();
   const [sku, setSku] = useState("Beef Patty Small");
   const [qty, setQty] = useState("");
@@ -84,7 +86,7 @@ export default function Dashboard(){
     if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
     try {
-      const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText);
+      const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0]);
       await exportLabels(finalOutlet, boxes, master);
       const hist = JSON.parse(localStorage.getItem("outlet_history")||"[]");
       if(!hist.includes(finalOutlet.toUpperCase())){ hist.push(finalOutlet.toUpperCase()); localStorage.setItem("outlet_history", JSON.stringify(hist)); }
