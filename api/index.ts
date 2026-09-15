@@ -206,10 +206,15 @@ if (!fs.existsSync(path.join(DATA_DIR, MASTER_FILE))) {
 }
 
 // ===== Auth helpers =====
-function requireAdmin(req: any, res: any, next: any) {
+async function requireAdmin(req: any, res: any, next: any) {
+  // Accept admin_key (backward compat) or Supabase admin JWT
   const key = req.query.admin_key || req.body?.admin_key;
-  if (key !== ADMIN_SECRET) return res.status(401).send("Unauthorized");
-  next();
+  if (key === ADMIN_SECRET) return next();
+  try {
+    const user = await getUserFromReq(req);
+    if (user && ["SuperAdmin","Admin"].includes(user.role)) return next();
+  } catch {}
+  return res.status(401).send("Unauthorized");
 }
 function requireBearer(req: any, res: any, next: any) {
   // optional bearer check - warn but allow
