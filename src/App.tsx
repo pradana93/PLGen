@@ -8,6 +8,7 @@ import ScanPage from "./pages/ScanPage";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ServerStatus from "./components/ServerStatus";
+import DesktopGate from "./components/DesktopGate";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 
 function Nav(){
@@ -100,7 +101,9 @@ export default function App(){
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <DesktopGate>
+          <AppRoutes />
+        </DesktopGate>
       </AuthProvider>
     </BrowserRouter>
   );
