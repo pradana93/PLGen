@@ -28,8 +28,11 @@ const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const MASTER_FILE = "master_data.json";
 
-// Supabase as primary backend (per user request: master_data.json now in Supabase, not PythonAnywhere)
-// File is local cache/fallback for offline/dev
+// PythonAnywhere as primary backend (user reverted: master_data.json lives there, Supabase optional)
+// Supabase kept as persistent fallback when configured
+const PYTHONANYWHERE_URL = process.env.PYTHONANYWHERE_URL || "https://jestu93.pythonanywhere.com";
+const PY_HEADERS: Record<string,string> = { Authorization: API_BEARER };
+
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
 export const isSupabaseConfigured = !!SUPABASE_URL && !!SUPABASE_SERVICE_KEY;
@@ -96,11 +99,7 @@ async function saveSupabaseStock(stock: Record<string,number>): Promise<void> {
   } catch {}
 }
 
-// PythonAnywhere kept only as emergency fallback during migration (not primary)
-const PYTHONANYWHERE_URL = process.env.PYTHONANYWHERE_URL || "";
-const PY_HEADERS: Record<string,string> = { Authorization: API_BEARER };
 async function fetchPythonAnywhereMaster(): Promise<any | null> {
-  if (!PYTHONANYWHERE_URL) return null;
   try {
     const controller = new AbortController();
     const t = setTimeout(()=> controller.abort(), 4000);
@@ -220,33 +219,29 @@ function requireBearer(req: any, res: any, next: any) {
 // Health
 app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "2.0.0", wib: wibNowStr() }));
 
-// ===== Master Data — Supabase primary (user provided master_data.json), file fallback, PythonAnywhere emergency fallback =====
+// ===== Master Data — PythonAnywhere primary (user reverted), Supabase/file fallback =====
 app.get("/api/master_data", async (req, res) => {
-  // 1. Try Supabase (primary per user request)
-  const supa = await fetchSupabaseMaster();
-  if (supa) return res.json(supa);
-  // 2. Try PythonAnywhere as emergency fallback during migration (if still configured)
   const live = await fetchPythonAnywhereMaster();
   if (live) return res.json(live);
-  // 3. Local file then hardcoded
+  const supa = await fetchSupabaseMaster();
+  if (supa) return res.json(supa);
   const data = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   res.json(data);
 });
 app.get("/static/master_data.json", async (req, res) => {
-  const supa = await fetchSupabaseMaster();
-  if (supa) return res.json(supa);
   const live = await fetchPythonAnywhereMaster();
   if (live) return res.json(live);
+  const supa = await fetchSupabaseMaster();
+  if (supa) return res.json(supa);
   const data = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   res.json(data);
 });
-// Explicit sync endpoint: force refresh cache from Supabase (or PythonAnywhere if Supabase empty)
 app.post("/api/master_data/sync", async (req, res) => {
+  const live = await fetchPythonAnywhereMaster();
+  if (live) return res.json({ status: "synced", source: PYTHONANYWHERE_URL, data: live });
   const supa = await fetchSupabaseMaster();
   if (supa) return res.json({ status: "synced", source: "supabase", data: supa });
-  const live = await fetchPythonAnywhereMaster();
-  if (live) return res.json({ status: "synced", source: PYTHONANYWHERE_URL || "pythonanywhere", data: live });
-  return res.status(502).json({ error: "Supabase and PythonAnywhere unreachable", fallback: jsonRead(MASTER_FILE, FALLBACK_MASTER_DATA) });
+  return res.status(502).json({ error: "PythonAnywhere and Supabase unreachable", fallback: jsonRead(MASTER_FILE, FALLBACK_MASTER_DATA) });
 });
 app.post("/api/master_data", requireAdmin, async (req, res) => {
   const md = req.body.master_data;
@@ -257,9 +252,17 @@ app.post("/api/master_data", requireAdmin, async (req, res) => {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   try { fs.writeFileSync(path.join(backupsDir, `master_${stamp}.json`), JSON.stringify(jsonRead(MASTER_FILE, FALLBACK_MASTER_DATA), null, 2)); } catch {}
   jsonWrite(MASTER_FILE, md);
-  // Push to Supabase as primary backend (per user: Supabase instead of PythonAnywhere)
+  // Also push to PythonAnywhere to keep it as source of truth (per user revert)
+  (async () => {
+    try {
+      const c = new AbortController(); const tt = setTimeout(()=> c.abort(), 5000);
+      await fetch(`${PYTHONANYWHERE_URL}/api/master_data`, { method: "POST", headers: { ...PY_HEADERS, "Content-Type": "application/json" }, body: JSON.stringify({ admin_key: ADMIN_SECRET, master_data: md }), signal: c.signal } as any);
+      clearTimeout(tt);
+    } catch {}
+  })();
+  // Also save to Supabase if configured (keeps Supabase in sync)
   saveSupabaseMaster(md).catch(()=>{});
-  res.json({ status: "success", synced_to: isSupabaseConfigured ? "supabase" : "file" });
+  res.json({ status: "success", synced_to: PYTHONANYWHERE_URL });
 });
 app.get("/api/master_backups", requireAdmin, (req, res) => {
   const backupsDir = path.join(DATA_DIR, "backups");
@@ -273,12 +276,12 @@ app.get("/api/master_backups/:file", requireAdmin, (req, res) => {
   res.json(JSON.parse(fs.readFileSync(p, "utf-8")));
 });
 
-// ===== Current Stock — Supabase primary, PythonAnywhere fallback =====
+// ===== Current Stock — PythonAnywhere primary, Supabase fallback =====
 app.get("/api/current_stock", async (req, res) => {
-  const supa = await fetchSupabaseStock();
-  if (supa) { try { jsonWrite("current_stock.json", supa); } catch {} return res.json(supa); }
   const live = await fetchPythonAnywhereStock();
   if (live) { try { jsonWrite("current_stock.json", live); } catch {} return res.json(live); }
+  const supa = await fetchSupabaseStock();
+  if (supa) { try { jsonWrite("current_stock.json", supa); } catch {} return res.json(supa); }
   const stock = jsonRead<Record<string,number>>("current_stock.json", { "Beef Patty Small": 500, "Chicken Nugget": 300, "HD Bun": 1000 });
   res.json(stock);
 });
@@ -292,6 +295,8 @@ app.post("/api/current_stock", requireAdmin, async (req, res) => {
   }
   jsonWrite("ledger.json", ledger);
   saveSupabaseStock(stock).catch(()=>{});
+  // Also mirror to PythonAnywhere
+  (async()=>{ try{ const c=new AbortController(); const tt=setTimeout(()=>c.abort(),4000); await fetch(`${PYTHONANYWHERE_URL}/api/current_stock`,{method:"POST",headers:{...PY_HEADERS,"Content-Type":"application/json"},body:JSON.stringify({admin_key:ADMIN_SECRET,stock_data:stock}),signal:c.signal} as any); clearTimeout(tt);}catch{}})();
   res.json({ status: "success" });
 });
 app.get("/api/ledger/get", requireAdmin, (req, res) => {
@@ -303,10 +308,10 @@ app.get("/api/ledger/get", requireAdmin, (req, res) => {
 const CHECKERS_FILE = "checkers.json";
 const DEFAULT_CHECKERS = ["Masroor","Aji","Fadly","Luthfi","Farel","Diki","Noel","Hatta"];
 app.get("/api/checkers", async (req, res) => {
-  const supa = await fetchSupabaseCheckers();
-  if (supa) { try { jsonWrite(CHECKERS_FILE, { checkers: supa }); } catch {} return res.json({ checkers: supa }); }
   const live = await fetchPythonAnywhereCheckers();
   if (live) { try { jsonWrite(CHECKERS_FILE, { checkers: live }); } catch {} return res.json({ checkers: live }); }
+  const supa = await fetchSupabaseCheckers();
+  if (supa) { try { jsonWrite(CHECKERS_FILE, { checkers: supa }); } catch {} return res.json({ checkers: supa }); }
   const data = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS });
   const list = data.checkers || DEFAULT_CHECKERS;
   res.json({ checkers: list });
@@ -326,6 +331,7 @@ app.post("/api/checkers", async (req, res) => {
   } else return res.status(400).json({ error: "Invalid action" });
   jsonWrite(CHECKERS_FILE, { checkers: list });
   saveSupabaseCheckers(list).catch(()=>{});
+  (async()=>{ try{ const c=new AbortController(); const tt=setTimeout(()=>c.abort(),4000); await fetch(`${PYTHONANYWHERE_URL}/api/checkers`,{method:"POST",headers:{...PY_HEADERS,"Content-Type":"application/json"},body:JSON.stringify({admin_key:ADMIN_SECRET,action,checker_name}),signal:c.signal} as any); clearTimeout(tt);}catch{}})();
   res.json({ status: "success" });
 });
 
