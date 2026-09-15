@@ -8,7 +8,7 @@ import { Box, Order, getNextDeliveryNumber, getDeliveryDateWIB, buildDisplayRows
 const ARIA = "Arial";
 const ARIA_BLACK = "Arial Black";
 
-// Packing List export — mirrors export_packing_list in core.py (template mode simplified, same row layout)
+// Packing List export — redesign with branding, info panel, bordered table, totals, signature
 export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string) {
   const deliveryDate = getDeliveryDateWIB(1, master.HOLIDAYS||[]);
   const deliveryNo = getNextDeliveryNumber(master.companyCode||"BBB");
@@ -17,75 +17,279 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     return acc + (data.qty*w)/1000;
   },0);
 
-  // Generate QR as data URL (like addons.generate_qr_code_image → qr_url encoded)
+  const outletInfo = master.OUTLET_INFO?.[outlet.toUpperCase()] || {};
+  const receiverAddr = outletInfo.address || "—";
+  const receiverPhone = outletInfo.phone || "—";
+  const companyCode = master.companyCode || "BBB";
+  const companyName = companyCode === "BBT" ? "PT BANGOR BERANI TERUKUR" : "PT BANGOR BERKEMBANG BERSAMA";
+  const totalKoli = boxes.length;
+
   let qrDataUrl = "";
   try { qrDataUrl = await QRCode.toDataURL(`https://jestu93.pythonanywhere.com/scan/${encodeURIComponent(deliveryNo)}`, { width: 200 }); } catch {}
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Packing List");
 
-  // Page setup — A4 portrait, repeated print area like template mode
-  (ws.pageSetup as any).paperSize = 9; // PAPERSIZE_A4
+  // ── helpers ──
+  const thin = { style: "thin" as const };
+  const medium = { style: "medium" as const };
+  const thick = { style: "thick" as const };
+  const noBorder = { style: "none" as const };
+  const NAVY = "FF2C3E50";
+  const LIGHT = "FFF4F6F9";
+  const WHITE = "FFFFFFFF";
+  const GRAY_LINE = "FFD5D8DC";
+  const RED = "FFE74C3C";
+
+  const allThin = { top: thin, left: thin, bottom: thin, right: thin };
+  const headerBorder = { top: medium, left: medium, bottom: medium, right: medium };
+
+  const setBorder = (cell: ExcelJS.Cell, b: any) => { cell.border = b; };
+  const setFill = (cell: ExcelJS.Cell, argb: string) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } }; };
+  const setFont = (cell: ExcelJS.Cell, opts: any) => { cell.font = { name: ARIA, ...opts }; };
+
+  // ── PAGE SETUP ──
+  (ws.pageSetup as any).paperSize = 9; // A4
   ws.pageSetup.orientation = "portrait";
-  ws.pageSetup.fitToPage = false;
-  ws.pageSetup.horizontalCentered = false;
-  ws.pageSetup.printArea = "A1:E48"; // enforce print area to prevent blank pages
-  ws.pageSetup.margins = { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.3, footer: 0.3 };
+  ws.pageSetup.fitToPage = true;
+  ws.pageSetup.fitToWidth = 1;
+  ws.pageSetup.fitToHeight = 0; // allow multiple pages
+  ws.pageSetup.margins = { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
 
-  // Title rows (template mode positions)
-  ws.getCell("A1").value = `Ship To : BANGOR - ${outlet.toUpperCase()}`;
-  ws.getCell("A1").font = { bold: true, size: 16, name: ARIA_BLACK };
-  ws.getCell("A2").value = `Assigned Checker: ${checkerDisplay}`;
-  ws.getCell("A2").font = { bold: true, italic: true, size: 10, name: ARIA };
-  ws.getCell("D4").value = "Delivery No :";
-  ws.getCell("D4").font = { bold: true, size: 10, name: ARIA };
-  ws.getCell("E4").value = deliveryNo;
-  ws.getCell("E4").font = { bold: true, size: 10, name: ARIA };
-  ws.getCell("D5").value = "Delivery Date :";
-  ws.getCell("D5").font = { bold: true, size: 10, name: ARIA };
-  ws.getCell("E5").value = deliveryDate;
-  ws.getCell("E5").font = { bold: true, size: 10, name: ARIA };
+  // ── COLUMN WIDTHS ──
+  ws.getColumn(1).width = 5;   // No. Koli
+  ws.getColumn(2).width = 36;  // Description
+  ws.getColumn(3).width = 9;   // Qty
+  ws.getColumn(4).width = 12;  // Item Unit
+  ws.getColumn(5).width = 22;  // Notes
+  ws.getColumn(6).width = 1;   // spacer
 
-  // Header row like template (row 8)
-  const headers = ["No. Koli", "Description", "Qty", "Item Unit", "Notes"];
-  for (let i = 0; i < headers.length; i++) {
-    const cell = ws.getCell(8, i + 1);
-    cell.value = headers[i];
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10, name: ARIA };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2C3E50" } };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
+  // ═══════════════════════════════════════════
+  //  SECTION 1: COMPANY BANNER (rows 1-2)
+  // ═══════════════════════════════════════════
+  ws.mergeCells("A1:E1");
+  const banner1 = ws.getCell("A1");
+  banner1.value = companyName;
+  banner1.font = { name: ARIA_BLACK, size: 18, bold: true, color: { argb: WHITE } };
+  banner1.alignment = { horizontal: "center", vertical: "middle" };
+  setFill(banner1, NAVY);
+  ws.getRow(1).height = 32;
+
+  ws.mergeCells("A2:E2");
+  const banner2 = ws.getCell("A2");
+  banner2.value = "LOGISTICS DIVISION — PACKING LIST";
+  banner2.font = { name: ARIA, size: 10, bold: true, color: { argb: WHITE } };
+  banner2.alignment = { horizontal: "center", vertical: "middle" };
+  setFill(banner2, NAVY);
+  ws.getRow(2).height = 20;
+
+  // ═══════════════════════════════════════════
+  //  SECTION 2: INFO PANEL (rows 4-7)
+  // ═══════════════════════════════════════════
+  // Left block: Ship To
+  ws.mergeCells("A4:B4");
+  const lblShipTo = ws.getCell("A4");
+  lblShipTo.value = "SHIP TO";
+  setFont(lblShipTo, { bold: true, size: 9, color: { argb: WHITE } });
+  setFill(lblShipTo, NAVY);
+  lblShipTo.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getCell("B4").border = { top: medium, right: medium, bottom: medium };
+  ws.getCell("A4").border = { top: medium, left: medium, bottom: medium };
+  ws.getRow(4).height = 20;
+
+  ws.mergeCells("C4:E4");
+  const valShipTo = ws.getCell("C4");
+  valShipTo.value = "BANGOR - " + outlet.toUpperCase();
+  setFont(valShipTo, { bold: true, size: 13, color: { argb: NAVY } });
+  setFill(valShipTo, LIGHT);
+  valShipTo.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getCell("C4").border = { top: medium, left: medium, bottom: medium };
+  ws.getCell("E4").border = { top: medium, right: medium, bottom: medium };
+  ws.getRow(5).height = 22;
+
+  // Address
+  ws.mergeCells("A5:B5");
+  const lblAddr = ws.getCell("A5");
+  lblAddr.value = "ADDRESS";
+  setFont(lblAddr, { bold: true, size: 8, color: { argb: WHITE } });
+  setFill(lblAddr, NAVY);
+  lblAddr.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getCell("A5").border = { left: medium, bottom: medium };
+
+  ws.mergeCells("C5:E5");
+  const valAddr = ws.getCell("C5");
+  valAddr.value = receiverAddr;
+  setFont(valAddr, { size: 9, italic: true });
+  valAddr.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
+  ws.getCell("C5").border = { left: medium, bottom: medium };
+  ws.getCell("E5").border = { right: medium, bottom: medium };
+  ws.getRow(5).height = 28;
+
+  // Phone
+  ws.mergeCells("A6:B6");
+  const lblPhone = ws.getCell("A6");
+  lblPhone.value = "PHONE";
+  setFont(lblPhone, { bold: true, size: 8, color: { argb: WHITE } });
+  setFill(lblPhone, NAVY);
+  lblPhone.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getCell("A6").border = { left: medium, bottom: medium };
+
+  ws.mergeCells("C6:E6");
+  const valPhone = ws.getCell("C6");
+  valPhone.value = receiverPhone;
+  setFont(valPhone, { size: 9, italic: true });
+  valPhone.alignment = { horizontal: "left", vertical: "middle" };
+  ws.getCell("C6").border = { left: medium, bottom: medium };
+  ws.getCell("E6").border = { right: medium, bottom: medium };
+  ws.getRow(6).height = 18;
+
+  // ── Right block: Doc info (rows 4-7, same rows) ──
+  // Already handled via merged cells — using a clean two-column layout
+  // Actually let me put doc info in a separate block below the ship-to panel
+
+  // ═══════════════════════════════════════════
+  //  SECTION 3: DOCUMENT INFO (rows 8-12)
+  // ═══════════════════════════════════════════
+  const infoLabels = ["DOCUMENT NO", "DELIVERY DATE", "CHECKER", "TOTAL KOLI", "TOTAL WEIGHT"];
+  const infoValues = [deliveryNo, deliveryDate, checkerDisplay, String(totalKoli), totalWeight.toFixed(2) + " Kg"];
+  const infoColors = [NAVY, NAVY, NAVY, RED, RED];
+
+  for (let i = 0; i < infoLabels.length; i++) {
+    const rowNum = 8 + i;
+    ws.getRow(rowNum).height = 18;
+
+    // Label cell (A-B merged)
+    ws.mergeCells(rowNum, 1, rowNum, 2);
+    const lbl = ws.getCell(rowNum, 1);
+    lbl.value = infoLabels[i];
+    setFont(lbl, { bold: true, size: 9, color: { argb: WHITE } });
+    setFill(lbl, NAVY);
+    lbl.alignment = { horizontal: "right", vertical: "middle" };
+    lbl.border = { top: thin, left: medium, bottom: thin, right: thin };
+
+    // Value cell (C-E merged)
+    ws.mergeCells(rowNum, 3, rowNum, 5);
+    const val = ws.getCell(rowNum, 3);
+    val.value = infoValues[i];
+    setFont(val, { bold: true, size: 10, color: { argb: infoColors[i] } });
+    setFill(val, LIGHT);
+    val.alignment = { horizontal: "center", vertical: "middle" };
+    val.border = { top: thin, left: thin, bottom: thin, right: medium };
+  }
+  // Bottom border for the info block
+  for (let c = 1; c <= 5; c++) {
+    ws.getCell(12, c).border = { ...ws.getCell(12, c).border, bottom: medium };
   }
 
-  // Data rows from row 9 (START_ROW) — like template pagination rows
+  // ═══════════════════════════════════════════
+  //  SECTION 4: TABLE HEADER (row 14)
+  // ═══════════════════════════════════════════
+  const HEADER_ROW = 14;
+  ws.getRow(HEADER_ROW).height = 24;
+  const headers = ["No.", "Description", "Qty", "Item Unit", "Notes"];
+  for (let i = 0; i < headers.length; i++) {
+    const cell = ws.getCell(HEADER_ROW, i + 1);
+    cell.value = headers[i];
+    setFont(cell, { bold: true, size: 10, color: { argb: WHITE } });
+    setFill(cell, NAVY);
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    cell.border = headerBorder;
+  }
+
+  // ═══════════════════════════════════════════
+  //  SECTION 5: DATA ROWS (from HEADER_ROW+1)
+  // ═══════════════════════════════════════════
   const rows = buildDisplayRows(boxes, order, master.ITEM_UOM||{});
+  const START_ROW = HEADER_ROW + 1;
+
   rows.forEach((r, i) => {
-    const rowNum = 9 + i;
-    const cells = [r.koli, r.sku, r.qty, r.uom, r.note];
-    for (let c = 0; c < cells.length; c++) {
+    const rowNum = START_ROW + i;
+    const values = [r.koli, r.sku, r.qty, r.uom, r.note];
+    const fills = [LIGHT, i % 2 === 0 ? "FFFFFFFF" : LIGHT, LIGHT, LIGHT, i % 2 === 0 ? "FFFFFFFF" : LIGHT];
+
+    for (let c = 0; c < values.length; c++) {
       const cell = ws.getCell(rowNum, c + 1);
-      cell.value = cells[c];
-      cell.font = { size: 10, name: ARIA };
-      if (c === 0 || c === 2) cell.alignment = { horizontal: "center" };
-      if (c === 1) cell.alignment = { vertical: "middle" };
+      cell.value = values[c];
+      setFont(cell, { size: 9 });
+      setFill(cell, fills[c]);
+      cell.alignment = { horizontal: c === 0 || c === 2 ? "center" : "left", vertical: "middle" };
+      cell.border = allThin;
     }
+    ws.getRow(rowNum).height = 18;
   });
 
-  // QR code like template mode: patched to B44 (110x110)
+  // ═══════════════════════════════════════════
+  //  SECTION 6: TOTALS ROW
+  // ═══════════════════════════════════════════
+  const totalRow = START_ROW + rows.length;
+  ws.getRow(totalRow).height = 22;
+  ws.mergeCells(totalRow, 1, totalRow, 2);
+  const totalLabel = ws.getCell(totalRow, 1);
+  totalLabel.value = "TOTAL";
+  setFont(totalLabel, { bold: true, size: 10, color: { argb: WHITE } });
+  setFill(totalLabel, NAVY);
+  totalLabel.alignment = { horizontal: "right", vertical: "middle" };
+  totalLabel.border = { top: medium, left: medium, bottom: medium, right: thin };
+
+  const totalQty = ws.getCell(totalRow, 3);
+  totalQty.value = rows.length;
+  setFont(totalQty, { bold: true, size: 10, color: { argb: NAVY } });
+  setFill(totalQty, LIGHT);
+  totalQty.alignment = { horizontal: "center", vertical: "middle" };
+  totalQty.border = { top: medium, left: thin, bottom: medium, right: thin };
+
+  ws.mergeCells(totalRow, 4, totalRow, 5);
+  const totalWt = ws.getCell(totalRow, 4);
+  totalWt.value = totalWeight.toFixed(2) + " Kg";
+  setFont(totalWt, { bold: true, size: 10, color: { argb: NAVY } });
+  setFill(totalWt, LIGHT);
+  totalWt.alignment = { horizontal: "center", vertical: "middle" };
+  totalWt.border = { top: medium, left: thin, bottom: medium, right: medium };
+
+  // ═══════════════════════════════════════════
+  //  SECTION 7: QR CODE (bottom-right area)
+  // ═══════════════════════════════════════════
   if (qrDataUrl) {
     const base64 = qrDataUrl.split(",")[1];
     const imgId = wb.addImage({ base64, extension: "png" });
-    ws.addImage(imgId, "B44:C47");
+    ws.addImage(imgId, "D" + (totalRow + 2) + ":E" + (totalRow + 5));
   }
 
-  // Column widths — Description wider
-  ws.getColumn(1).width = 12;
-  ws.getColumn(2).width = 34;
-  ws.getColumn(3).width = 8;
-  ws.getColumn(4).width = 12;
-  ws.getColumn(5).width = 20;
-  ws.getRow(8).height = 22;
+  // ═══════════════════════════════════════════
+  //  SECTION 8: SIGNATURE BLOCK
+  // ═══════════════════════════════════════════
+  const sigRow = totalRow + 7;
+  ws.getRow(sigRow).height = 16;
+  ws.getRow(sigRow + 1).height = 16;
+  ws.getRow(sigRow + 2).height = 16;
 
-  // Log packing status to backend (fire-and-forget)
+  const sigLabels = [
+    { col: 1, text: "Prepared By :" },
+    { col: 3, text: "Checked By :" },
+    { col: 5, text: "Received By :" },
+  ];
+  sigLabels.forEach(({ col, text }) => {
+    const cell = ws.getCell(sigRow, col);
+    cell.value = text;
+    setFont(cell, { bold: true, size: 9 });
+    cell.alignment = { horizontal: "center" };
+
+    // Underline row
+    const lineCell = ws.getCell(sigRow + 2, col);
+    lineCell.value = "___________________";
+    setFont(lineCell, { size: 9, color: { argb: GRAY_LINE } });
+    lineCell.alignment = { horizontal: "center" };
+  });
+
+  // ═══════════════════════════════════════════
+  //  SECTION 9: PRINT TITLES + FREEZE PANES
+  // ═══════════════════════════════════════════
+  ws.pageSetup.printArea = "A1:E" + (sigRow + 2);
+  ws.pageSetup.printTitlesRow = "1:2"; // repeat company banner on every page
+
+  // ═══════════════════════════════════════════
+  //  BACKEND LOGGING (fire-and-forget)
+  // ═══════════════════════════════════════════
   const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
   try {
     await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
