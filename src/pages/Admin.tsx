@@ -5,6 +5,48 @@ import { supabase } from "../lib/supabase";
 
 const ROLES = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"] as const;
 
+const KNOWN_TERMINALS: Record<string,string> = {
+  "Majesta (Lead Developer)": "8DB7CE3731E42814",
+  "Zahra Logistic VT": "A958AAA787BF6FF9",
+  "Nur Logistic VT": "30EA5F1E9BD8FD68",
+};
+
+function OfflinePinWidget(){
+  const [hwid, setHwid]=useState("");
+  const [res, setRes]=useState<any>(null);
+  const [err, setErr]=useState("");
+  const gen = async ()=>{
+    const id = hwid.trim().toUpperCase();
+    if(id.length!==16){ setErr("HWID must be 16 chars"); return; }
+    setErr("");
+    const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+    const r = await fetch(`${base}/api/offline_pin?hwid=${id}`);
+    const j = await r.json();
+    if(!r.ok) setErr(j.error || "Failed");
+    else setRes(j);
+  };
+  return (
+    <div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <input value={hwid} onChange={e=> setHwid(e.target.value)} placeholder="HWID (16 chars)" className="border rounded-lg px-3 py-2 font-mono text-sm tracking-widest" maxLength={16} />
+        <select onChange={e=> setHwid(e.target.value)} defaultValue="" className="border rounded-lg px-3 py-2 text-sm">
+          <option value="">— pick known terminal —</option>
+          {Object.entries(KNOWN_TERMINALS).map(([k,v])=> <option key={k} value={v}>{k} — {v}</option>)}
+        </select>
+        <button onClick={gen} className="bg-[#f39c12] text-white rounded-lg px-4 py-2 font-bold text-sm">⚙️ Generate PIN</button>
+      </div>
+      {err && <div className="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">{err}</div>}
+      {res && (
+        <div className="mt-3 bg-[#f4f6f9] rounded-lg p-3 text-center">
+          <div className="font-mono text-lg font-extrabold text-[#27ae60]">TODAY: {res.pin_today} <button onClick={()=> navigator.clipboard.writeText(res.pin_today)} className="ml-2 text-xs bg-white border rounded px-2 py-1">Copy</button></div>
+          <div className="font-mono text-sm text-gray-500">YESTERDAY: {res.pin_yesterday}</div>
+          <div className="text-xs text-gray-400">{res.today} • {res.hwid}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Admin(){
   const { profile } = useAuth();
   const [master, setMaster]=useState<any>(null);
@@ -153,6 +195,15 @@ export default function Admin(){
           </>
         )}
       </div>
+
+      {/* Offline PIN Generator — embedded from Devmode.py (Lead Dev only) */}
+      {isSuperAdmin && (
+        <div className="bg-white rounded-xl shadow p-4 border-2 border-[#f1c40f]/30">
+          <h3 className="font-bold mb-1">🔐 Offline PIN Generator — Lead Dev</h3>
+          <p className="text-xs text-gray-500 mb-3">Ported from <code>Devmode.py</code> — SHA256(HWID|YYYYMMDD|JESTA_OFFLINE_VAULT_2026). Verify license in User Management before sharing.</p>
+          <OfflinePinWidget />
+        </div>
+      )}
 
       {/* Checkers (kept for admin) */}
       <div className="bg-white rounded-xl shadow p-4">
