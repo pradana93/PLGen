@@ -115,9 +115,14 @@ alter table staff_ot_logs enable row level security;
 alter table checkers enable row level security;
 alter table wallet enable row level security;
 
--- Allow service_role full access (backend). For demo, allow anon read/write via backend API only.
--- Create policy allowing read for authenticated via service role bypass; no anon direct access needed
--- Backend uses service_role key, so RLS bypassed.
+-- Allow anon/authenticated reads for the tables the backend serves when configured with the
+-- anon key (service_role bypasses RLS entirely). These policies restore the documented
+-- Supabase fallback: /api/master_data, /api/current_stock and /api/checkers read via anon key.
+drop policy if exists "anon_read_master_data" on master_data;
+create policy "anon_read_master_data" on master_data for select using (true);
 
--- Example policy: allow all for service_role (implicit). To allow frontend direct reads, add:
--- create policy "Allow anon read master" on master_data for select using (true);
+drop policy if exists "anon_read_current_stock" on current_stock;
+create policy "anon_read_current_stock" on current_stock for select using (true);
+
+drop policy if exists "anon_read_checkers" on checkers;
+create policy "anon_read_checkers" on checkers for select using (true);

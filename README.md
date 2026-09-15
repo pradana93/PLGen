@@ -72,6 +72,11 @@ PLGen/
    ```
    supabase link --project-ref YOUR_REF    # after `supabase login --token $SUPABASE_ACCESS_TOKEN`
    # then in Supabase Dashboard → SQL Editor → run supabase/schema.sql
+   # or push everything via Management API token only (no DB password needed):
+   # (schema + profiles + master data — use SUPABASE_ACCESS_TOKEN)
+   SUPABASE_ACCESS_TOKEN=$SUPABASE_ACCESS_TOKEN node scripts/push-schema.mjs
+   SUPABASE_ACCESS_TOKEN=$SUPABASE_ACCESS_TOKEN node scripts/push-profiles.mjs
+   SUPABASE_ACCESS_TOKEN=$SUPABASE_ACCESS_TOKEN node scripts/push-master.mjs
    ```
 
 **Local Vercel emulation:**
