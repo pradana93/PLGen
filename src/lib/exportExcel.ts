@@ -19,8 +19,6 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const outletInfo = master.OUTLET_INFO?.[outlet.toUpperCase()] || {};
   const receiverAddr = outletInfo.address || "—";
   const receiverPhone = outletInfo.phone || "—";
-  const companyCode = master.companyCode || "BBB";
-  const companyName = companyCode === "BBT" ? "PT BANGOR BERANI TERUKUR" : "PT BANGOR BERKEMBANG BERSAMA";
   const totalKoli = boxes.length;
 
   const wb = new ExcelJS.Workbook();
@@ -99,7 +97,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
 
   ws.mergeCells("A2:C2");
   setAll(ws.getCell("A2"), {
-    value: companyName,
+    value: "",
     font: { name: "Arial", size: 9, color: { argb: MID_GRAY } },
     align: { horizontal: "left", vertical: "middle" },
   });
@@ -314,7 +312,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     border: { top: medium, left: medium, bottom: medium, right: thin },
   });
   setAll(ws.getCell(totalRow, 3), {
-    value: String(rows.length),
+    value: String(totalKoli),
     font: { name: "Arial", size: 10, bold: true, color: { argb: NAVY } },
     fill: WARM_LIGHT,
     align: { horizontal: "center", vertical: "middle" },
