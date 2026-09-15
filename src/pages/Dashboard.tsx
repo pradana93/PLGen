@@ -351,10 +351,10 @@ export default function Dashboard(){
           <div className="overflow-auto max-h-[520px]">
             <table className="w-full text-sm">
               <thead className="bg-[#f4f6f9] sticky top-0">
-                <tr><th className="text-left p-2">SKU Name</th><th className="p-2">Qty</th><th className="p-2">Notes</th><th className="p-2">Action</th></tr>
+                <tr><th className="text-left p-2">SKU Name</th><th className="p-2">Qty</th><th className="p-2">UOM</th><th className="p-2">Notes</th><th className="p-2">Action</th></tr>
               </thead>
               <tbody>
-                {Object.keys(order).length===0 && <tr><td colSpan={4} className="text-center p-8 text-gray-400">📦 Drag & Drop a file or Add Items to begin...</td></tr>}
+                {Object.keys(order).length===0 && <tr><td colSpan={5} className="text-center p-8 text-gray-400">📦 Drag & Drop a file or Add Items to begin...</td></tr>}
                 {Object.entries(order).map(([s, d], idx)=>(
                   <tr key={s} className={idx%2?"bg-[#f9fafb]":"bg-white"}>
                     <td className="p-2">{s}</td>
@@ -365,6 +365,7 @@ export default function Dashboard(){
                         <button onClick={()=> addItem(s,1,d.note)} className="w-6 h-6 rounded bg-gray-200">+</button>
                       </span>
                     </td>
+                    <td className="p-2 text-center"><span className="px-2 py-1 rounded bg-[#ecf0f1] text-xs font-mono">{master.ITEM_UOM?.[s] || "Pack"}</span></td>
                     <td className="p-2 text-center">{d.note}</td>
                     <td className="p-2 text-center"><button onClick={()=>{
                       const n={...order}; delete n[s]; setOrder(n);

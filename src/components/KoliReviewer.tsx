@@ -2,6 +2,7 @@
 // Preserves: deepcopy, refresh_tree, drag 6px threshold + tooltip, DnD prompt (qty + merge/insert), Move Selected, ledger retry, learn
 
 import { useState, useEffect, useRef } from "react";
+import { usePackingStore } from "../store/usePackingStore";
 
 type Box = Record<string, number>;
 
@@ -16,6 +17,7 @@ export default function KoliReviewer({
   onApprove: (finalBoxes: Box[]) => void;
   onClose: () => void;
 }) {
+  const { master } = usePackingStore();
   const [working, setWorking] = useState<Box[]>(() => JSON.parse(JSON.stringify(boxes)));
   const [drag, setDrag] = useState<null | { from: number; sku: string; qty: number; startX: number; startY: number; active: boolean }>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -197,7 +199,7 @@ export default function KoliReviewer({
                       className={`flex justify-between px-3 py-2 text-sm cursor-grab ${moveFrom?.koli===idx && moveFrom?.sku===sku ? "bg-yellow-100" : "hover:bg-white"}`}
                       title="Drag to another Koli or click then Move Selected"
                     >
-                      <span>{sku}</span><span className="font-bold">{String(qty)}</span>
+                      <span>{sku}</span><span className="font-bold">{String(qty)} <span className="font-mono text-xs bg-[#ecf0f1] px-1.5 py-0.5 rounded ml-1">{master.ITEM_UOM?.[sku] || "Pack"}</span></span>
                     </div>
                   ))}
                   {Object.keys(box).length===0 && <div className="p-3 text-xs text-gray-400">Empty</div>}
