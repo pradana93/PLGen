@@ -1,4 +1,4 @@
-# Keep Vercel slug small — ignore Python legacy + logs
+# Python legacy + logs (kept for reference, not deployed) — Vercel build will generate dist
 *.pyc
 __pycache__/
 venv/
@@ -9,8 +9,7 @@ Labels/
 *.tmp
 backend/data/
 backend/uploads/
-frontend/node_modules/
-backend/node_modules/
-dist/
+frontend/
+node_modules/
 .DS_Store
 .git/
