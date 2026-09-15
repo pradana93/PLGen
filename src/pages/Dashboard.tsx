@@ -347,7 +347,7 @@ export default function Dashboard(){
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-bold text-sm text-[#2c3e50]">📋 Active Manifest</h3>
           <div className="text-right">
-            <div className="text-xs">👤 Logged In As: Operator (Web)</div>
+            <div className="text-xs">👤 Logged In As: {profile?.alias || profile?.email}</div>
             <div className={`text-xs font-bold ${liveEstimate? "text-[#27ae60]":"text-gray-400"}`}>📦 Live Koli Estimate: {liveEstimate}</div>
           </div>
         </div>
