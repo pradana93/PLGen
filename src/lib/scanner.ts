@@ -71,7 +71,7 @@ export async function smartScanPdf(file: File, master: MasterDB): Promise<{ resu
   for (let i=1;i<=pdf.numPages;i++) {
     const page = await pdf.getPage(i);
     const tc = await page.getTextContent();
-    const text = (tc.items as any[]).map((it:any)=> it.str).join(" ");
+    const text = (tc.items as any[]).map((it:any)=> it.str).join("\n");
     pageTexts.push(text);
     allTextUpper += text.toUpperCase() + "\n";
     // Also build rows for table emulation

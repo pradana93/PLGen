@@ -58,7 +58,8 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   } catch {}
 
   const buf = await wb.xlsx.writeBuffer();
-  saveAs(new Blob([buf]), `${new Date().toISOString().slice(0,10)}_${outlet}.xlsx`);
+  const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
+  saveAs(new Blob([buf]), `${_ts}_${outlet}.xlsx`);
   return { deliveryNo, totalWeight };
 }
 
@@ -100,5 +101,6 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any) {
     ws.columns.forEach(c=> c.width=16);
   }
   const buf = await wb.xlsx.writeBuffer();
-  saveAs(new Blob([buf]), `${outlet}_${new Date().toISOString().slice(0,10)}_labels.xlsx`);
+  const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
+  saveAs(new Blob([buf]), `${outlet}_${_ts}.xlsx`);
 }

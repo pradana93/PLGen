@@ -175,7 +175,8 @@ export default function Dashboard(){
         const msg = e?.message || String(e);
         if(msg.includes("PT BANGOR") || msg.includes("Document does not belong")){
           showToast(`❌ ${file.name}: Verification Failed — Document does not belong to PT BANGOR`);
-          return;
+          errors.push(`${file.name}: Company verification failed`);
+          continue;
         } else {
           errors.push(`${file.name}: ${msg}`);
         }
