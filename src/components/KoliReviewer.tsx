@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePackingStore } from "../store/usePackingStore";
+import { useLanguage } from "../i18n";
 
 type Box = Record<string, number>;
 
@@ -18,6 +19,7 @@ export default function KoliReviewer({
   onClose: () => void;
 }) {
   const { master } = usePackingStore();
+  const { t } = useLanguage();
   const [working, setWorking] = useState<Box[]>(() => JSON.parse(JSON.stringify(boxes)));
   const [drag, setDrag] = useState<null | { from: number; sku: string; qty: number; startX: number; startY: number; active: boolean }>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -40,10 +42,10 @@ export default function KoliReviewer({
     if (!drag.active) {
       if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) < 6) return;
       setDrag({ ...drag, active: true });
-      setTooltip({ x: e.clientX + 15, y: e.clientY + 15, text: `Moving: ${drag.qty}x ${drag.sku}` });
+      setTooltip({ x: e.clientX + 15, y: e.clientY + 15, text: t("koli.moving", { qty: drag.qty, sku: drag.sku }) });
       return;
     }
-    setTooltip({ x: e.clientX + 15, y: e.clientY + 15, text: `Moving: ${drag.qty}x ${drag.sku}` });
+    setTooltip({ x: e.clientX + 15, y: e.clientY + 15, text: t("koli.moving", { qty: drag.qty, sku: drag.sku }) });
   };
   const onDragEnd = (e: React.MouseEvent, target: number | "NEW" | null) => {
     setTooltip(null);
@@ -94,7 +96,7 @@ export default function KoliReviewer({
   // Move Selected like Python move_item()
   const openMove = () => {
     // Find selected via DOM? Simplify: pick first selected item via click state — we use moveFrom set on item click
-    if (!moveFrom) { alert("Please select an item to move (click an item first)."); return; }
+    if (!moveFrom) { alert(t("koli.selectFirst")); return; }
     const idx = moveFrom.koli;
     const total = working.length;
     const options = Array.from({length: total}, (_,i)=> `Koli ${i+1}`);
@@ -109,7 +111,7 @@ export default function KoliReviewer({
 
   const confirmMove = () => {
     if (!moveFrom) return;
-    if (moveQty <= 0 || moveQty > moveFrom.qty) { alert("Invalid quantity"); return; }
+    if (moveQty <= 0 || moveQty > moveFrom.qty) { alert(t("koli.invalidQty")); return; }
     const fromIdx = moveFrom.koli;
     const sku = moveFrom.sku;
     const destStr = moveDest;
@@ -170,8 +172,8 @@ export default function KoliReviewer({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onMouseMove={onDragMove} onMouseUp={()=> setTooltip(null)}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         <div className="p-4 border-b">
-          <h3 className="font-bold">📦 Koli Pre-Flight Check: {outlet.toUpperCase()}</h3>
-          <p className="text-xs text-gray-500">Reviewing Packing Layout — drag items between Koli or use Move button. Total Koli: {visibleBoxes.length}</p>
+          <h3 className="font-bold">{t("koli.title", { outlet: outlet.toUpperCase() })}</h3>
+          <p className="text-xs text-gray-500">{t("koli.subtitle", { n: visibleBoxes.length })}</p>
         </div>
 
         <div className="flex-1 overflow-auto p-4 space-y-3">
@@ -186,8 +188,8 @@ export default function KoliReviewer({
                 onDrop={(e)=> { e.preventDefault(); onDragEnd(e as any, idx); }}
               >
                 <div className="bg-[#ecf0f1] px-3 py-2 font-bold text-sm flex justify-between">
-                  <span>📦 KOLI {idx+1} (Total Items: {total})</span>
-                  <button onClick={()=> { const n=[...working]; n.splice(idx,1); setWorking(n.filter(b=>Object.keys(b).length>0)); }} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Remove Koli</button>
+                  <span>{t("koli.header", { n: idx+1, total })}</span>
+                  <button onClick={()=> { const n=[...working]; n.splice(idx,1); setWorking(n.filter(b=>Object.keys(b).length>0)); }} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">{t("koli.remove")}</button>
                 </div>
                 <div className="divide-y">
                   {Object.entries(box).sort(([a],[b])=> a.localeCompare(b)).map(([sku,qty])=> (
@@ -197,12 +199,12 @@ export default function KoliReviewer({
                       onMouseDown={(e)=> onDragStart(e, idx, sku, qty as number)}
                       onClick={()=> setMoveFrom({ koli: idx, sku, qty: qty as number })}
                       className={`flex justify-between px-3 py-2 text-sm cursor-grab ${moveFrom?.koli===idx && moveFrom?.sku===sku ? "bg-yellow-100" : "hover:bg-white"}`}
-                      title="Drag to another Koli or click then Move Selected"
+                      title={t("koli.tooltip")}
                     >
                       <span>{sku}</span><span className="font-bold">{String(qty)} <span className="font-mono text-xs bg-[#ecf0f1] px-1.5 py-0.5 rounded ml-1">{master.ITEM_UOM?.[sku] || "Pack"}</span></span>
                     </div>
                   ))}
-                  {Object.keys(box).length===0 && <div className="p-3 text-xs text-gray-400">Empty</div>}
+                  {Object.keys(box).length===0 && <div className="p-3 text-xs text-gray-400">{t("koli.empty")}</div>}
                 </div>
               </div>
             );
@@ -213,15 +215,15 @@ export default function KoliReviewer({
             onDragOver={(e)=> e.preventDefault()}
             onDrop={(e)=> { e.preventDefault(); onDragEnd(e as any, "NEW"); }}
           >
-            Drop here to create 🌟 New Final Koli
+            {t("koli.dropNew")}
           </div>
         </div>
 
         <div className="p-4 border-t flex gap-2 justify-between">
-          <button onClick={openMove} className="px-4 py-2 rounded-lg bg-[#f39c12] text-white font-bold text-sm">↕️ Move Selected Item</button>
+          <button onClick={openMove} className="px-4 py-2 rounded-lg bg-[#f39c12] text-white font-bold text-sm">{t("koli.moveSelected")}</button>
           <div className="flex gap-2">
-            <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 text-sm">Cancel</button>
-            <button onClick={handleFinalize} className="px-6 py-2 rounded-lg bg-[#27ae60] text-white font-bold">✅ APPROVE & EXPORT</button>
+            <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 text-sm">{t("koli.cancel")}</button>
+            <button onClick={handleFinalize} className="px-6 py-2 rounded-lg bg-[#27ae60] text-white font-bold">{t("koli.approve")}</button>
           </div>
         </div>
       </div>
@@ -231,16 +233,16 @@ export default function KoliReviewer({
       {dndPrompt && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-4">
-            <h4 className="font-bold text-center">Moving: {dndPrompt.sku}<br/>From KOLI {dndPrompt.from+1} → {dndPrompt.target==="NEW" ? "🌟 New Final Koli" : `KOLI ${(dndPrompt.target as number)+1}`}</h4>
-            <label className="text-sm mt-3 block">Qty to Move (Max {dndPrompt.max}):</label>
+            <h4 className="font-bold text-center">{t("koli.movingSku", { sku: dndPrompt.sku })}<br/>{t("koli.fromTo", { from: dndPrompt.from+1, to: dndPrompt.target==="NEW" ? t("koli.newFinal") : `KOLI ${(dndPrompt.target as number)+1}` })}</h4>
+            <label className="text-sm mt-3 block">{t("koli.qtyToMove", { max: dndPrompt.max })}</label>
             <input type="number" min={1} max={dndPrompt.max} value={moveQty} onChange={e=> setMoveQty(parseInt(e.target.value)||1)} className="w-full border rounded px-2 py-1 text-center" />
             <div className="mt-3">
-              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="merge"} onChange={()=> setMoveAction("merge")} /> Merge (Mix into existing Koli)</label>
-              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="insert"} onChange={()=> setMoveAction("insert")} /> Insert (Create new Koli & Shift down)</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="merge"} onChange={()=> setMoveAction("merge")} /> {t("koli.mergeLong")}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="insert"} onChange={()=> setMoveAction("insert")} /> {t("koli.insertLong")}</label>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={()=> setDndPrompt(null)} className="flex-1 bg-gray-200 rounded py-2 text-sm">Cancel</button>
-              <button onClick={confirmDnd} className="flex-1 bg-[#f39c12] text-white rounded py-2 font-bold text-sm">Confirm Move</button>
+              <button onClick={()=> setDndPrompt(null)} className="flex-1 bg-gray-200 rounded py-2 text-sm">{t("koli.cancel")}</button>
+              <button onClick={confirmDnd} className="flex-1 bg-[#f39c12] text-white rounded py-2 font-bold text-sm">{t("koli.confirmMove")}</button>
             </div>
           </div>
         </div>
@@ -249,20 +251,20 @@ export default function KoliReviewer({
       {showMove && moveFrom && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-4">
-            <h4 className="font-bold text-center">Moving: {moveFrom.sku}</h4>
-            <label className="text-sm mt-2 block">Qty to Move (Max {moveFrom.qty}):</label>
+            <h4 className="font-bold text-center">{t("koli.movingSku", { sku: moveFrom.sku })}</h4>
+            <label className="text-sm mt-2 block">{t("koli.qtyToMove", { max: moveFrom.qty })}</label>
             <input type="number" min={1} max={moveFrom.qty} value={moveQty} onChange={e=> setMoveQty(parseInt(e.target.value)||1)} className="w-full border rounded px-2 py-1 text-center" />
-            <label className="text-sm mt-3 block">Destination Position:</label>
+            <label className="text-sm mt-3 block">{t("koli.destination")}</label>
             <select value={moveDest} onChange={e=> setMoveDest(e.target.value)} className="w-full border rounded px-2 py-1">
-              {Array.from({length: working.length}, (_,i)=> `Koli ${i+1}`).concat("🌟 New Final Koli").map(o=> <option key={o} value={o}>{o}</option>)}
+              {Array.from({length: working.length}, (_,i)=> `Koli ${i+1}`).concat("🌟 New Final Koli").map(o=> <option key={o} value={o}>{o === "🌟 New Final Koli" ? t("koli.newFinal") : o}</option>)}
             </select>
             <div className="mt-3">
-              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="merge"} onChange={()=> setMoveAction("merge")} /> Merge</label>
-              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="insert"} onChange={()=> setMoveAction("insert")} /> Insert</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="merge"} onChange={()=> setMoveAction("merge")} /> {t("koli.merge")}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={moveAction==="insert"} onChange={()=> setMoveAction("insert")} /> {t("koli.insert")}</label>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={()=> setShowMove(false)} className="flex-1 bg-gray-200 rounded py-2 text-sm">Cancel</button>
-              <button onClick={confirmMove} className="flex-1 bg-[#f39c12] text-white rounded py-2 font-bold">Confirm Move</button>
+              <button onClick={()=> setShowMove(false)} className="flex-1 bg-gray-200 rounded py-2 text-sm">{t("koli.cancel")}</button>
+              <button onClick={confirmMove} className="flex-1 bg-[#f39c12] text-white rounded py-2 font-bold">{t("koli.confirmMove")}</button>
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLanguage } from "../i18n";
 
 type ServiceStatus = "ok" | "down" | "checking";
 
@@ -11,6 +12,7 @@ interface HealthData {
 }
 
 export default function ServerStatus() {
+  const { t } = useLanguage();
   const [expanded, setExpanded] = useState(false);
   const [health, setHealth] = useState<HealthData | null>(null);
   const [pyStatus, setPyStatus] = useState<ServiceStatus>("checking");
@@ -60,22 +62,22 @@ export default function ServerStatus() {
         className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-semibold hover:bg-white/20 transition-colors"
       >
         <span className={`w-2.5 h-2.5 rounded-full shadow-lg animate-pulse ${dotColor}`} />
-        <span className={textColor}>{allOk ? "All Connected" : allDown ? "Offline" : "Partial"}</span>
+        <span className={textColor}>{allOk ? t("status.allConnected") : allDown ? t("status.offline") : t("status.partial")}</span>
       </button>
 
       {/* Expanded panel */}
       {expanded && (
         <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
           <div className="px-4 py-3 border-b bg-[#f4f6f9]">
-            <div className="font-bold text-sm text-[#2c3e50]">🔌 Server Status</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">Last checked: {lastCheck || "—"}</div>
+            <div className="font-bold text-sm text-[#2c3e50]">{t("status.title")}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5">{t("status.lastChecked", { time: lastCheck || "—" })}</div>
           </div>
           <div className="px-4 py-3 space-y-3">
             {/* PythonAnywhere */}
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold">PythonAnywhere</div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-gray-500">Master Data</span>
+                <span className="text-[10px] text-gray-500">{t("status.masterData")}</span>
                 <span className={`w-3 h-3 rounded-full ${pyStatus==="ok" ? "bg-green-500" : pyStatus==="checking" ? "bg-yellow-400 animate-pulse" : "bg-red-500"}`} />
               </div>
             </div>
@@ -83,7 +85,7 @@ export default function ServerStatus() {
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold">Supabase</div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-gray-500">Auth & DB</span>
+                <span className="text-[10px] text-gray-500">{t("status.authDb")}</span>
                 <span className={`w-3 h-3 rounded-full ${sbStatus==="ok" ? "bg-green-500" : sbStatus==="checking" ? "bg-yellow-400 animate-pulse" : "bg-red-500"}`} />
               </div>
             </div>
@@ -91,16 +93,16 @@ export default function ServerStatus() {
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold">Vercel API</div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-gray-500">Backend</span>
+                <span className="text-[10px] text-gray-500">{t("status.backend")}</span>
                 <span className="w-3 h-3 rounded-full bg-green-500" />
               </div>
             </div>
             <hr className="border-gray-200" />
             <div className="text-[10px] text-gray-500 space-y-1">
-              {health && <div>Version: <span className="font-mono font-bold">{health.version}</span> • WIB: {health.wib}</div>}
-              {!health && <div className="text-red-500">⚠ API unreachable — backend may be down</div>}
+              {health && <div>{t("status.version")} <span className="font-mono font-bold">{health.version}</span> • WIB: {health.wib}</div>}
+              {!health && <div className="text-red-500">{t("status.unreachable")}</div>}
             </div>
-            <button onClick={checkHealth} className="w-full text-[10px] py-1 bg-gray-100 rounded hover:bg-gray-200 text-gray-500">🔄 Refresh Status</button>
+            <button onClick={checkHealth} className="w-full text-[10px] py-1 bg-gray-100 rounded hover:bg-gray-200 text-gray-500">{t("status.refresh")}</button>
           </div>
         </div>
       )}

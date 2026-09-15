@@ -6,9 +6,11 @@ import { exportLabels, exportPackingList } from "../lib/exportExcel";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
 import { useAuth } from "../context/AuthContext";
 import KoliReviewer from "../components/KoliReviewer";
+import { useLanguage } from "../i18n";
 
 export default function Dashboard(){
   const { profile } = useAuth();
+  const { t } = useLanguage();
   const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes, setItemNote } = usePackingStore();
   const [sku, setSku] = useState("Beef Patty Small");
   const [qty, setQty] = useState("");
@@ -17,7 +19,7 @@ export default function Dashboard(){
   const [showReviewer, setShowReviewer] = useState(false);
   const [workingBoxes, setWorkingBoxes] = useState<any[]>([]);
   const [checkersList, setCheckersList] = useState<string[]>(["Masroor","Aji","Fadly","Luthfi"]);
-  const [syncState, setSyncState] = useState("Local Backup 💾");
+  const [syncState, setSyncState] = useState("dash.syncLocal");
   const [toast, setToast] = useState<string|null>(null);
   const [editingNote, setEditingNote] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -30,10 +32,10 @@ export default function Dashboard(){
       try {
         const md = await apiGet("/api/master_data");
         setMaster(md);
-        setSyncState("Cloud Sync ☁️");
+        setSyncState("dash.syncCloud");
         const ch = await apiGet("/api/checkers");
         if(ch.checkers) setCheckersList(ch.checkers);
-      } catch { setSyncState("Hardcoded Backup ⚠️"); }
+      } catch { setSyncState("dash.syncHardcoded"); }
     })();
   },[]);
 
@@ -58,19 +60,19 @@ export default function Dashboard(){
 
   const handleAdd = ()=>{
     const n = parseInt(qty,10);
-    if(!n || n<=0) return showToast("❌ Enter valid quantity");
-    if(!note) return showToast("❌ Select a note");
+    if(!n || n<=0) return showToast(t("dash.errQty"));
+    if(!note) return showToast(t("dash.errNote"));
     addItem(sku, n, note);
-    setQty(""); showToast(`✅ Added ${n} ${sku}`);
+    setQty(""); showToast(t("dash.addedToast", { n, sku }));
   };
   const handleSub = ()=>{
     const n = parseInt(qty,10);
-    if(!n || n<=0) return showToast("❌ Enter valid quantity");
-    subItem(sku,n); setQty(""); showToast(`➖ Removed ${n} ${sku}`);
+    if(!n || n<=0) return showToast(t("dash.errQty"));
+    subItem(sku,n); setQty(""); showToast(t("dash.removedToast", { n, sku }));
   };
 
   const handleCalculate = ()=>{
-    if(!Object.keys(order).length) return showToast("❌ Order is empty");
+    if(!Object.keys(order).length) return showToast(t("dash.errEmptyOrder"));
     const raw = calculateBoxes(order, master);
     setWorkingBoxes(JSON.parse(JSON.stringify(raw)));
     setShowReviewer(true);
@@ -78,13 +80,13 @@ export default function Dashboard(){
   const handleConfirmReviewer = ()=>{
     setBoxes(workingBoxes);
     setShowReviewer(false);
-    showToast(`✅ ${workingBoxes.length} Koli Approved`);
+    showToast(t("dash.koliApproved", { n: workingBoxes.length }));
   };
 
   const doExport = async (finalOutlet: string)=>{
-    if(!boxes.length) return showToast("❌ Calculate boxes first");
-    if(!finalOutlet) return showToast("❌ Enter outlet name");
-    if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
+    if(!boxes.length) return showToast(t("dash.errCalcFirst"));
+    if(!finalOutlet) return showToast(t("dash.errOutlet"));
+    if(!checker || checker==="Select Checker") return showToast(t("dash.errChecker"));
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
     try {
       const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0]);
@@ -99,14 +101,14 @@ export default function Dashboard(){
         const newMaster = { ...master, OUTLET_INFO: { ...(master.OUTLET_INFO||{}), [upper]: { name: finalOutlet, phone: "", address: "" } } };
         setMaster(newMaster);
       }
-      showToast(`💾 Exported ${deliveryNo} • ${boxes.length} Koli`);
-    } catch(e:any){ showToast("❌ Export failed: "+e.message); }
+      showToast(t("dash.exportedToast", { do: deliveryNo, n: boxes.length }));
+    } catch(e:any){ showToast(t("dash.exportFailed", { err: e.message })); }
   };
 
   const handleExport = async ()=>{
-    if(!boxes.length) return showToast("❌ Calculate boxes first");
-    if(!outlet.trim()) return showToast("❌ Enter outlet name");
-    if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
+    if(!boxes.length) return showToast(t("dash.errCalcFirst"));
+    if(!outlet.trim()) return showToast(t("dash.errOutlet"));
+    if(!checker || checker==="Select Checker") return showToast(t("dash.errChecker"));
     const upper = outlet.trim().toUpperCase();
     if(master.OUTLET_INFO?.[upper]){
       await doExport(outlet);
@@ -134,7 +136,7 @@ export default function Dashboard(){
       else next[s]={ qty: adj, note: r.note };
     }
     setOrder(next);
-    showToast(`🎯 Scanned ${fileName}: ${Object.keys(results).length} SKUs [${company}]`);
+    showToast(t("dash.scannedToast", { file: fileName, n: Object.keys(results).length, company }));
   };
 
   // 1:1 port of core.py handle_drop — supports 2 files dragged simultaneously
@@ -155,12 +157,12 @@ export default function Dashboard(){
         } else if(ext==="pdf"){
           data = await smartScanPdf(file, master);
         } else {
-          errors.push(`${file.name}: unsupported`);
+          errors.push(`${file.name}: ${t("dash.errUnsupported")}`);
           continue;
         }
         if(!data || Object.keys(data.results).length===0){
           // Like Python: scanned_results is {} is falsy? Python checks if not scanned_results, but we treat empty as no scan
-          if(data && Object.keys(data.results).length===0) errors.push(`${file.name}: no SKUs`);
+          if(data && Object.keys(data.results).length===0) errors.push(`${file.name}: ${t("dash.errNoSkus")}`);
           continue;
         }
         successCount++;
@@ -177,8 +179,8 @@ export default function Dashboard(){
       } catch(e:any){
         const msg = e?.message || String(e);
         if(msg.includes("PT BANGOR") || msg.includes("Document does not belong")){
-          showToast(`❌ ${file.name}: Verification Failed — Document does not belong to PT BANGOR`);
-          errors.push(`${file.name}: Company verification failed`);
+          showToast(t("dash.verifyFailed", { file: file.name }));
+          errors.push(`${file.name}: ${t("dash.errCompanyVerify")}`);
           continue;
         } else {
           errors.push(`${file.name}: ${msg}`);
@@ -187,8 +189,8 @@ export default function Dashboard(){
     }
 
     if(successCount===0){
-      if(errors.length) showToast(`❌ Scan failed: ${errors.join("; ")}`);
-      else showToast("❌ Invalid file(s) dropped or scan failed.");
+      if(errors.length) showToast(t("dash.scanFailed", { err: errors.join("; ") }));
+      else showToast(t("dash.invalidFiles"));
       return;
     }
 
@@ -229,7 +231,7 @@ export default function Dashboard(){
     }
     setCompanyCode(lastCompany);
     setOrder(next);
-    showToast(`🎯 Scanned ${successCount} file(s): ${Object.keys(pendingTotals).length} SKUs [${lastCompany}]`);
+    showToast(t("dash.scannedFilesToast", { count: successCount, n: Object.keys(pendingTotals).length, company: lastCompany }));
   };
 
   const handleFile = async (file: File)=> handleFiles([file]);
@@ -247,40 +249,40 @@ export default function Dashboard(){
       <div className="col-span-12 lg:col-span-4 space-y-4">
         {/* Destination */}
         <div className="bg-white rounded-xl shadow p-4">
-          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">📍 Destination Details</h3>
-          <label className="text-xs font-bold">Outlet Name</label>
+          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">{t("dash.destination")}</h3>
+          <label className="text-xs font-bold">{t("dash.outletName")}</label>
           <input list="outlets" value={outlet} onChange={e=> setOutlet(e.target.value)} placeholder="BANGOR PONDOK GEDE" className="w-full mt-1 border rounded-lg px-3 py-2 text-sm" />
           <datalist id="outlets">
             {Object.keys(master.OUTLET_INFO||{}).map(o=> <option key={o} value={o} />)}
           </datalist>
           <div className="mt-3 bg-[#ecf0f1] rounded-lg p-3 text-xs border">
-            <div className="font-bold">PREVIEW</div>
-            <div>👤 Receiver: {outletInfo?.name||"-"}</div>
-            <div>📞 Phone: {outletInfo?.phone||"-"}</div>
-            <div>📍 Address: {outletInfo?.address||"Select an outlet to view details"}</div>
+            <div className="font-bold">{t("dash.preview")}</div>
+            <div>{t("dash.receiver", { name: outletInfo?.name||"-" })}</div>
+            <div>{t("dash.phone", { phone: outletInfo?.phone||"-" })}</div>
+            <div>{t("dash.address", { address: outletInfo?.address || t("dash.selectOutletView") })}</div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3">
             <div>
-              <label className="text-xs font-bold">Assigned Checker</label>
+              <label className="text-xs font-bold">{t("dash.checker")}</label>
               <select value={checker} onChange={e=> setChecker(e.target.value)} className="w-full mt-1 border rounded-lg px-2 py-2 text-sm">
-                <option>Select Checker</option>
+                <option value="">{t("dash.selectChecker")}</option>
                 {checkersList.map(c=> <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs font-bold">Cluster / Route</label>
+              <label className="text-xs font-bold">{t("dash.cluster")}</label>
               <input value={cluster} onChange={e=> setCluster(e.target.value)} placeholder="Cikarang / Cluster 1" className="w-full mt-1 border rounded-lg px-2 py-2 text-sm" />
             </div>
           </div>
-          <div className="text-[11px] text-gray-500 mt-2">Master Data: {syncState} • Delivery: {getDeliveryDateWIB(1, master.HOLIDAYS||[])} • Box Tolerance: {master.BOX_TOLERANCE}</div>
+          <div className="text-[11px] text-gray-500 mt-2">{t("dash.masterData")}: {t(syncState)} • {t("dash.delivery")}: {getDeliveryDateWIB(1, master.HOLIDAYS||[])} • {t("dash.boxTolerance")}: {master.BOX_TOLERANCE}</div>
         </div>
 
         {/* Order Entry */}
         <div className="bg-white rounded-xl shadow p-4">
-          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">🍔 Order Entry</h3>
+          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">{t("dash.orderEntry")}</h3>
           <div className="flex gap-1 mb-3 flex-wrap">
             {[
-              ["All","All"], ["❄️ Frozen","Frozen"], ["🥫 Sauce & Bread","Sauce"], ["📦 Pack","Pack"], ["👕 Merch","Merch"]
+              [t("dash.filterAll"),"All"], [t("dash.filterFrozen"),"Frozen"], [t("dash.filterSauce"),"Sauce"], [t("dash.filterPack"),"Pack"], [t("dash.filterMerch"),"Merch"]
             ].map(([label,val])=>(
               <button key={val} onClick={()=> setFilter(val)} className={`px-2 py-1 text-xs rounded-full font-bold border ${filter===val?"bg-[#2c3e50] text-white":"bg-white"}`}>{label}</button>
             ))}
@@ -292,73 +294,73 @@ export default function Dashboard(){
             onDrop={onDrop}
             className={`border-2 border-dashed rounded-xl p-4 text-center mb-3 ${dragOver?"bg-green-50 border-green-500":"bg-[#f9fafb] border-gray-300"}`}
           >
-            <div className="text-sm font-extrabold">{dragOver?"📥 DROP FILE HERE":"📄 DRAG & DROP PDF / Excel HERE"}</div>
-            <div className="text-xs text-gray-500">Supports Surat Jalan PDF & Excel (xlsx/xls) — same logic as core.py/addons.py</div>
+            <div className="text-sm font-extrabold">{dragOver?t("dash.dropHere"):t("dash.dragDrop")}</div>
+            <div className="text-xs text-gray-500">{t("dash.dropzoneInfo")}</div>
             <label className="inline-block mt-1 px-3 py-1 bg-[#3498db] text-white rounded-full text-xs font-bold cursor-pointer">
-              📂 Browse File(s) — PDF/Excel, 2 files supported
+              {t("dash.browseFiles")}
               <input type="file" accept=".xlsx,.xls,.pdf" multiple className="hidden" onChange={e=>{ const files = Array.from(e.target.files || []); if(files.length===1) handleFile(files[0]); else if(files.length>1) handleFiles(files); (e.target as HTMLInputElement).value=""; }} />
             </label>
           </div>
 
-          <label className="text-xs font-bold">Select SKU</label>
+          <label className="text-xs font-bold">{t("dash.selectSku")}</label>
           <select value={sku} onChange={e=> setSku(e.target.value)} className="w-full mt-1 border rounded-lg px-2 py-2 text-sm">
             {filteredSkus.map(s=> <option key={s} value={s}>{s} ({master.BOX_CAPACITY[s]}/box)</option>)}
           </select>
           <div className="grid grid-cols-2 gap-2 mt-2">
             <div>
-              <label className="text-xs font-bold">Quantity (Base)</label>
+              <label className="text-xs font-bold">{t("dash.quantity")}</label>
               <input value={qty} onChange={e=> setQty(e.target.value)} placeholder="e.g. 2" className="w-full mt-1 border rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs font-bold">Note</label>
+              <label className="text-xs font-bold">{t("dash.note")}</label>
               <select value={note} onChange={e=> setNote(e.target.value)} className="w-full mt-1 border rounded-lg px-2 py-2 text-sm">
                 <option value="BGB">BGB</option><option value="BBB">BBB</option><option value="✓">✓</option><option value="FILE_SCAN">FILE_SCAN</option>
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3">
-            <button onClick={handleAdd} className="bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">+ Add Item</button>
-            <button onClick={handleSub} className="bg-[#e74c3c] text-white rounded-lg py-2 font-bold text-sm">- Subtract</button>
+            <button onClick={handleAdd} className="bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">{t("dash.addItem")}</button>
+            <button onClick={handleSub} className="bg-[#e74c3c] text-white rounded-lg py-2 font-bold text-sm">{t("dash.subtract")}</button>
           </div>
         </div>
 
         {/* System Actions */}
         <div className="bg-white rounded-xl shadow p-4">
-          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">⚙️ System Actions</h3>
+          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">{t("dash.systemActions")}</h3>
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={handleCalculate} className="bg-[#3498db] text-white rounded-lg py-2 font-bold text-sm">🧮 Calculate Routing</button>
-            <button onClick={handleExport} className="bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">💾 Export & Save</button>
-            <button onClick={()=> (document.querySelector<HTMLInputElement>('input[type=file]')?.click())} className="bg-[#9b59b6] text-white rounded-lg py-2 font-bold text-sm">📂 Scanner</button>
+            <button onClick={handleCalculate} className="bg-[#3498db] text-white rounded-lg py-2 font-bold text-sm">{t("dash.calcRouting")}</button>
+            <button onClick={handleExport} className="bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">{t("dash.exportSave")}</button>
+            <button onClick={()=> (document.querySelector<HTMLInputElement>('input[type=file]')?.click())} className="bg-[#9b59b6] text-white rounded-lg py-2 font-bold text-sm">{t("dash.scanner")}</button>
             <button onClick={async()=>{
-              try{ const md=await apiGet("/api/master_data"); setMaster(md); showToast("✅ Master Data Refreshed");}
-              catch{ showToast("❌ Sync failed");}
-            }} className="bg-[#16a085] text-white rounded-lg py-2 font-bold text-sm">🔄 Live Sync</button>
-            <button onClick={()=> showToast("🖨️ Printer routing uses browser print — configure in system dialog")} className="bg-gray-400 text-white rounded-lg py-1 font-bold text-xs">🖨️ Printer Settings</button>
-            <button onClick={()=> showToast(`📊 Shift Total: ${Object.values(order).reduce((a,b)=>a+b.qty,0)} units`)} className="bg-[#f39c12] text-white rounded-lg py-1 font-bold text-xs">📊 Shift Report</button>
-            <button onClick={()=> window.open("/live","_blank")} className="bg-[#3498db] text-white rounded-lg py-1 font-bold text-xs">📡 Live Board</button>
-            <button onClick={()=> window.open("/admin","_blank")} className="bg-[#9b59b6] text-white rounded-lg py-1 font-bold text-xs">💳 Wallet / Admin</button>
+              try{ const md=await apiGet("/api/master_data"); setMaster(md); showToast(t("dash.masterRefreshed"));}
+              catch{ showToast(t("dash.syncFailed"));}
+            }} className="bg-[#16a085] text-white rounded-lg py-2 font-bold text-sm">{t("dash.liveSync")}</button>
+            <button onClick={()=> showToast(t("dash.printerMsg"))} className="bg-gray-400 text-white rounded-lg py-1 font-bold text-xs">{t("dash.printer")}</button>
+            <button onClick={()=> showToast(t("dash.shiftTotal", { n: Object.values(order).reduce((a,b)=>a+b.qty,0) }))} className="bg-[#f39c12] text-white rounded-lg py-1 font-bold text-xs">{t("dash.shiftReport")}</button>
+            <button onClick={()=> window.open("/live","_blank")} className="bg-[#3498db] text-white rounded-lg py-1 font-bold text-xs">{t("dash.liveBoard")}</button>
+            <button onClick={()=> window.open("/admin","_blank")} className="bg-[#9b59b6] text-white rounded-lg py-1 font-bold text-xs">{t("dash.walletAdmin")}</button>
           </div>
-          <button onClick={clearOrder} className="w-full mt-2 bg-[#e74c3c] text-white rounded-lg py-2 font-bold text-sm">🗑️ CLEAR CURRENT ORDER</button>
+          <button onClick={clearOrder} className="w-full mt-2 bg-[#e74c3c] text-white rounded-lg py-2 font-bold text-sm">{t("dash.clearOrder")}</button>
         </div>
       </div>
 
       {/* Right column - Active Manifest */}
       <div className="col-span-12 lg:col-span-8 bg-white rounded-xl shadow p-4 flex flex-col">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="font-bold text-sm text-[#2c3e50]">📋 Active Manifest</h3>
+          <h3 className="font-bold text-sm text-[#2c3e50]">{t("dash.activeManifest")}</h3>
           <div className="text-right">
-            <div className="text-xs">👤 Logged In As: {profile?.alias || profile?.email}</div>
-            <div className={`text-xs font-bold ${liveEstimate? "text-[#27ae60]":"text-gray-400"}`}>📦 Live Koli Estimate: {liveEstimate}</div>
+            <div className="text-xs">{t("dash.loggedInAs", { alias: profile?.alias || profile?.email })}</div>
+            <div className={`text-xs font-bold ${liveEstimate? "text-[#27ae60]":"text-gray-400"}`}>{t("dash.liveEstimate", { n: liveEstimate })}</div>
           </div>
         </div>
         <div className="border rounded-lg overflow-hidden flex-1">
           <div className="overflow-auto max-h-[520px]">
             <table className="w-full text-sm">
               <thead className="bg-[#f4f6f9] sticky top-0">
-                <tr><th className="text-left p-2">SKU Name</th><th className="p-2">Qty</th><th className="p-2">UOM</th><th className="p-2">Notes</th><th className="p-2">Action</th></tr>
+                <tr><th className="text-left p-2">{t("dash.skuName")}</th><th className="p-2">{t("dash.qty")}</th><th className="p-2">{t("dash.uom")}</th><th className="p-2">{t("dash.notes")}</th><th className="p-2">{t("dash.action")}</th></tr>
               </thead>
               <tbody>
-                {Object.keys(order).length===0 && <tr><td colSpan={5} className="text-center p-8 text-gray-400">📦 Drag & Drop a file or Add Items to begin...</td></tr>}
+                {Object.keys(order).length===0 && <tr><td colSpan={5} className="text-center p-8 text-gray-400">{t("dash.emptyManifest")}</td></tr>}
                 {Object.entries(order).map(([s, d], idx)=>(
                   <tr key={s} className={idx%2?"bg-[#f9fafb]":"bg-white"}>
                     <td className="p-2">{s}</td>
@@ -380,12 +382,12 @@ export default function Dashboard(){
                           onKeyDown={(e)=>{ if(e.key==="Enter"){ setItemNote(s, (e.target as HTMLInputElement).value); setEditingNote(null); } if(e.key==="Escape") setEditingNote(null); }}
                         />
                       ) : (
-                        <span onClick={()=> setEditingNote(s)} className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded text-xs" title="Click to edit note">{d.note || "—"}</span>
+                        <span onClick={()=> setEditingNote(s)} className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded text-xs" title={t("dash.clickEditNote")}>{d.note || "—"}</span>
                       )}
                     </td>
                     <td className="p-2 text-center"><button onClick={()=>{
                       const n={...order}; delete n[s]; setOrder(n);
-                    }} className="text-xs text-red-600">🗑️ Remove</button></td>
+                    }} className="text-xs text-red-600">{t("dash.remove")}</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -394,7 +396,7 @@ export default function Dashboard(){
         </div>
         {boxes.length>0 && (
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
-            ✅ Pre-Flight Approved: <b>{boxes.length} Koli</b> ready for print — Outlet: <b>{outlet||"Draft Order"}</b>
+            {t("dash.preflight1")} <b>{boxes.length} Koli</b> {t("dash.preflight2", { outlet: outlet || t("dash.draftOrder") })}
           </div>
         )}
       </div>
@@ -402,12 +404,12 @@ export default function Dashboard(){
       {/* Reviewer Modal — 1:1 with addons.py open_koli_reviewer */}
       {showReviewer && (
         <KoliReviewer
-          outlet={outlet || "Draft Order"}
+          outlet={outlet || t("dash.draftOrder")}
           boxes={workingBoxes}
           onApprove={(final)=>{
             setBoxes(final);
             setShowReviewer(false);
-            showToast(`✅ ${final.length} Koli Approved`);
+            showToast(t("dash.koliApproved", { n: final.length }));
           }}
           onClose={()=> setShowReviewer(false)}
         />
@@ -417,23 +419,23 @@ export default function Dashboard(){
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
             <div className="bg-[#c0392b] text-white rounded-t-xl px-4 py-3 text-center">
-              <div className="text-base font-extrabold">🚨 Stock Shortage — {shortage.shortages.length} SKUs</div>
+              <div className="text-base font-extrabold">{t("dash.shortageTitle", { n: shortage.shortages.length })}</div>
               <div className="text-xs opacity-90 truncate">{shortage.fileName} • {shortage.company}</div>
             </div>
             <div className="p-3 flex-1 overflow-hidden flex flex-col min-h-0">
               <div className="border rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
                 <div className="max-h-[38vh] overflow-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-1.5 text-left">SKU</th><th className="p-1.5">Req</th><th className="p-1.5">Have</th><th className="p-1.5 text-red-600">Short</th></tr></thead>
+                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-1.5 text-left">SKU</th><th className="p-1.5">{t("dash.shortageReq")}</th><th className="p-1.5">{t("dash.shortageHave")}</th><th className="p-1.5 text-red-600">{t("dash.shortageShort")}</th></tr></thead>
                     <tbody>{shortage.shortages.map(s=> <tr key={s.sku} className="border-t hover:bg-gray-50"><td className="p-1.5 font-medium truncate max-w-[180px]" title={s.sku}>{s.sku}</td><td className="p-1.5 text-center">{s.req}</td><td className="p-1.5 text-center text-gray-500">{s.avail}</td><td className="p-1.5 text-center font-bold text-red-600">-{s.short}</td></tr>)}</tbody>
                   </table>
                 </div>
               </div>
-              <div className="text-[11px] text-gray-500 mt-2">Admin notified • {shortage.shortages.length} items exceed stock. Choose action.</div>
+              <div className="text-[11px] text-gray-500 mt-2">{t("dash.shortageFooter", { n: shortage.shortages.length })}</div>
             </div>
             <div className="p-3 flex gap-2 border-t bg-gray-50 rounded-b-xl">
-              <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast("⚠️ Import cancelled"); }} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-lg py-2.5 font-bold text-sm">Cancel</button>
-              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${(r as any).note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-2.5 font-bold text-sm">Force Import</button>
+              <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast(t("dash.importCancelled")); }} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-lg py-2.5 font-bold text-sm">{t("dash.cancel")}</button>
+              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${(r as any).note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast(t("dash.forceImported")); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-2.5 font-bold text-sm">{t("dash.forceImport")}</button>
             </div>
           </div>
         </div>
@@ -443,25 +445,25 @@ export default function Dashboard(){
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
             <div className="bg-[#f4f6f9] rounded-t-xl p-4 text-center border-b">
-              <div className="text-lg font-extrabold text-[#e74c3c]">🆕 NEW OUTLET DETECTED</div>
-              <div className="text-sm text-gray-600">"{outletGuard.outlet}" is not in Master Data — like core.py validate_or_register_outlet</div>
+              <div className="text-lg font-extrabold text-[#e74c3c]">{t("dash.newOutlet")}</div>
+              <div className="text-sm text-gray-600">{t("dash.newOutletMsg", { outlet: outletGuard.outlet })}</div>
             </div>
             <div className="p-4">
               {outletGuard.similar.length>0 ? (
                 <div>
-                  <div className="text-sm font-bold mb-2">Did you mean one of these?</div>
+                  <div className="text-sm font-bold mb-2">{t("dash.didYouMean")}</div>
                   <div className="space-y-2">
                     {outletGuard.similar.map(s=> <button key={s} onClick={()=> outletGuard.onConfirm(s)} className="w-full text-left px-3 py-2 border rounded-lg hover:bg-[#ecf0f1] text-sm"> {s} </button>)}
-                    <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="w-full text-left px-3 py-2 border-2 border-[#e74c3c] rounded-lg bg-red-50 text-sm font-bold text-[#e74c3c]">No — create it as NEW outlet: {outletGuard.outlet.toUpperCase()}</button>
+                    <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="w-full text-left px-3 py-2 border-2 border-[#e74c3c] rounded-lg bg-red-50 text-sm font-bold text-[#e74c3c]">{t("dash.createNewOutlet", { outlet: outletGuard.outlet.toUpperCase() })}</button>
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-gray-600">No similar outlets found. Will create as new outlet.</div>
+                <div className="text-sm text-gray-600">{t("dash.noSimilar")}</div>
               )}
             </div>
             <div className="p-4 flex gap-2">
-              <button onClick={()=> setOutletGuard(null)} className="flex-1 bg-gray-200 rounded-lg py-2 font-bold text-sm">❌ Cancel</button>
-              <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="flex-1 bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">✅ Confirm & Export</button>
+              <button onClick={()=> setOutletGuard(null)} className="flex-1 bg-gray-200 rounded-lg py-2 font-bold text-sm">❌ {t("dash.cancel")}</button>
+              <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="flex-1 bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">{t("dash.confirmExport")}</button>
             </div>
           </div>
         </div>
