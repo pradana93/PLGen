@@ -1,5 +1,6 @@
 -- Profiles + RLS + SuperAdmin auto-assign for majestap93@gmail.com
 -- Run after schema.sql
+-- FIXED: replaced recursive EXISTS subqueries with SECURITY DEFINER get_user_role()
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -12,27 +13,37 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+-- SECURITY DEFINER helper: avoids RLS recursion when checking a user's role
+create or replace function public.get_user_role(uid UUID)
+RETURNS TEXT
+LANGUAGE SQL
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role FROM public.profiles WHERE id = uid;
+$$;
+
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles for select using (
-  auth.uid() = id OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('SuperAdmin','Admin'))
+  auth.uid() = id OR public.get_user_role(auth.uid()) IN ('SuperAdmin', 'Admin')
 );
 
 drop policy if exists "profiles_insert_admin" on public.profiles;
 create policy "profiles_insert_admin" on public.profiles for insert with check (
-  EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('SuperAdmin','Admin'))
+  public.get_user_role(auth.uid()) IN ('SuperAdmin', 'Admin')
   OR auth.jwt() IS NULL -- allow service_role via backend
 );
 
 drop policy if exists "profiles_update_admin" on public.profiles;
 create policy "profiles_update_admin" on public.profiles for update using (
-  EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('SuperAdmin','Admin'))
+  public.get_user_role(auth.uid()) IN ('SuperAdmin', 'Admin')
 ) with check (
-  EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('SuperAdmin','Admin'))
+  public.get_user_role(auth.uid()) IN ('SuperAdmin', 'Admin')
 );
 
 drop policy if exists "profiles_delete_admin" on public.profiles;
 create policy "profiles_delete_admin" on public.profiles for delete using (
-  EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('SuperAdmin','Admin'))
+  public.get_user_role(auth.uid()) IN ('SuperAdmin', 'Admin')
 );
 
 -- SuperAdmin auto-assign trigger for majestap93@gmail.com
