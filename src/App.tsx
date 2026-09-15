@@ -7,6 +7,8 @@ import Inbound from "./pages/Inbound";
 import ScanPage from "./pages/ScanPage";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import ServerStatus from "./components/ServerStatus";
+import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 
 function Nav(){
   const loc = useLocation();
@@ -25,6 +27,7 @@ function Nav(){
         {link("/admin","Admin")}
       </div>
       <div className="ml-auto flex items-center gap-2">
+        <ServerStatus />
         {user ? (
           <>
             <span className="text-xs hidden md:block">{profile?.email} <span className="opacity-70">({profile?.role})</span></span>
@@ -61,7 +64,34 @@ function AppRoutes(){
         <Route path="/admin" element={<Protected roles={["SuperAdmin","Admin"]}><Admin /></Protected>} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
       </Routes>
-      <footer className="text-center text-xs text-gray-500 py-6">Made by A. Majesta P. • Burger Bangor Logistics • Production-Live v2.0 | Login via Supabase • PythonAnywhere Master Data</footer>
+      <footer className="border-t bg-white mt-8">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="flex flex-col md:flex-row gap-8">
+            {/* Left: Info */}
+            <div className="flex-1">
+              <div className="text-sm font-bold text-[#2c3e50] mb-2">🛡️ PLGen v{APP_VERSION}</div>
+              <div className="text-xs text-gray-500 space-y-1">
+                <div>Made by A. Majesta P. • Burger Bangor Logistics</div>
+                <div>React/TypeScript WebApp • Vercel + Supabase + PythonAnywhere</div>
+                <div className="font-mono text-gray-400">Latest: {CHANGELOGS[0]?.hash} — {CHANGELOGS[0]?.date}</div>
+              </div>
+            </div>
+            {/* Right: Changelogs */}
+            <div className="flex-1">
+              <div className="text-sm font-bold text-[#2c3e50] mb-2">📝 Changelogs</div>
+              <div className="space-y-1.5 max-h-[160px] overflow-auto">
+                {CHANGELOGS.slice(0, 8).map((c) => (
+                  <div key={c.hash} className="flex items-start gap-2 text-xs">
+                    <span className="font-mono text-[10px] bg-[#ecf0f1] text-[#2c3e50] px-1.5 py-0.5 rounded shrink-0 font-bold">{c.hash}</span>
+                    <span className="text-gray-500 shrink-0">{c.date}</span>
+                    <span className="text-gray-700">{c.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
     </>
   );
 }
