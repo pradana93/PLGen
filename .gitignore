@@ -25,6 +25,7 @@ yarn-debug.log*
 # Local file DB (ephemeral on Vercel -> /tmp, persistent via Supabase)
 data/
 !data/.gitkeep
+!data/master_data.json
 
 # Supabase
 .supabase/
