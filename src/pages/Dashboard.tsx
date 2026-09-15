@@ -18,6 +18,7 @@ export default function Dashboard(){
   const [toast, setToast] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [shortage, setShortage] = useState<null | { shortages: {sku:string, req:number, avail:number, short:number}[], pending: typeof order, company: "BBB"|"BBT", fileName: string }>(null);
+  const [outletGuard, setOutletGuard] = useState<null | { outlet: string, similar: string[], onConfirm: (final:string)=>void }>(null);
 
   // Load master & checkers on mount
   useEffect(()=>{
@@ -76,19 +77,41 @@ export default function Dashboard(){
     showToast(`✅ ${workingBoxes.length} Koli Approved`);
   };
 
-  const handleExport = async ()=>{
+  const doExport = async (finalOutlet: string)=>{
     if(!boxes.length) return showToast("❌ Calculate boxes first");
-    if(!outlet) return showToast("❌ Enter outlet name");
+    if(!finalOutlet) return showToast("❌ Enter outlet name");
     if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
     try {
-      const { deliveryNo } = await exportPackingList(outlet, boxes, order, { ...master, companyCode } as any, clusterText);
-      await exportLabels(outlet, boxes, master);
-      // outlet history local
+      const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText);
+      await exportLabels(finalOutlet, boxes, master);
       const hist = JSON.parse(localStorage.getItem("outlet_history")||"[]");
-      if(!hist.includes(outlet.toUpperCase())){ hist.push(outlet.toUpperCase()); localStorage.setItem("outlet_history", JSON.stringify(hist)); }
+      if(!hist.includes(finalOutlet.toUpperCase())){ hist.push(finalOutlet.toUpperCase()); localStorage.setItem("outlet_history", JSON.stringify(hist)); }
+      // If outlet was auto-registered, also push to backend like Python validate_or_register_outlet does
+      const upper = finalOutlet.trim().toUpperCase();
+      if(!master.OUTLET_INFO?.[upper]){
+        try { await fetch(`${(import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"))}/api/outlet/register`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ outlet_name: upper, outlet_data: { name: finalOutlet, phone: "", address: "", auto_registered: true, registered_at: new Date().toISOString() }})}); } catch {}
+        // Update local master
+        const newMaster = { ...master, OUTLET_INFO: { ...(master.OUTLET_INFO||{}), [upper]: { name: finalOutlet, phone: "", address: "" } } };
+        setMaster(newMaster);
+      }
       showToast(`💾 Exported ${deliveryNo} • ${boxes.length} Koli`);
     } catch(e:any){ showToast("❌ Export failed: "+e.message); }
+  };
+
+  const handleExport = async ()=>{
+    if(!boxes.length) return showToast("❌ Calculate boxes first");
+    if(!outlet.trim()) return showToast("❌ Enter outlet name");
+    if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
+    const upper = outlet.trim().toUpperCase();
+    if(master.OUTLET_INFO?.[upper]){
+      await doExport(outlet);
+      return;
+    }
+    // Typo guard like core.py validate_or_register_outlet
+    const allOutlets = Object.keys(master.OUTLET_INFO || {});
+    const similar = allOutlets.filter(o=> upper.includes(o) || o.includes(upper)).slice(0,5);
+    setOutletGuard({ outlet, similar, onConfirm: async (final:string)=>{ setOutletGuard(null); setOutlet(final); await doExport(final); } });
   };
 
   // Exact port of core.py handle_drop / addons.py open_auto_mode stock validation
@@ -110,63 +133,107 @@ export default function Dashboard(){
     showToast(`🎯 Scanned ${fileName}: ${Object.keys(results).length} SKUs [${company}]`);
   };
 
-  const handleFile = async (file: File)=>{
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    try {
-      let data: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT" } | null = null;
-      if(ext==="xlsx"||ext==="xls"){
-        data = await smartScanExcel(file, master);
-      } else if(ext==="pdf"){
-        data = await smartScanPdf(file, master);
-      } else {
-        showToast("❌ Unsupported file — please use PDF or Excel (xlsx/xls)");
-        return;
-      }
-      if(!data) { showToast("❌ Scan failed — no data"); return; }
-      const { results, company } = data;
-      if(Object.keys(results).length===0){
-        showToast("❌ No SKUs found in file");
-        return;
-      }
-      // Build pendingTotals with multipliers exactly like Python handle_drop
-      const pendingTotals: Record<string, number> = {};
-      for(const [sku, d] of Object.entries(results)){
-        let adj = d.qty;
-        if(["Beef Patty Small","Beef Patty Large"].includes(sku)) adj *= 18;
-        else if(sku==="Thousand Island Mayonaise") adj *= 20;
-        else if(sku==="Butter") adj *= 40;
-        pendingTotals[sku] = adj;
-      }
-      // Fetch live stock like sync_current_stock()
-      let currentStock: Record<string, number> = {};
-      try { currentStock = await apiGet("/api/current_stock"); } catch { currentStock = {}; }
-      const shortages: {sku:string, req:number, avail:number, short:number}[] = [];
-      for(const [sku, req] of Object.entries(pendingTotals)){
-        const avail = currentStock[sku] ?? 0;
-        if(avail < req) shortages.push({ sku, req, avail, short: req - avail });
-      }
-      if(shortages.length>0){
-        // Show shortage modal like addons.py validate_stock_levels (Cancel vs Force)
-        setShortage({ shortages, pending: results, company, fileName: file.name });
-        // Also fire early warning to backend (like notify_admin_early_warning) — fire-and-forget
-        try { fetch(`${(import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"))}/api/audit_logs`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user:"Operator", role:"Terminal", action_type:"STOCK_SHORTAGE", details:`Shortage on ${file.name}: ${shortages.map(s=>`${s.sku} req ${s.req} avail ${s.avail}`).join("; ")}`})}); } catch {}
-        return; // wait for user decision via modal
-      }
-      applyScanResults(results, company, file.name);
-    } catch(e:any){
-      const msg = e?.message || String(e);
-      if(msg.includes("PT BANGOR") || msg.includes("Verification Failed") || msg.includes("Document does not belong")){
-        showToast("❌ Verification Failed: Document does not belong to PT BANGOR BERKEMBANG BERSAMA or PT BANGOR BERANI TERUKUR.");
-      } else {
-        showToast(`❌ Scan failed: ${msg}`);
+  // 1:1 port of core.py handle_drop — supports 2 files dragged simultaneously
+  const handleFiles = async (files: File[])=>{
+    if(files.length===0) return;
+    let successCount = 0;
+    const pendingTotals: Record<string, number> = {};
+    const processedResults: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string }[] = [];
+    let lastCompany: "BBB"|"BBT" = companyCode;
+    const errors: string[] = [];
+
+    for(const file of files){
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      try {
+        let data: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT" } | null = null;
+        if(ext==="xlsx"||ext==="xls"){
+          data = await smartScanExcel(file, master);
+        } else if(ext==="pdf"){
+          data = await smartScanPdf(file, master);
+        } else {
+          errors.push(`${file.name}: unsupported`);
+          continue;
+        }
+        if(!data || Object.keys(data.results).length===0){
+          // Like Python: scanned_results is {} is falsy? Python checks if not scanned_results, but we treat empty as no scan
+          if(data && Object.keys(data.results).length===0) errors.push(`${file.name}: no SKUs`);
+          continue;
+        }
+        successCount++;
+        processedResults.push({ ...data, fileName: file.name });
+        lastCompany = data.company;
+        // Accumulate pendingTotals with multipliers like Python handle_drop
+        for(const [sku, d] of Object.entries(data.results)){
+          let adj = d.qty;
+          if(["Beef Patty Small","Beef Patty Large"].includes(sku)) adj *= 18;
+          else if(sku==="Thousand Island Mayonaise") adj *= 20;
+          else if(sku==="Butter") adj *= 40;
+          pendingTotals[sku] = (pendingTotals[sku] || 0) + adj;
+        }
+      } catch(e:any){
+        const msg = e?.message || String(e);
+        if(msg.includes("PT BANGOR") || msg.includes("Document does not belong")){
+          showToast(`❌ ${file.name}: Verification Failed — Document does not belong to PT BANGOR`);
+          return;
+        } else {
+          errors.push(`${file.name}: ${msg}`);
+        }
       }
     }
+
+    if(successCount===0){
+      if(errors.length) showToast(`❌ Scan failed: ${errors.join("; ")}`);
+      else showToast("❌ Invalid file(s) dropped or scan failed.");
+      return;
+    }
+
+    // Single stock validation for combined pendingTotals like Python
+    let currentStock: Record<string, number> = {};
+    try { currentStock = await apiGet("/api/current_stock"); } catch { currentStock = {}; }
+    const shortages: {sku:string, req:number, avail:number, short:number}[] = [];
+    for(const [sku, req] of Object.entries(pendingTotals)){
+      const avail = currentStock[sku] ?? 0;
+      if(avail < req) shortages.push({ sku, req, avail, short: req - avail });
+    }
+    if(shortages.length>0){
+      // Show shortage modal once for combined files
+      const combinedPending: Record<string, {qty:number, note:string}> = {};
+      for(const pr of processedResults) for(const [k,v] of Object.entries(pr.results)) {
+        if(combinedPending[k]) combinedPending[k].qty += v.qty;
+        else combinedPending[k] = { ...v };
+      }
+      setShortage({ shortages, pending: combinedPending, company: lastCompany, fileName: files.map(f=> f.name).join(", ") });
+      try { fetch(`${(import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"))}/api/audit_logs`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user:"Operator", role:"Terminal", action_type:"STOCK_SHORTAGE", details:`Shortage on ${files.map(f=>f.name).join(", ")}: ${shortages.map(s=>`${s.sku} req ${s.req} avail ${s.avail}`).join("; ")}`})}); } catch {}
+      // Store processedResults for force import
+      (window as any).__pendingScanResults = processedResults;
+      (window as any).__pendingCompany = lastCompany;
+      return;
+    }
+
+    // No shortage — merge all like Python handle_drop is_safe branch
+    const next = { ...order };
+    for(const pr of processedResults){
+      for(const [s,r] of Object.entries(pr.results)){
+        let adj = r.qty;
+        if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj *= 18;
+        else if(s==="Thousand Island Mayonaise") adj *= 20;
+        else if(s==="Butter") adj *= 40;
+        if(s in next) next[s]={ qty: next[s].qty + adj, note: r.note && !next[s].note.includes(r.note) ? `${next[s].note}/${r.note}`.replace(/^\/|\/$/g,"") : next[s].note || r.note };
+        else next[s]={ qty: adj, note: r.note };
+      }
+    }
+    setCompanyCode(lastCompany);
+    setOrder(next);
+    showToast(`🎯 Scanned ${successCount} file(s): ${Object.keys(pendingTotals).length} SKUs [${lastCompany}]`);
   };
+
+  const handleFile = async (file: File)=> handleFiles([file]);
 
   const onDrop = (e: React.DragEvent)=>{
     e.preventDefault(); setDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if(f) handleFile(f);
+    const files = Array.from(e.dataTransfer.files || []);
+    if(files.length===1) handleFile(files[0]);
+    else if(files.length>1) handleFiles(files);
   };
 
   return (
@@ -223,8 +290,8 @@ export default function Dashboard(){
             <div className="text-sm font-extrabold">{dragOver?"📥 DROP FILE HERE":"📄 DRAG & DROP PDF / Excel HERE"}</div>
             <div className="text-xs text-gray-500">Supports Surat Jalan PDF & Excel (xlsx/xls) — same logic as core.py/addons.py</div>
             <label className="inline-block mt-1 px-3 py-1 bg-[#3498db] text-white rounded-full text-xs font-bold cursor-pointer">
-              📂 Browse File
-              <input type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); }} />
+              📂 Browse File(s) — PDF/Excel, 2 files supported
+              <input type="file" accept=".xlsx,.xls,.pdf" multiple className="hidden" onChange={e=>{ const files = Array.from(e.target.files || []); if(files.length===1) handleFile(files[0]); else if(files.length>1) handleFiles(files); (e.target as HTMLInputElement).value=""; }} />
             </label>
           </div>
 
@@ -368,8 +435,36 @@ export default function Dashboard(){
               <div className="text-xs text-gray-500 mt-2">Admin has been notified (early warning). Choose to cancel or force import anyway.</div>
             </div>
             <div className="p-4 flex gap-2">
-              <button onClick={()=> { setShortage(null); showToast("⚠️ Import cancelled due to stock shortages"); }} className="flex-1 bg-[#e74c3c] text-white rounded-lg py-3 font-bold">❌ CANCEL IMPORT</button>
-              <button onClick={()=> { const d=shortage; setShortage(null); if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported despite shortages"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-3 font-bold">⚠️ FORCE IMPORT ANYWAY</button>
+              <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast("⚠️ Import cancelled due to stock shortages"); }} className="flex-1 bg-[#e74c3c] text-white rounded-lg py-3 font-bold">❌ CANCEL IMPORT</button>
+              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported despite shortages"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-3 font-bold">⚠️ FORCE IMPORT ANYWAY</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {outletGuard && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="bg-[#f4f6f9] rounded-t-xl p-4 text-center border-b">
+              <div className="text-lg font-extrabold text-[#e74c3c]">🆕 NEW OUTLET DETECTED</div>
+              <div className="text-sm text-gray-600">"{outletGuard.outlet}" is not in Master Data — like core.py validate_or_register_outlet</div>
+            </div>
+            <div className="p-4">
+              {outletGuard.similar.length>0 ? (
+                <div>
+                  <div className="text-sm font-bold mb-2">Did you mean one of these?</div>
+                  <div className="space-y-2">
+                    {outletGuard.similar.map(s=> <button key={s} onClick={()=> outletGuard.onConfirm(s)} className="w-full text-left px-3 py-2 border rounded-lg hover:bg-[#ecf0f1] text-sm"> {s} </button>)}
+                    <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="w-full text-left px-3 py-2 border-2 border-[#e74c3c] rounded-lg bg-red-50 text-sm font-bold text-[#e74c3c]">No — create it as NEW outlet: {outletGuard.outlet.toUpperCase()}</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">No similar outlets found. Will create as new outlet.</div>
+              )}
+            </div>
+            <div className="p-4 flex gap-2">
+              <button onClick={()=> setOutletGuard(null)} className="flex-1 bg-gray-200 rounded-lg py-2 font-bold text-sm">❌ Cancel</button>
+              <button onClick={()=> outletGuard.onConfirm(outletGuard.outlet)} className="flex-1 bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">✅ Confirm & Export</button>
             </div>
           </div>
         </div>
