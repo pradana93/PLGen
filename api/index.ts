@@ -216,8 +216,115 @@ function requireBearer(req: any, res: any, next: any) {
   next();
 }
 
+// ===== Supabase User Management (Login Page + Admin RM) =====
+// Helper: get user from Supabase JWT (Authorization: Bearer <jwt>)
+async function getUserFromReq(req: any): Promise<{ id: string, email: string, role: string } | null> {
+  try {
+    const auth = String(req.headers.authorization || "");
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!token) return null;
+    const sb = await getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.auth.getUser(token);
+    if (error || !data?.user) return null;
+    const uid = data.user.id;
+    const email = (data.user.email || "").toLowerCase();
+    // Fetch role from profiles (service_role bypass RLS, but we use same client)
+    const { data: prof } = await sb.from("profiles").select("role,email").eq("id", uid).single();
+    const role = prof?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
+    // Auto-fix SuperAdmin for majestap93@gmail.com if role is not SuperAdmin
+    if (email === "majestap93@gmail.com" && role !== "SuperAdmin") {
+      await sb.from("profiles").upsert({ id: uid, email, role: "SuperAdmin" }, { onConflict: "id" });
+      return { id: uid, email, role: "SuperAdmin" };
+    }
+    return { id: uid, email, role };
+  } catch { return null; }
+}
+async function requireSupabaseAdmin(req: any, res: any, next: any) {
+  const user = await getUserFromReq(req);
+  if (!user || !["SuperAdmin","Admin"].includes(user.role)) return res.status(403).json({ error: "Admin only" });
+  (req as any).supaUser = user;
+  next();
+}
+
+// GET /api/me — who am I (role)
+app.get("/api/me", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  res.json(user);
+});
+
+// GET /api/users — list profiles (Admin only)
+app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
+  const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at").order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST /api/users — Admin creates account (email+password+role) — no public signup
+app.post("/api/users", requireSupabaseAdmin, async (req, res) => {
+  const { email, password, role, alias } = req.body;
+  if (!email || !password || !role) return res.status(400).json({ error: "Missing email/password/role" });
+  const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+  if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
+  // Prevent creating another SuperAdmin unless requester is SuperAdmin
+  const requester = (req as any).supaUser;
+  if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can create SuperAdmin" });
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
+  const { data, error } = await sb.auth.admin.createUser({ email: String(email).toLowerCase().trim(), password, email_confirm: true, user_metadata: { alias: alias || email.split("@")[0], role } });
+  if (error) return res.status(400).json({ error: error.message });
+  const uid = data.user?.id;
+  if (uid) {
+    // Ensure profile role (trigger should have created, but upsert to be sure)
+    await sb.from("profiles").upsert({ id: uid, email: String(email).toLowerCase().trim(), role, alias: alias || email.split("@")[0] }, { onConflict: "id" });
+  }
+  res.json({ status: "success", id: uid });
+});
+
+// PATCH /api/users/:id — Admin edits role/alias
+app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
+  const { role, alias } = req.body;
+  const id = req.params.id;
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
+  const updates: any = {};
+  if (role) {
+    const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+    if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
+    const requester = (req as any).supaUser;
+    if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can assign SuperAdmin" });
+    updates.role = role;
+  }
+  if (alias !== undefined) updates.alias = alias;
+  if (Object.keys(updates).length===0) return res.status(400).json({ error: "No updates" });
+  const { error } = await sb.from("profiles").update(updates).eq("id", id);
+  if (error) return res.status(400).json({ error: error.message });
+  // Also update auth user_metadata if alias
+  if (alias) try { await sb.auth.admin.updateUserById(id, { user_metadata: { alias } }); } catch {}
+  res.json({ status: "success" });
+});
+
+// DELETE /api/users/:id — Admin removes account
+app.delete("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
+  const id = req.params.id;
+  // Prevent self-delete and SuperAdmin delete by non-SuperAdmin
+  const requester = (req as any).supaUser;
+  if (id === requester.id) return res.status(400).json({ error: "Cannot delete self" });
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
+  const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
+  if (target?.role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
+  const { error } = await sb.auth.admin.deleteUser(id);
+  if (error) return res.status(400).json({ error: error.message });
+  await sb.from("profiles").delete().eq("id", id);
+  res.json({ status: "success" });
+});
+
 // Health
-app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "2.0.0", wib: wibNowStr() }));
+app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "2.0.0", wib: wibNowStr(), supabase: isSupabaseConfigured, pythonAnywhere: !!PYTHONANYWHERE_URL }));
 
 // ===== Master Data — PythonAnywhere primary (user reverted), Supabase/file fallback =====
 app.get("/api/master_data", async (req, res) => {
