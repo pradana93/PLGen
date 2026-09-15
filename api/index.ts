@@ -26,6 +26,7 @@ const DATA_DIR = IS_VERCEL ? path.join("/tmp", "plgen_data") : path.join(__dirna
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const MASTER_FILE = "master_data.json";
 
 // Supabase as primary backend (per user request: master_data.json now in Supabase, not PythonAnywhere)
 // File is local cache/fallback for offline/dev
@@ -193,9 +194,17 @@ const FALLBACK_MASTER_DATA: any = {
   ITEM_WEIGHT_GRAMS: { "Beef Patty Small": 1000, "Beef Patty Large": 1200, "Chicken Nugget": 500, "HD Bun": 800 }
 };
 
-// Ensure master_data.json exists
-const MASTER_FILE = "master_data.json";
-if (!fs.existsSync(path.join(DATA_DIR, MASTER_FILE))) jsonWrite(MASTER_FILE, FALLBACK_MASTER_DATA);
+// Ensure master_data.json exists — seed from committed data/ for zero-error (Vercel /tmp is empty on cold start)
+if (!fs.existsSync(path.join(DATA_DIR, MASTER_FILE))) {
+  try {
+    const committed = path.join(process.cwd(), "data", MASTER_FILE);
+    if (fs.existsSync(committed)) {
+      fs.copyFileSync(committed, path.join(DATA_DIR, MASTER_FILE));
+    } else {
+      jsonWrite(MASTER_FILE, FALLBACK_MASTER_DATA);
+    }
+  } catch { jsonWrite(MASTER_FILE, FALLBACK_MASTER_DATA); }
+}
 
 // ===== Auth helpers =====
 function requireAdmin(req: any, res: any, next: any) {
