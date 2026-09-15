@@ -207,27 +207,29 @@ export default function Admin(){
           {masterTab==="skus" && (
             <div>
               <input value={skuSearch} onChange={e=> setSkuSearch(e.target.value)} placeholder="Search SKU, category, UOM..." className="w-full border rounded-lg px-3 py-2 text-sm mb-3" />
-              <div className="border rounded-lg overflow-hidden max-h-[420px] overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">SKU Name</th><th className="p-2">Category</th><th className="p-2">UOM</th><th className="p-2">Box Capacity</th><th className="p-2">Weight (g)</th></tr></thead>
-                  <tbody>
-                    {(()=>{
-                      const cats = master.CATEGORIES || {};
-                      const catOf: Record<string,string> = {};
-                      for(const [cat, list] of Object.entries(cats as Record<string,string[]>)) for(const sku of list) catOf[sku]=cat;
-                      const rows = Object.keys(master.BOX_CAPACITY||{}).filter(sku=> !skuSearch || sku.toLowerCase().includes(skuSearch.toLowerCase()) || (catOf[sku]||"").toLowerCase().includes(skuSearch.toLowerCase())).sort();
-                      return rows.map(sku=> (
-                        <tr key={sku} className="border-t hover:bg-gray-50">
-                          <td className="p-2 font-medium">{sku}</td>
-                          <td className="p-2 text-center"><span className="px-2 py-1 rounded bg-[#ecf0f1] text-[11px]">{catOf[sku]||"-"}</span></td>
-                          <td className="p-2 text-center">{master.ITEM_UOM?.[sku]||"-"}</td>
-                          <td className="p-2 text-center font-mono">{master.BOX_CAPACITY[sku]}</td>
-                          <td className="p-2 text-center font-mono">{master.ITEM_WEIGHT_GRAMS?.[sku] ?? 0}</td>
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-2 text-left">SKU Name</th><th className="p-2">Category</th><th className="p-2">UOM</th><th className="p-2">Box Capacity</th><th className="p-2">Weight (g)</th></tr></thead>
+                    <tbody>
+                      {(()=>{
+                        const cats = master.CATEGORIES || {};
+                        const catOf: Record<string,string> = {};
+                        for(const [cat, list] of Object.entries(cats as Record<string,string[]>)) for(const sku of list) catOf[sku]=cat;
+                        const rows = Object.keys(master.BOX_CAPACITY||{}).filter(sku=> !skuSearch || sku.toLowerCase().includes(skuSearch.toLowerCase()) || (catOf[sku]||"").toLowerCase().includes(skuSearch.toLowerCase())).sort();
+                        return rows.map(sku=> (
+                          <tr key={sku} className="border-t hover:bg-gray-50">
+                            <td className="p-2 font-medium">{sku}</td>
+                            <td className="p-2 text-center"><span className="px-2 py-1 rounded bg-[#ecf0f1] text-[11px]">{catOf[sku]||"-"}</span></td>
+                            <td className="p-2 text-center">{master.ITEM_UOM?.[sku]||"-"}</td>
+                            <td className="p-2 text-center font-mono">{master.BOX_CAPACITY[sku]}</td>
+                            <td className="p-2 text-center font-mono">{master.ITEM_WEIGHT_GRAMS?.[sku] ?? 0}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -235,20 +237,22 @@ export default function Admin(){
           {masterTab==="kodes" && (
             <div>
               <input value={kodeSearch} onChange={e=> setKodeSearch(e.target.value)} placeholder="Search KODE or SKU..." className="w-full border rounded-lg px-3 py-2 text-sm mb-3" />
-              <div className="border rounded-lg overflow-hidden max-h-[420px] overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">KODE_BARANG</th><th className="p-2 text-left">Maps To SKU</th><th className="p-2">Box Cap</th><th className="p-2">UOM</th></tr></thead>
-                  <tbody>
-                    {Object.entries(master.KODE_BARANG||{}).filter(([k,v])=> !kodeSearch || k.toLowerCase().includes(kodeSearch.toLowerCase()) || String(v).toLowerCase().includes(kodeSearch.toLowerCase())).sort(([a],[b])=> a.localeCompare(b)).map(([k,v])=> (
-                      <tr key={k} className="border-t">
-                        <td className="p-2 font-mono font-bold">{k}</td>
-                        <td className="p-2">{String(v)}</td>
-                        <td className="p-2 text-center font-mono">{master.BOX_CAPACITY[String(v)] ?? "-"}</td>
-                        <td className="p-2 text-center">{master.ITEM_UOM[String(v)] ?? "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-2 text-left">KODE_BARANG</th><th className="p-2 text-left">Maps To SKU</th><th className="p-2">Box Cap</th><th className="p-2">UOM</th></tr></thead>
+                    <tbody>
+                      {Object.entries(master.KODE_BARANG||{}).filter(([k,v])=> !kodeSearch || k.toLowerCase().includes(kodeSearch.toLowerCase()) || String(v).toLowerCase().includes(kodeSearch.toLowerCase())).sort(([a],[b])=> a.localeCompare(b)).map(([k,v])=> (
+                        <tr key={k} className="border-t">
+                          <td className="p-2 font-mono font-bold">{k}</td>
+                          <td className="p-2">{String(v)}</td>
+                          <td className="p-2 text-center font-mono">{master.BOX_CAPACITY[String(v)] ?? "-"}</td>
+                          <td className="p-2 text-center">{master.ITEM_UOM[String(v)] ?? "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -256,21 +260,23 @@ export default function Admin(){
           {masterTab==="outlets" && (
             <div>
               <input value={outletSearch} onChange={e=> setOutletSearch(e.target.value)} placeholder="Search outlet name, address, phone..." className="w-full border rounded-lg px-3 py-2 text-sm mb-3" />
-              <div className="border rounded-lg overflow-hidden max-h-[420px] overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">OUTLET (248)</th><th className="p-2">Receiver</th><th className="p-2">Phone</th><th className="p-2 text-left">Address</th></tr></thead>
-                  <tbody>
-                    {Object.entries(master.OUTLET_INFO||{}).filter(([k,v]:any)=> !outletSearch || k.toLowerCase().includes(outletSearch.toLowerCase()) || String((v as any).name||"").toLowerCase().includes(outletSearch.toLowerCase()) || String((v as any).address||"").toLowerCase().includes(outletSearch.toLowerCase())).sort(([a],[b])=> a.localeCompare(b)).slice(0,100).map(([k,v]:any)=> (
-                      <tr key={k} className="border-t hover:bg-gray-50">
-                        <td className="p-2 font-bold">{k}</td>
-                        <td className="p-2">{v.name||"-"}</td>
-                        <td className="p-2 font-mono">{(v.phone||"").trim()||"-"}</td>
-                        <td className="p-2 text-[11px] max-w-[320px] truncate" title={v.address}>{v.address||"-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="text-[11px] text-gray-400 p-2">Showing first 100 matches — use search to filter 248 outlets. Full data in PythonAnywhere.</div>
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[#f4f6f9] sticky top-0 z-10"><tr><th className="p-2 text-left">OUTLET (248)</th><th className="p-2">Receiver</th><th className="p-2">Phone</th><th className="p-2 text-left">Address</th></tr></thead>
+                    <tbody>
+                      {Object.entries(master.OUTLET_INFO||{}).filter(([k,v]:any)=> !outletSearch || k.toLowerCase().includes(outletSearch.toLowerCase()) || String((v as any).name||"").toLowerCase().includes(outletSearch.toLowerCase()) || String((v as any).address||"").toLowerCase().includes(outletSearch.toLowerCase())).sort(([a],[b])=> a.localeCompare(b)).slice(0,100).map(([k,v]:any)=> (
+                        <tr key={k} className="border-t hover:bg-gray-50">
+                          <td className="p-2 font-bold">{k}</td>
+                          <td className="p-2">{v.name||"-"}</td>
+                          <td className="p-2 font-mono">{(v.phone||"").trim()||"-"}</td>
+                          <td className="p-2 text-[11px] max-w-[320px] truncate" title={v.address}>{v.address||"-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="text-[11px] text-gray-400 p-2 border-t">Showing first 100 matches — use search to filter 248 outlets. Full data in PythonAnywhere.</div>
               </div>
             </div>
           )}
