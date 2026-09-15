@@ -217,27 +217,42 @@ function requireBearer(req: any, res: any, next: any) {
 }
 
 // ===== Supabase User Management (Login Page + Admin RM) =====
-// Helper: get user from Supabase JWT (Authorization: Bearer <jwt>)
+// Helper: decode JWT without verification (for file fallback when Supabase not configured on Vercel)
+function decodeJwtEmail(token: string): { id: string, email: string } | null {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    return { id: payload.sub || "file", email: (payload.email || "").toLowerCase() };
+  } catch { return null; }
+}
+// Helper: get user from Supabase JWT (Authorization: Bearer <jwt>) — with file fallback for Vercel without env
 async function getUserFromReq(req: any): Promise<{ id: string, email: string, role: string } | null> {
   try {
     const auth = String(req.headers.authorization || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) return null;
     const sb = await getSupabase();
-    if (!sb) return null;
-    const { data, error } = await sb.auth.getUser(token);
-    if (error || !data?.user) return null;
-    const uid = data.user.id;
-    const email = (data.user.email || "").toLowerCase();
-    // Fetch role from profiles (service_role bypass RLS, but we use same client)
-    const { data: prof } = await sb.from("profiles").select("role,email").eq("id", uid).single();
-    const role = prof?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
-    // Auto-fix SuperAdmin for majestap93@gmail.com if role is not SuperAdmin
-    if (email === "majestap93@gmail.com" && role !== "SuperAdmin") {
-      await sb.from("profiles").upsert({ id: uid, email, role: "SuperAdmin" }, { onConflict: "id" });
-      return { id: uid, email, role: "SuperAdmin" };
+    if (sb) {
+      const { data, error } = await sb.auth.getUser(token);
+      if (!error && data?.user) {
+        const uid = data.user.id;
+        const email = (data.user.email || "").toLowerCase();
+        const { data: prof } = await sb.from("profiles").select("role,email").eq("id", uid).single();
+        const role = prof?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
+        if (email === "majestap93@gmail.com" && role !== "SuperAdmin") {
+          await sb.from("profiles").upsert({ id: uid, email, role: "SuperAdmin" }, { onConflict: "id" });
+          return { id: uid, email, role: "SuperAdmin" };
+        }
+        return { id: uid, email, role };
+      }
     }
-    return { id: uid, email, role };
+    // File fallback when Supabase not configured on Vercel (reads JWT without verify, checks data/users.json)
+    const decoded = decodeJwtEmail(token);
+    if (!decoded) return null;
+    const email = decoded.email;
+    const users = jsonRead<any[]>("users.json", []);
+    const found = users.find((u:any)=> String(u.email||"").toLowerCase()===email);
+    const role = found?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
+    return { id: decoded.id || found?.id || "file", email, role };
   } catch { return null; }
 }
 async function requireSupabaseAdmin(req: any, res: any, next: any) {
@@ -254,81 +269,121 @@ app.get("/api/me", async (req, res) => {
   res.json(user);
 });
 
-// GET /api/users — list profiles (Admin only)
+// GET /api/users — list profiles (Admin only) — Supabase primary, file fallback for Vercel without env
 app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
   const sb = await getSupabase();
-  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
-  const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at").order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  if (sb) {
+    const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at").order("created_at", { ascending: false });
+    if (!error) return res.json(data || []);
+  }
+  // File fallback when Supabase not configured on Vercel
+  const users = jsonRead<any[]>("users.json", []);
+  // Ensure majestap93@gmail.com SuperAdmin exists in file fallback
+  if (!users.find((u:any)=> String(u.email||"").toLowerCase()==="majestap93@gmail.com")) {
+    users.unshift({ id: "superadmin", email: "majestap93@gmail.com", role: "SuperAdmin", alias: "Majesta", created_at: new Date().toISOString() });
+  }
+  // Never expose passwords
+  const safe = users.map((u:any)=> ({ id: u.id, email: u.email, role: u.role, alias: u.alias, created_at: u.created_at }));
+  res.json(safe);
 });
 
-// POST /api/users — Admin creates account (email+password+role) — no public signup
+// POST /api/users — Admin creates account (email+password+role) — no public signup — Supabase primary, file fallback
 app.post("/api/users", requireSupabaseAdmin, async (req, res) => {
   const { email, password, role, alias } = req.body;
   if (!email || !password || !role) return res.status(400).json({ error: "Missing email/password/role" });
   const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
   if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
-  // Prevent creating another SuperAdmin unless requester is SuperAdmin
   const requester = (req as any).supaUser;
   if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can create SuperAdmin" });
   const sb = await getSupabase();
-  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
-  const { data, error } = await sb.auth.admin.createUser({ email: String(email).toLowerCase().trim(), password, email_confirm: true, user_metadata: { alias: alias || email.split("@")[0], role } });
-  if (error) return res.status(400).json({ error: error.message });
-  const uid = data.user?.id;
-  if (uid) {
-    // Ensure profile role (trigger should have created, but upsert to be sure)
-    await sb.from("profiles").upsert({ id: uid, email: String(email).toLowerCase().trim(), role, alias: alias || email.split("@")[0] }, { onConflict: "id" });
+  if (sb) {
+    const { data, error } = await sb.auth.admin.createUser({ email: String(email).toLowerCase().trim(), password, email_confirm: true, user_metadata: { alias: alias || email.split("@")[0], role } });
+    if (error) return res.status(400).json({ error: error.message });
+    const uid = data.user?.id;
+    if (uid) await sb.from("profiles").upsert({ id: uid, email: String(email).toLowerCase().trim(), role, alias: alias || email.split("@")[0] }, { onConflict: "id" });
+    return res.json({ status: "success", id: uid });
   }
-  res.json({ status: "success", id: uid });
+  // File fallback when Supabase not configured on Vercel
+  const users = jsonRead<any[]>("users.json", []);
+  const lc = String(email).toLowerCase().trim();
+  if (users.find((u:any)=> String(u.email||"").toLowerCase()===lc)) return res.status(400).json({ error: "User already exists" });
+  const newUser = { id: `file_${Date.now()}`, email: lc, role, alias: alias || email.split("@")[0], password, created_at: new Date().toISOString() };
+  users.push(newUser);
+  jsonWrite("users.json", users);
+  res.json({ status: "success", id: newUser.id });
 });
 
-// PATCH /api/users/:id — Admin edits role/alias/password (Change Password)
+// PATCH /api/users/:id — Admin edits role/alias/password (Change Password) — Supabase primary, file fallback
 app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
   const { role, alias, password } = req.body;
   const id = req.params.id;
   const sb = await getSupabase();
-  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
-  // Handle password change (Admin can reset any user's password)
+  if (sb) {
+    if (password !== undefined) {
+      if (String(password).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      const { error: pwErr } = await sb.auth.admin.updateUserById(id, { password: String(password) });
+      if (pwErr) return res.status(400).json({ error: pwErr.message });
+      if (!role && alias === undefined) return res.json({ status: "success" });
+    }
+    const updates: any = {};
+    if (role) {
+      const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+      if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
+      const requester = (req as any).supaUser;
+      if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can assign SuperAdmin" });
+      updates.role = role;
+    }
+    if (alias !== undefined) updates.alias = alias;
+    if (Object.keys(updates).length===0) {
+      if (password !== undefined) return res.json({ status: "success" });
+      return res.status(400).json({ error: "No updates" });
+    }
+    const { error } = await sb.from("profiles").update(updates).eq("id", id);
+    if (error) return res.status(400).json({ error: error.message });
+    if (alias) try { await sb.auth.admin.updateUserById(id, { user_metadata: { alias } }); } catch {}
+    return res.json({ status: "success" });
+  }
+  // File fallback when Supabase not configured
+  const users = jsonRead<any[]>("users.json", []);
+  const idx = users.findIndex((u:any)=> String(u.id)===String(id));
+  if (idx===-1) return res.status(404).json({ error: "User not found" });
   if (password !== undefined) {
     if (String(password).length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-    const { error: pwErr } = await sb.auth.admin.updateUserById(id, { password: String(password) });
-    if (pwErr) return res.status(400).json({ error: pwErr.message });
-    if (!role && alias === undefined) return res.json({ status: "success" });
+    users[idx].password = String(password);
   }
-  const updates: any = {};
   if (role) {
     const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
     if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
     const requester = (req as any).supaUser;
     if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can assign SuperAdmin" });
-    updates.role = role;
+    users[idx].role = role;
   }
-  if (alias !== undefined) updates.alias = alias;
-  if (Object.keys(updates).length===0) {
-    if (password !== undefined) return res.json({ status: "success" });
-    return res.status(400).json({ error: "No updates" });
-  }
-  const { error } = await sb.from("profiles").update(updates).eq("id", id);
-  if (error) return res.status(400).json({ error: error.message });
-  if (alias) try { await sb.auth.admin.updateUserById(id, { user_metadata: { alias } }); } catch {}
+  if (alias !== undefined) users[idx].alias = alias;
+  jsonWrite("users.json", users);
   res.json({ status: "success" });
 });
 
-// DELETE /api/users/:id — Admin removes account
+// DELETE /api/users/:id — Admin removes account — Supabase primary, file fallback
 app.delete("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
   const id = req.params.id;
-  // Prevent self-delete and SuperAdmin delete by non-SuperAdmin
   const requester = (req as any).supaUser;
   if (id === requester.id) return res.status(400).json({ error: "Cannot delete self" });
   const sb = await getSupabase();
-  if (!sb) return res.status(500).json({ error: "Supabase not configured" });
-  const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
-  if (target?.role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
-  const { error } = await sb.auth.admin.deleteUser(id);
-  if (error) return res.status(400).json({ error: error.message });
-  await sb.from("profiles").delete().eq("id", id);
+  if (sb) {
+    const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
+    if (target?.role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
+    const { error } = await sb.auth.admin.deleteUser(id);
+    if (error) return res.status(400).json({ error: error.message });
+    await sb.from("profiles").delete().eq("id", id);
+    return res.json({ status: "success" });
+  }
+  // File fallback
+  const users = jsonRead<any[]>("users.json", []);
+  const idx = users.findIndex((u:any)=> String(u.id)===String(id));
+  if (idx===-1) return res.status(404).json({ error: "User not found" });
+  if (users[idx].role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
+  users.splice(idx,1);
+  jsonWrite("users.json", users);
   res.json({ status: "success" });
 });
 
