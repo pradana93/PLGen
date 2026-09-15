@@ -20,6 +20,7 @@ type State = {
   subItem: (sku:string, baseQty:number)=>void;
   clearOrder: ()=>void;
   setBoxes: (b: Box[])=>void;
+  setItemNote: (sku: string, note: string) => void;
 };
 
 export const usePackingStore = create<State>()(
@@ -39,6 +40,7 @@ export const usePackingStore = create<State>()(
       setCompanyCode: (v)=> set({ companyCode:v }),
       setCluster: (v)=> set({ cluster:v }),
       setBoxes: (b)=> set({ boxes:b }),
+      setItemNote: (sku, note)=>{ const { order } = get(); const next={...order}; if(next[sku]) next[sku]={ ...next[sku], note }; set({ order: next }); },
       addItem: (sku, baseQty, note)=>{
         const { master, order } = get();
         // multipliers ported from core.py

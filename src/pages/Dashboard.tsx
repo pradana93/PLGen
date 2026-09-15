@@ -9,7 +9,7 @@ import KoliReviewer from "../components/KoliReviewer";
 
 export default function Dashboard(){
   const { profile } = useAuth();
-  const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes } = usePackingStore();
+  const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes, setItemNote } = usePackingStore();
   const [sku, setSku] = useState("Beef Patty Small");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("BGB");
@@ -19,6 +19,7 @@ export default function Dashboard(){
   const [checkersList, setCheckersList] = useState<string[]>(["Masroor","Aji","Fadly","Luthfi"]);
   const [syncState, setSyncState] = useState("Local Backup 💾");
   const [toast, setToast] = useState<string|null>(null);
+  const [editingNote, setEditingNote] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [shortage, setShortage] = useState<null | { shortages: {sku:string, req:number, avail:number, short:number}[], pending: typeof order, company: "BBB"|"BBT", fileName: string }>(null);
   const [outletGuard, setOutletGuard] = useState<null | { outlet: string, similar: string[], onConfirm: (final:string)=>void }>(null);
@@ -369,7 +370,19 @@ export default function Dashboard(){
                       </span>
                     </td>
                     <td className="p-2 text-center"><span className="px-2 py-1 rounded bg-[#ecf0f1] text-xs font-mono">{master.ITEM_UOM?.[s] || "Pack"}</span></td>
-                    <td className="p-2 text-center">{d.note}</td>
+                    <td className="p-2 text-center">
+                      {editingNote===s ? (
+                        <input
+                          autoFocus
+                          defaultValue={d.note}
+                          className="w-full border rounded px-1 py-0.5 text-xs text-center"
+                          onBlur={(e)=>{ setItemNote(s, e.target.value); setEditingNote(null); }}
+                          onKeyDown={(e)=>{ if(e.key==="Enter"){ setItemNote(s, (e.target as HTMLInputElement).value); setEditingNote(null); } if(e.key==="Escape") setEditingNote(null); }}
+                        />
+                      ) : (
+                        <span onClick={()=> setEditingNote(s)} className="cursor-pointer hover:bg-gray-100 px-2 py-1 rounded text-xs" title="Click to edit note">{d.note || "—"}</span>
+                      )}
+                    </td>
                     <td className="p-2 text-center"><button onClick={()=>{
                       const n={...order}; delete n[s]; setOrder(n);
                     }} className="text-xs text-red-600">🗑️ Remove</button></td>
