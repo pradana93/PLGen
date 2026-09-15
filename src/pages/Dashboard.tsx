@@ -3,10 +3,10 @@ import { usePackingStore } from "../store/usePackingStore";
 import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
-import * as XLSX from "xlsx";
+import { smartScanPdf, smartScanExcel } from "../lib/scanner";
 
 export default function Dashboard(){
-  const { master, order, boxes, outlet, checker, cluster, setMaster, setOrder, setOutlet, setChecker, setCluster, addItem, subItem, clearOrder, setBoxes } = usePackingStore();
+  const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes } = usePackingStore();
   const [sku, setSku] = useState("Beef Patty Small");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("BGB");
@@ -81,7 +81,7 @@ export default function Dashboard(){
     if(!checker || checker==="Select Checker") return showToast("❌ Select checker");
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
     try {
-      const { deliveryNo } = await exportPackingList(outlet, boxes, order, master, clusterText);
+      const { deliveryNo } = await exportPackingList(outlet, boxes, order, { ...master, companyCode } as any, clusterText);
       await exportLabels(outlet, boxes, master);
       // outlet history local
       const hist = JSON.parse(localStorage.getItem("outlet_history")||"[]");
@@ -92,44 +92,40 @@ export default function Dashboard(){
 
   const handleFile = async (file: File)=>{
     const ext = file.name.split(".").pop()?.toLowerCase();
-    if(ext==="xlsx"||ext==="xls"){
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf);
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(sheet, { header:1 });
-      // Simple scan: look for known SKUs in first column + qty in next cells
-      const kodeMap: Record<string,string> = {};
-      Object.entries(master.KODE_BARANG||{}).forEach(([k,v])=> kodeMap[String(k).toLowerCase()] = v as string);
-      const skuLookup: Record<string,string> = {};
-      Object.keys(master.BOX_CAPACITY).forEach(s=> skuLookup[s.toLowerCase()] = s);
-      const results: Record<string, {qty:number, note:string}> = {};
-      for(const row of rows){
-        const rowStr = (row as any[]).join(" ").toLowerCase();
-        let found: string|null=null;
-        // kode first
-        for(const k of Object.keys(kodeMap).sort((a,b)=>b.length-a.length)){ if(rowStr.includes(k)){ found=kodeMap[k]; break; } }
-        if(!found) for(const k of Object.keys(skuLookup).sort((a,b)=>b.length-a.length)){ if(rowStr.includes(k)){ found=skuLookup[k]; break; } }
-        if(found){
-          // find qty: first number in row after sku
-          for(const cell of (row as any[]).slice(1)){
-            const nums = String(cell).replace(/\./g,"").replace(/,/g,"").match(/\d+/);
-            if(nums){ const q=parseInt(nums[0],10); if(q>0){ results[found] = { qty: (results[found]?.qty||0)+q, note:"FILE_SCAN" }; break; } }
-          }
-        }
+    try {
+      let data: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT" } | null = null;
+      if(ext==="xlsx"||ext==="xls"){
+        data = await smartScanExcel(file, master);
+      } else if(ext==="pdf"){
+        data = await smartScanPdf(file, master);
+      } else {
+        showToast("❌ Unsupported file — please use PDF or Excel (xlsx/xls)");
+        return;
       }
-      if(Object.keys(results).length){
-        const next = { ...order };
-        for(const [s,r] of Object.entries(results)){
-          let adj=r.qty;
-          if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=1; // already base? keep as is for web
-          if(s in next) next[s]={ qty: next[s].qty+adj, note: next[s].note.includes(r.note)?next[s].note:`${next[s].note}/${r.note}` };
-          else next[s]={ qty: adj, note: r.note };
-        }
-        setOrder(next);
-        showToast(`🎯 Scanned ${file.name}: ${Object.keys(results).length} SKUs`);
-      } else showToast("❌ No SKUs found in file");
-    } else if(ext==="pdf"){
-      showToast("📄 PDF scan requires backend converter — please use Excel for web version or upload via desktop app");
+      if(!data) { showToast("❌ Scan failed — no data"); return; }
+      const { results, company } = data;
+      // Preserve ACTIVE_COMPANY_CODE logic from addons.py
+      setCompanyCode(company);
+      if(Object.keys(results).length===0){
+        showToast("❌ No SKUs found in file");
+        return;
+      }
+      // Merge into order — keep FILE_SCAN note, no extra multiplier here (scanner already returns packed qty as in addons.py)
+      const next = { ...order };
+      for(const [s,r] of Object.entries(results)){
+        if(s in next) next[s]={ qty: next[s].qty + r.qty, note: next[s].note.includes(r.note)? next[s].note : `${next[s].note}/${r.note}` };
+        else next[s]={ qty: r.qty, note: r.note };
+      }
+      setOrder(next);
+      showToast(`🎯 Scanned ${file.name}: ${Object.keys(results).length} SKUs [${company}]`);
+    } catch(e:any){
+      // Mirrors addons.py verification failure: Document does not belong to PT...
+      const msg = e?.message || String(e);
+      if(msg.includes("PT BANGOR") || msg.includes("Verification Failed") || msg.includes("Document does not belong")){
+        showToast("❌ Verification Failed: Document does not belong to PT BANGOR BERKEMBANG BERSAMA or PT BANGOR BERANI TERUKUR.");
+      } else {
+        showToast(`❌ Scan failed: ${msg}`);
+      }
     }
   };
 
@@ -190,8 +186,8 @@ export default function Dashboard(){
             onDrop={onDrop}
             className={`border-2 border-dashed rounded-xl p-4 text-center mb-3 ${dragOver?"bg-green-50 border-green-500":"bg-[#f9fafb] border-gray-300"}`}
           >
-            <div className="text-sm font-extrabold">{dragOver?"📥 DROP FILE HERE":"📄 DRAG & DROP xlsx HERE"}</div>
-            <div className="text-xs text-gray-500">or</div>
+            <div className="text-sm font-extrabold">{dragOver?"📥 DROP FILE HERE":"📄 DRAG & DROP PDF / Excel HERE"}</div>
+            <div className="text-xs text-gray-500">Supports Surat Jalan PDF & Excel (xlsx/xls) — same logic as core.py/addons.py</div>
             <label className="inline-block mt-1 px-3 py-1 bg-[#3498db] text-white rounded-full text-xs font-bold cursor-pointer">
               📂 Browse File
               <input type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={e=>{ const f=e.target.files?.[0]; if(f) handleFile(f); }} />
