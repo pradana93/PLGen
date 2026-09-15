@@ -17,6 +17,7 @@ export default function Dashboard(){
   const [syncState, setSyncState] = useState("Local Backup 💾");
   const [toast, setToast] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [shortage, setShortage] = useState<null | { shortages: {sku:string, req:number, avail:number, short:number}[], pending: typeof order, company: "BBB"|"BBT", fileName: string }>(null);
 
   // Load master & checkers on mount
   useEffect(()=>{
@@ -90,6 +91,25 @@ export default function Dashboard(){
     } catch(e:any){ showToast("❌ Export failed: "+e.message); }
   };
 
+  // Exact port of core.py handle_drop / addons.py open_auto_mode stock validation
+  const applyScanResults = (results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string) => {
+    setCompanyCode(company);
+    const next = { ...order };
+    // For PDF, scanner note is "" like Python; for Excel it's FILE_SCAN — keep as is
+    for(const [s,r] of Object.entries(results)){
+      // pendingTotals already includes multipliers? Scanner returns raw qty, we need to apply multipliers like Python handle_drop does
+      // But scanner's raw qty is before multiplier; we apply here
+      let adj = r.qty;
+      if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj *= 18;
+      else if(s==="Thousand Island Mayonaise") adj *= 20;
+      else if(s==="Butter") adj *= 40;
+      if(s in next) next[s]={ qty: next[s].qty + adj, note: r.note && !next[s].note.includes(r.note) ? `${next[s].note}/${r.note}`.replace(/^\/|\/$/g,"") : next[s].note || r.note };
+      else next[s]={ qty: adj, note: r.note };
+    }
+    setOrder(next);
+    showToast(`🎯 Scanned ${fileName}: ${Object.keys(results).length} SKUs [${company}]`);
+  };
+
   const handleFile = async (file: File)=>{
     const ext = file.name.split(".").pop()?.toLowerCase();
     try {
@@ -104,22 +124,36 @@ export default function Dashboard(){
       }
       if(!data) { showToast("❌ Scan failed — no data"); return; }
       const { results, company } = data;
-      // Preserve ACTIVE_COMPANY_CODE logic from addons.py
-      setCompanyCode(company);
       if(Object.keys(results).length===0){
         showToast("❌ No SKUs found in file");
         return;
       }
-      // Merge into order — keep FILE_SCAN note, no extra multiplier here (scanner already returns packed qty as in addons.py)
-      const next = { ...order };
-      for(const [s,r] of Object.entries(results)){
-        if(s in next) next[s]={ qty: next[s].qty + r.qty, note: next[s].note.includes(r.note)? next[s].note : `${next[s].note}/${r.note}` };
-        else next[s]={ qty: r.qty, note: r.note };
+      // Build pendingTotals with multipliers exactly like Python handle_drop
+      const pendingTotals: Record<string, number> = {};
+      for(const [sku, d] of Object.entries(results)){
+        let adj = d.qty;
+        if(["Beef Patty Small","Beef Patty Large"].includes(sku)) adj *= 18;
+        else if(sku==="Thousand Island Mayonaise") adj *= 20;
+        else if(sku==="Butter") adj *= 40;
+        pendingTotals[sku] = adj;
       }
-      setOrder(next);
-      showToast(`🎯 Scanned ${file.name}: ${Object.keys(results).length} SKUs [${company}]`);
+      // Fetch live stock like sync_current_stock()
+      let currentStock: Record<string, number> = {};
+      try { currentStock = await apiGet("/api/current_stock"); } catch { currentStock = {}; }
+      const shortages: {sku:string, req:number, avail:number, short:number}[] = [];
+      for(const [sku, req] of Object.entries(pendingTotals)){
+        const avail = currentStock[sku] ?? 0;
+        if(avail < req) shortages.push({ sku, req, avail, short: req - avail });
+      }
+      if(shortages.length>0){
+        // Show shortage modal like addons.py validate_stock_levels (Cancel vs Force)
+        setShortage({ shortages, pending: results, company, fileName: file.name });
+        // Also fire early warning to backend (like notify_admin_early_warning) — fire-and-forget
+        try { fetch(`${(import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"))}/api/audit_logs`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user:"Operator", role:"Terminal", action_type:"STOCK_SHORTAGE", details:`Shortage on ${file.name}: ${shortages.map(s=>`${s.sku} req ${s.req} avail ${s.avail}`).join("; ")}`})}); } catch {}
+        return; // wait for user decision via modal
+      }
+      applyScanResults(results, company, file.name);
     } catch(e:any){
-      // Mirrors addons.py verification failure: Document does not belong to PT...
       const msg = e?.message || String(e);
       if(msg.includes("PT BANGOR") || msg.includes("Verification Failed") || msg.includes("Document does not belong")){
         showToast("❌ Verification Failed: Document does not belong to PT BANGOR BERKEMBANG BERSAMA or PT BANGOR BERANI TERUKUR.");
@@ -311,6 +345,31 @@ export default function Dashboard(){
             <div className="p-4 border-t flex gap-2 justify-end">
               <button onClick={()=> setShowReviewer(false)} className="px-4 py-2 rounded-lg bg-gray-200 text-sm">Cancel</button>
               <button onClick={handleConfirmReviewer} className="px-6 py-2 rounded-lg bg-[#27ae60] text-white font-bold text-sm">✅ Confirm & Approve</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shortage && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
+            <div className="bg-[#c0392b] text-white rounded-t-xl p-4 text-center">
+              <div className="text-xl font-extrabold">🚨 STOCK SHORTAGE DETECTED</div>
+              <div className="text-sm opacity-90">Scanned document requires more stock than available — same as addons.py validate_stock_levels</div>
+            </div>
+            <div className="p-4">
+              <div className="text-sm font-bold mb-2">File: {shortage.fileName} — Company: {shortage.company}</div>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-[#f4f6f9]"><tr><th className="p-2 text-left">SKU</th><th className="p-2">Required</th><th className="p-2">Available</th><th className="p-2 text-red-600">Shortage</th></tr></thead>
+                  <tbody>{shortage.shortages.map(s=> <tr key={s.sku} className="border-t"><td className="p-2">{s.sku}</td><td className="p-2 text-center">{s.req}</td><td className="p-2 text-center">{s.avail}</td><td className="p-2 text-center font-bold text-red-600">-{s.short}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">Admin has been notified (early warning). Choose to cancel or force import anyway.</div>
+            </div>
+            <div className="p-4 flex gap-2">
+              <button onClick={()=> { setShortage(null); showToast("⚠️ Import cancelled due to stock shortages"); }} className="flex-1 bg-[#e74c3c] text-white rounded-lg py-3 font-bold">❌ CANCEL IMPORT</button>
+              <button onClick={()=> { const d=shortage; setShortage(null); if(d) applyScanResults(d.pending, d.company, d.fileName); showToast("⚠️ Force imported despite shortages"); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-3 font-bold">⚠️ FORCE IMPORT ANYWAY</button>
             </div>
           </div>
         </div>
