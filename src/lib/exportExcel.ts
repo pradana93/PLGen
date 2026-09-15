@@ -303,7 +303,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   // ════════════════════════════════════════════════════════════════
   const totalRow = START_ROW + rows.length;
   ws.getRow(totalRow).height = 24;
-  ws.mergeCells(totalRow, 1, totalRow, 2);
+  ws.mergeCells(totalRow, 1, totalRow, 4);
   setAll(ws.getCell(totalRow, 1), {
     value: "TOTAL",
     font: { name: "Arial", size: 10, bold: true, color: { argb: WHITE } },
@@ -311,15 +311,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     align: { horizontal: "right", vertical: "middle" },
     border: { top: medium, left: medium, bottom: medium, right: thin },
   });
-  setAll(ws.getCell(totalRow, 3), {
-    value: String(totalKoli),
-    font: { name: "Arial", size: 10, bold: true, color: { argb: NAVY } },
-    fill: WARM_LIGHT,
-    align: { horizontal: "center", vertical: "middle" },
-    border: { top: medium, left: thin, bottom: medium, right: thin },
-  });
-  ws.mergeCells(totalRow, 4, totalRow, 5);
-  setAll(ws.getCell(totalRow, 4), {
+  setAll(ws.getCell(totalRow, 5), {
     value: totalWeight.toFixed(2) + " Kg",
     font: { name: "Arial", size: 10, bold: true, color: { argb: NAVY } },
     fill: WARM_LIGHT,
