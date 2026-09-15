@@ -32,6 +32,46 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
 export const isSupabaseConfigured = !!SUPABASE_URL && !!SUPABASE_SERVICE_KEY;
 
+// PythonAnywhere as primary backend for Master Data (per user: full Master Data lives there)
+const PYTHONANYWHERE_URL = process.env.PYTHONANYWHERE_URL || "https://jestu93.pythonanywhere.com";
+const PY_HEADERS: Record<string,string> = { Authorization: API_BEARER };
+
+async function fetchPythonAnywhereMaster(): Promise<any | null> {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(()=> controller.abort(), 4000);
+    // Try primary static then api fallback
+    let res = await fetch(`${PYTHONANYWHERE_URL}/static/master_data.json`, { headers: PY_HEADERS, signal: controller.signal } as any);
+    if (!res.ok) res = await fetch(`${PYTHONANYWHERE_URL}/api/master_data`, { headers: PY_HEADERS, signal: controller.signal } as any);
+    clearTimeout(t);
+    if (res.ok) {
+      const data = await res.json();
+      // Cache locally for offline fallback
+      try { jsonWrite(MASTER_FILE, data); } catch {}
+      return data;
+    }
+  } catch {}
+  return null;
+}
+async function fetchPythonAnywhereCheckers(): Promise<string[] | null> {
+  try {
+    const c = new AbortController(); const tt = setTimeout(()=> c.abort(), 3000);
+    const r = await fetch(`${PYTHONANYWHERE_URL}/api/checkers`, { headers: PY_HEADERS, signal: c.signal } as any);
+    clearTimeout(tt);
+    if (r.ok) { const j = await r.json(); if (j.checkers) return j.checkers; }
+  } catch {}
+  return null;
+}
+async function fetchPythonAnywhereStock(): Promise<Record<string,number> | null> {
+  try {
+    const c = new AbortController(); const tt = setTimeout(()=> c.abort(), 3000);
+    const r = await fetch(`${PYTHONANYWHERE_URL}/api/current_stock`, { headers: PY_HEADERS, signal: c.signal } as any);
+    clearTimeout(tt);
+    if (r.ok) return await r.json();
+  } catch {}
+  return null;
+}
+
 function jsonRead<T>(file: string, fallback: T): T {
   const p = path.join(DATA_DIR, file);
   if (!fs.existsSync(p)) return fallback;
@@ -110,25 +150,45 @@ function requireBearer(req: any, res: any, next: any) {
 // Health
 app.get("/api/health", (_req, res) => res.json({ status: "ok", version: "2.0.0", wib: wibNowStr() }));
 
-// ===== Master Data =====
-app.get("/api/master_data", (req, res) => {
+// ===== Master Data — PythonAnywhere primary, file/Supabase fallback (mirrors core.py sync_master_data) =====
+app.get("/api/master_data", async (req, res) => {
+  // Try PythonAnywhere live first (4s timeout), cache on success
+  const live = await fetchPythonAnywhereMaster();
+  if (live) return res.json(live);
+  // Fallback to local file/Supabase then hardcoded
   const data = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   res.json(data);
 });
-app.get("/static/master_data.json", (req, res) => {
+app.get("/static/master_data.json", async (req, res) => {
+  const live = await fetchPythonAnywhereMaster();
+  if (live) return res.json(live);
   const data = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   res.json(data);
 });
-app.post("/api/master_data", requireAdmin, (req, res) => {
+// Explicit sync endpoint for admin: force pull from PythonAnywhere and refresh cache
+app.post("/api/master_data/sync", async (req, res) => {
+  const live = await fetchPythonAnywhereMaster();
+  if (!live) return res.status(502).json({ error: "PythonAnywhere unreachable", fallback: jsonRead(MASTER_FILE, FALLBACK_MASTER_DATA) });
+  res.json({ status: "synced", source: PYTHONANYWHERE_URL, data: live });
+});
+app.post("/api/master_data", requireAdmin, async (req, res) => {
   const md = req.body.master_data;
   if (!md) return res.status(400).json({ error: "Missing master_data" });
-  // backup
+  // backup locally
   const backupsDir = path.join(DATA_DIR, "backups");
   if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   try { fs.writeFileSync(path.join(backupsDir, `master_${stamp}.json`), JSON.stringify(jsonRead(MASTER_FILE, FALLBACK_MASTER_DATA), null, 2)); } catch {}
   jsonWrite(MASTER_FILE, md);
-  res.json({ status: "success" });
+  // Also push to PythonAnywhere to keep it as source of truth (fire-and-forget, don't block)
+  (async () => {
+    try {
+      const c = new AbortController(); const tt = setTimeout(()=> c.abort(), 5000);
+      await fetch(`${PYTHONANYWHERE_URL}/api/master_data`, { method: "POST", headers: { ...PY_HEADERS, "Content-Type": "application/json" }, body: JSON.stringify({ admin_key: ADMIN_SECRET, master_data: md }), signal: c.signal } as any);
+      clearTimeout(tt);
+    } catch {}
+  })();
+  res.json({ status: "success", synced_to: PYTHONANYWHERE_URL });
 });
 app.get("/api/master_backups", requireAdmin, (req, res) => {
   const backupsDir = path.join(DATA_DIR, "backups");
@@ -142,22 +202,24 @@ app.get("/api/master_backups/:file", requireAdmin, (req, res) => {
   res.json(JSON.parse(fs.readFileSync(p, "utf-8")));
 });
 
-// ===== Current Stock =====
-app.get("/api/current_stock", (req, res) => {
+// ===== Current Stock — PythonAnywhere proxied, local fallback =====
+app.get("/api/current_stock", async (req, res) => {
+  const live = await fetchPythonAnywhereStock();
+  if (live) { try { jsonWrite("current_stock.json", live); } catch {} return res.json(live); }
   const stock = jsonRead<Record<string,number>>("current_stock.json", { "Beef Patty Small": 500, "Chicken Nugget": 300, "HD Bun": 1000 });
   res.json(stock);
 });
-app.post("/api/current_stock", requireAdmin, (req, res) => {
+app.post("/api/current_stock", requireAdmin, async (req, res) => {
   const stock = req.body.stock_data;
   if (!stock) return res.status(400).json({ error: "Missing stock_data" });
   jsonWrite("current_stock.json", stock);
-  // ledger log
   const ledger = jsonRead<Record<string, any[]>>("ledger.json", {});
-  const now = wibNowStr();
   for (const [sku, qty] of Object.entries(stock as Record<string,number>)) {
     if (!ledger[sku]) ledger[sku] = [];
   }
   jsonWrite("ledger.json", ledger);
+  // Mirror to PythonAnywhere
+  (async()=>{ try{ const c=new AbortController(); const tt=setTimeout(()=>c.abort(),4000); await fetch(`${PYTHONANYWHERE_URL}/api/current_stock`,{method:"POST",headers:{...PY_HEADERS,"Content-Type":"application/json"},body:JSON.stringify({admin_key:ADMIN_SECRET,stock_data:stock}),signal:c.signal} as any); clearTimeout(tt);}catch{}})();
   res.json({ status: "success" });
 });
 app.get("/api/ledger/get", requireAdmin, (req, res) => {
@@ -168,12 +230,14 @@ app.get("/api/ledger/get", requireAdmin, (req, res) => {
 // ===== Checkers =====
 const CHECKERS_FILE = "checkers.json";
 const DEFAULT_CHECKERS = ["Masroor","Aji","Fadly","Luthfi","Farel","Diki","Noel","Hatta"];
-app.get("/api/checkers", (req, res) => {
+app.get("/api/checkers", async (req, res) => {
+  const live = await fetchPythonAnywhereCheckers();
+  if (live) { try { jsonWrite(CHECKERS_FILE, { checkers: live }); } catch {} return res.json({ checkers: live }); }
   const data = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS });
   const list = data.checkers || DEFAULT_CHECKERS;
   res.json({ checkers: list });
 });
-app.post("/api/checkers", (req, res) => {
+app.post("/api/checkers", async (req, res) => {
   const { admin_key, action, checker_name } = req.body;
   if (admin_key !== ADMIN_SECRET) return res.status(401).send("Unauthorized");
   if (!checker_name) return res.status(400).json({ error: "Missing checker_name" });
@@ -187,6 +251,8 @@ app.post("/api/checkers", (req, res) => {
     list = list.filter(c=>c!==checker_name);
   } else return res.status(400).json({ error: "Invalid action" });
   jsonWrite(CHECKERS_FILE, { checkers: list });
+  // Mirror to PythonAnywhere
+  (async()=>{ try{ const c=new AbortController(); const tt=setTimeout(()=>c.abort(),4000); await fetch(`${PYTHONANYWHERE_URL}/api/checkers`,{method:"POST",headers:{...PY_HEADERS,"Content-Type":"application/json"},body:JSON.stringify({admin_key:ADMIN_SECRET,action,checker_name}),signal:c.signal} as any); clearTimeout(tt);}catch{}})();
   res.json({ status: "success" });
 });
 
