@@ -303,6 +303,18 @@ app.get("/api/ledger/get", requireAdmin, (req, res) => {
   const ledger = jsonRead("ledger.json", {});
   res.json(ledger);
 });
+app.post("/api/ledger/record", (req, res) => {
+  const { hwid, outlet, items } = req.body;
+  if (!outlet || !items) return res.status(400).json({ error: "Missing outlet/items" });
+  const ledger = jsonRead<Record<string, any[]>>("ledger.json", {});
+  const now = wibNowStr();
+  for (const [sku, qty] of Object.entries(items as Record<string, number>)) {
+    if (!ledger[sku]) ledger[sku] = [];
+    ledger[sku].push({ timestamp: now, hwid: hwid || "web", outlet, qty });
+  }
+  jsonWrite("ledger.json", ledger);
+  res.json({ status: "success" });
+});
 
 // ===== Checkers =====
 const CHECKERS_FILE = "checkers.json";

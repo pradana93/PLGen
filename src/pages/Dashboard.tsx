@@ -4,6 +4,7 @@ import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
+import KoliReviewer from "../components/KoliReviewer";
 
 export default function Dashboard(){
   const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes } = usePackingStore();
@@ -381,40 +382,18 @@ export default function Dashboard(){
         )}
       </div>
 
-      {/* Reviewer Modal */}
+      {/* Reviewer Modal — 1:1 with addons.py open_koli_reviewer */}
       {showReviewer && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-            <div className="p-4 border-b">
-              <h3 className="font-bold">📦 Koli Pre-Flight Check: {outlet||"Draft Order"}</h3>
-              <p className="text-xs text-gray-500">Drag concept: use Move controls to adjust. Total Koli: {workingBoxes.length}</p>
-            </div>
-            <div className="overflow-auto p-4 flex-1 space-y-3">
-              {workingBoxes.map((box, idx)=>(
-                <div key={idx} className="border rounded-lg p-3 bg-[#f9fafb]">
-                  <div className="font-bold text-sm mb-2">📦 KOLI {idx+1} (Total Items: {Object.values(box).reduce((a:number,b:any)=>a+Number(b),0)})</div>
-                  {Object.entries(box).map(([sku2,qty])=>(
-                    <div key={sku2} className="flex justify-between text-sm py-1 border-b last:border-0">
-                      <span>{sku2}</span><span className="font-bold">{String(qty)}</span>
-                    </div>
-                  ))}
-                  <div className="flex gap-2 mt-2">
-                    <button onClick={()=>{
-                      const nb=[...workingBoxes];
-                      nb.splice(idx,1);
-                      setWorkingBoxes(nb);
-                    }} className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">Remove Koli</button>
-                  </div>
-                </div>
-              ))}
-              <button onClick={()=> setWorkingBoxes([...workingBoxes, {}])} className="w-full border-2 border-dashed rounded-lg p-3 text-sm">+ Add Empty Koli</button>
-            </div>
-            <div className="p-4 border-t flex gap-2 justify-end">
-              <button onClick={()=> setShowReviewer(false)} className="px-4 py-2 rounded-lg bg-gray-200 text-sm">Cancel</button>
-              <button onClick={handleConfirmReviewer} className="px-6 py-2 rounded-lg bg-[#27ae60] text-white font-bold text-sm">✅ Confirm & Approve</button>
-            </div>
-          </div>
-        </div>
+        <KoliReviewer
+          outlet={outlet || "Draft Order"}
+          boxes={workingBoxes}
+          onApprove={(final)=>{
+            setBoxes(final);
+            setShowReviewer(false);
+            showToast(`✅ ${final.length} Koli Approved`);
+          }}
+          onClose={()=> setShowReviewer(false)}
+        />
       )}
 
       {shortage && (
