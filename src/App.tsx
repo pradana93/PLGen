@@ -12,6 +12,7 @@ import DesktopGate from "./components/DesktopGate";
 import AntiCheatProvider from "./components/AntiCheatProvider";
 import AccessGate from "./components/AccessGate";
 import { LanguageProvider, useLanguage } from "./i18n";
+import Copilot from "./components/Copilot";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 
 function Nav(){
@@ -107,6 +108,7 @@ function AppRoutes(){
   return (
     <>
       <Nav />
+      <Copilot />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />

@@ -335,6 +335,11 @@ const en: Dict = {
   "admin.newPassword": "New password for {email} (min 6):",
   "admin.min6": "Min 6 characters",
   "admin.pwdUpdated": "✅ Password updated for {email}",
+  // Copilot
+  "copilot.bubbleSub": "Local AI • Ask me anything",
+  "copilot.status": "Always on • Your logistics brain",
+  "copilot.placeholder": "Ask PLGen Copilot...",
+  "copilot.footer": "Local brain • 0 cost • 0 latency • runs in-browser",
 };
 
 const id: Dict = {
@@ -668,6 +673,11 @@ const id: Dict = {
   "admin.newPassword": "Kata sandi baru untuk {email} (min 6):",
   "admin.min6": "Minimal 6 karakter",
   "admin.pwdUpdated": "✅ Kata sandi diperbarui untuk {email}",
+  // Copilot
+  "copilot.bubbleSub": "AI Lokal • Tanya apa saja",
+  "copilot.status": "Selalu aktif • Otak logistik Anda",
+  "copilot.placeholder": "Tanya PLGen Copilot...",
+  "copilot.footer": "Otak lokal • 0 biaya • 0 latensi • berjalan di browser",
 };
 
 const dicts: Record<Lang, Dict> = { en, id };
