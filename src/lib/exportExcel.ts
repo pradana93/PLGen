@@ -39,7 +39,8 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.pageSetup.fitToPage = true;
   ws.pageSetup.fitToWidth = 1;
   ws.pageSetup.fitToHeight = 0;
-  ws.pageSetup.margins = { left: 0.4, right: 0.4, top: 0.45, bottom: 0.45, header: 0.3, footer: 0.3 };
+  // Footer needs breathing room on thermal/A4 printers — lift from edge
+  ws.pageSetup.margins = { left: 0.4, right: 0.4, top: 0.45, bottom: 0.6, header: 0.3, footer: 0.35 };
   ws.pageSetup.printTitlesRow = "1:2"; // repeat branding on every page
 
   // ── Column widths ──
@@ -143,16 +144,16 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   });
 
   // ── Ship-to content rows ──
-  // Row 6: outlet name
+  // Row 6: outlet name — taller to avoid clipping 2-line outlet (see screenshot BBT - ASTHA ARCADE SUVARNA)
   ws.mergeCells("A6:C6");
   setAll(ws.getCell("A6"), {
     value: "BANGOR — " + outlet.toUpperCase(),
-    font: { name: "Arial Black", size: 12, bold: true, color: { argb: NAVY } },
+    font: { name: "Arial Black", size: 11, bold: true, color: { argb: NAVY } },
     fill: WARM_LIGHT,
     align: { horizontal: "left", vertical: "middle", indent: 1, wrapText: true },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
-  ws.getRow(6).height = 26;
+  ws.getRow(6).height = 30;
 
   // Row 6 right: DOC NO
   setAll(ws.getCell("D6"), {
@@ -167,18 +168,18 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     align: { horizontal: "left", vertical: "middle" },
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
-  ws.getRow(6).height = 26;
+  ws.getRow(6).height = 30;
 
-  // Row 7: address + DATE
+  // Row 7: address + DATE — taller for long address wrap (Ruko Astha Arcade long text)
   ws.mergeCells("A7:C7");
   setAll(ws.getCell("A7"), {
     value: receiverAddr,
-    font: { name: "Arial", size: 9, color: { argb: MID_GRAY } },
+    font: { name: "Arial", size: 8.5, color: { argb: MID_GRAY } },
     fill: WARM_LIGHT,
     align: { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
-  ws.getRow(7).height = 24;
+  ws.getRow(7).height = 30;
 
   setAll(ws.getCell("D7"), {
     value: "DATE",
@@ -364,12 +365,14 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     align: { horizontal: "center", vertical: "middle" },
   });
 
-  // ── Print area + Footer (Page 1 of N | OUTLET) — user request: helps identify multi-page print order
+  // ── Print area + Footer (Page 1 of N | OUTLET) — fixed positioning: centered footer with safe margins, visible in Print Preview
   ws.pageSetup.printArea = "A1:E" + disclaimerRow;
-  ws.headerFooter.oddFooter = `&CPage &P of &N  |  ${outlet.toUpperCase()}`;
-  ws.headerFooter.evenFooter = `&CPage &P of &N  |  ${outlet.toUpperCase()}`;
-  ws.headerFooter.oddHeader = `&L${deliveryNo}&R${deliveryDate}`;
-  ws.headerFooter.evenHeader = `&L${deliveryNo}&R${deliveryDate}`;
+  // Footer centered: Page X of Y | OUTLET — use 8pt gray, with top padding via footer margin 0.35 (set above)
+  ws.headerFooter.oddFooter = `&C&8&K727272Page &P of &N  |  ${outlet.toUpperCase()}`;
+  ws.headerFooter.evenFooter = `&C&8&K727272Page &P of &N  |  ${outlet.toUpperCase()}`;
+  ws.headerFooter.oddHeader = `&L&8&K727272${deliveryNo}&R&8&K727272${deliveryDate}`;
+  ws.headerFooter.evenHeader = `&L&8&K727272${deliveryNo}&R&8&K727272${deliveryDate}`;
+  ws.headerFooter.differentFirst = false;
   ws.pageSetup.showRowColHeaders = false;
 
   // ════════════════════════════════════════════════════════════════
