@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Profile = { id: string; email: string; role: string; alias?: string; last_seen_at?: string; last_login_at?: string };
+type Profile = { id: string; email: string; role: string; alias?: string; last_seen_at?: string; last_login_at?: string; banned?: boolean; banned_reason?: string; banned_until?: string; approved?: boolean; approved_at?: string };
 type AuthState = {
   user: { id: string; email: string } | null;
   profile: Profile | null;
@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (uid: string, email: string) => {
     if (!supabase) return null;
-    const { data } = await supabase.from("profiles").select("id,email,role,alias,last_seen_at,last_login_at,created_at").eq("id", uid).single();
+    const { data } = await supabase.from("profiles").select("id,email,role,alias,last_seen_at,last_login_at,created_at,banned,banned_reason,banned_until,approved,approved_at").eq("id", uid).single();
     if (data) {
       // Auto-fix SuperAdmin for majestap93@gmail.com if needed (in case trigger missed)
       if (email.toLowerCase()==="majestap93@gmail.com" && (data as any).role!=="SuperAdmin") {

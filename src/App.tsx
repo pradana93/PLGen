@@ -9,6 +9,8 @@ import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ServerStatus from "./components/ServerStatus";
 import DesktopGate from "./components/DesktopGate";
+import AntiCheatProvider from "./components/AntiCheatProvider";
+import AccessGate from "./components/AccessGate";
 import { LanguageProvider, useLanguage } from "./i18n";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 
@@ -195,9 +197,13 @@ export default function App(){
     <BrowserRouter>
       <LanguageProvider>
         <AuthProvider>
-          <DesktopGate>
-            <AppRoutes />
-          </DesktopGate>
+          <AntiCheatProvider>
+            <AccessGate>
+              <DesktopGate>
+                <AppRoutes />
+              </DesktopGate>
+            </AccessGate>
+          </AntiCheatProvider>
         </AuthProvider>
       </LanguageProvider>
     </BrowserRouter>

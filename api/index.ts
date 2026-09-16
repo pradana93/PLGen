@@ -931,7 +931,7 @@ app.get("/api/me", async (req, res) => {
 app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
   const sb = await getSupabase();
   if (sb) {
-    const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at,last_seen_at,last_login_at").order("created_at", { ascending: false });
+    const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at,last_seen_at,last_login_at,banned,banned_reason,banned_until,approved,approved_at").order("created_at", { ascending: false });
     if (!error && data) {
       // Enrich with auth.last_sign_in_at for true last login (supabase auth is source of truth)
       try {
@@ -1830,6 +1830,147 @@ app.post("/api/offline_pin/verify", (req,res)=>{
 // Version
 app.get("/static/version.txt", (req,res)=> res.send("2.0.0"));
 app.get("/static/core_update.sha256", (req,res)=> res.send("mock-hash"));
+
+// ===== Anti-Cheat: Detect + Auto-Ban =====
+app.post("/api/anticheat/detect", async (req, res) => {
+  try {
+    const { user_id, email, reason, detail, user_agent, timestamp } = req.body;
+    if (!reason) return res.status(400).json({ error: "reason required" });
+    const sb = await getSupabase();
+    if (!sb) return res.json({ ok: false, error: "no supabase" });
+
+    // Count violations for this user in last 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await sb.from("anticheat_violations")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user_id)
+      .gte("created_at", thirtyDaysAgo);
+
+    const newCount = (count || 0) + 1;
+    const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
+
+    // Insert violation log
+    await sb.from("anticheat_violations").insert({
+      user_id, email, reason, detail, ip,
+      user_agent: user_agent?.slice(0, 500),
+      violation_count: newCount,
+      auto_ban: true,
+    });
+
+    // Escalation ladder: 1st=24h, 2nd=7d, 3rd+=permanent
+    let banDuration: string | null = null;
+    let banReason = `Auto-ban: ${reason}`;
+    if (newCount === 1) {
+      banDuration = "24 hours";
+      banReason += " (1st violation — 24h)";
+    } else if (newCount === 2) {
+      banDuration = "7 days";
+      banReason += " (2nd violation — 7 days)";
+    } else {
+      banDuration = null; // permanent
+      banReason += ` (${newCount}th violation — permanent)`;
+    }
+
+    // Apply ban
+    const now = new Date();
+    const banUpdate: any = {
+      banned: true,
+      banned_reason: banReason,
+      banned_at: now.toISOString(),
+    };
+    if (banDuration === "24 hours") {
+      banUpdate.banned_until = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    } else if (banDuration === "7 days") {
+      banUpdate.banned_until = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    } else {
+      banUpdate.banned_until = null; // permanent
+    }
+
+    await sb.from("profiles").update(banUpdate).eq("id", user_id);
+
+    // Audit log
+    try { await sb.from("audit_logs").insert({ user: email || "anticheat", role: "System", action_type: "ANTICHEAT_AUTO_BAN", details: `${email}: ${banReason} (violation #${newCount})` }); } catch {}
+
+    res.json({ ok: true, banned: true, reason: banReason, violation_count: newCount });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || "internal" });
+  }
+});
+
+// ===== Admin: Manual Ban / Unban / Approve =====
+app.post("/api/users/:id/ban", requireSupabaseAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { reason, days } = req.body; // days=null → permanent
+  if (!reason) return res.status(400).json({ error: "reason required" });
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "no supabase" });
+
+  const adminUser = (req as any).supaUser;
+  // Prevent banning other SuperAdmins (safety lock)
+  const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
+  if (target?.role === "SuperAdmin" && adminUser?.role !== "SuperAdmin") {
+    return res.status(403).json({ error: "Only SuperAdmin can ban SuperAdmins" });
+  }
+  // Prevent self-ban
+  if (adminUser?.id === id) {
+    return res.status(403).json({ error: "Cannot ban yourself" });
+  }
+
+  const now = new Date();
+  const update: any = {
+    banned: true,
+    banned_reason: reason,
+    banned_at: now.toISOString(),
+  };
+  if (days && typeof days === "number" && days > 0) {
+    update.banned_until = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+  } else {
+    update.banned_until = null; // permanent
+  }
+
+  await sb.from("profiles").update(update).eq("id", id);
+  try { await sb.from("audit_logs").insert({ user: adminUser?.email || "admin", role: adminUser?.role || "Admin", action_type: "MANUAL_BAN", details: `Banned user ${id}: ${reason} (${days ? days + " days" : "permanent"})` }); } catch {}
+
+  res.json({ ok: true, banned: true, until: update.banned_until });
+});
+
+app.post("/api/users/:id/unban", requireSupabaseAdmin, async (req, res) => {
+  const { id } = req.params;
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "no supabase" });
+
+  const adminUser = (req as any).supaUser;
+  await sb.from("profiles").update({ banned: false, banned_reason: null, banned_at: null, banned_until: null }).eq("id", id);
+  try { await sb.from("audit_logs").insert({ user: adminUser?.email || "admin", role: adminUser?.role || "Admin", action_type: "UNBAN", details: `Unbanned user ${id}` }); } catch {}
+
+  res.json({ ok: true, banned: false });
+});
+
+app.post("/api/users/:id/approve", requireSupabaseAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { approved } = req.body;
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "no supabase" });
+
+  const adminUser = (req as any).supaUser;
+  await sb.from("profiles").update({ approved: approved !== false, approved_at: approved !== false ? new Date().toISOString() : null }).eq("id", id);
+  try { await sb.from("audit_logs").insert({ user: adminUser?.email || "admin", role: adminUser?.role || "Admin", action_type: approved !== false ? "ACCOUNT_APPROVED" : "ACCOUNT_REJECTED", details: `${approved !== false ? "Approved" : "Rejected"} user ${id}` }); } catch {}
+
+  res.json({ ok: true, approved: approved !== false });
+});
+
+// Get anticheat violations (SuperAdmin only)
+app.get("/api/anticheat/violations", requireSupabaseAdmin, async (req, res) => {
+  const sb = await getSupabase();
+  if (!sb) return res.status(500).json({ error: "no supabase" });
+  const limit = Math.min(parseInt(String(req.query.limit)) || 100, 500);
+  const userId = req.query.user_id;
+  let q = sb.from("anticheat_violations").select("*").order("created_at", { ascending: false }).limit(limit);
+  if (userId) q = q.eq("user_id", userId);
+  const { data, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
 
 // Static serving for uploads
 app.use("/uploads", express.static(UPLOAD_DIR));

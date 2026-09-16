@@ -50,6 +50,7 @@ function OfflinePinWidget(){
 }
 
 export default function Admin(){
+
   const { profile } = useAuth();
   const { t } = useLanguage();
   const [master, setMaster]=useState<any>(null);
@@ -83,6 +84,12 @@ export default function Admin(){
   const [showAddOutlet,setShowAddOutlet]=useState(false);
   const [addOutletFields,setAddOutletFields]=useState<{name:string,receiver:string,phone:string,address:string}>({name:"",receiver:"",phone:"",address:""});
   const [msg,setMsg]=useState<{type:"ok"|"err",text:string}|null>(null);
+  // Anti-Cheat / Ban Hammer
+  const [banTarget,setBanTarget]=useState<{id:string,email:string}|null>(null);
+  const [banReason,setBanReason]=useState("");
+  const [banDays,setBanDays]=useState<number|undefined>(1);
+  const [violations,setViolations]=useState<any[]>([]);
+  const [showViolations,setShowViolations]=useState(false);
 
   const isSuperAdmin = profile?.role==="SuperAdmin";
   const isAdmin = profile?.role==="SuperAdmin" || profile?.role==="Admin";
@@ -142,6 +149,61 @@ export default function Admin(){
 
   const flash = (type:"ok"|"err", text:string)=>{ setMsg({type,text}); setTimeout(()=> setMsg(null), 3500); };
 
+  // ---- Anti-Cheat / Ban Handlers ----
+  const handleBan = async ()=>{
+    if(!banTarget || !banReason) return;
+    try {
+      const h = await authHeader();
+      const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+      const r = await fetch(`${base}/api/users/${banTarget.id}/ban`, {
+        method:"POST", headers:{ "Content-Type":"application/json", ...h },
+        body: JSON.stringify({ reason: banReason, days: banDays })
+      });
+      const j = await r.json();
+      if(!r.ok) return alert(`❌ ${j.error}`);
+      flash("ok", `🔨 Banned ${banTarget.email} ${banDays ? `for ${banDays} days` : "permanently"}`);
+      setBanTarget(null); setBanReason(""); setBanDays(1);
+      fetchUsers();
+    } catch(e:any) { alert(`❌ ${e.message}`); }
+  };
+  const handleUnban = async (userId:string)=>{
+    if(!confirm("Unban this user?")) return;
+    try {
+      const h = await authHeader();
+      const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+      const r = await fetch(`${base}/api/users/${userId}/unban`, {
+        method:"POST", headers:{ "Content-Type":"application/json", ...h }
+      });
+      const j = await r.json();
+      if(!r.ok) return alert(`❌ ${j.error}`);
+      flash("ok", "✅ User unbanned");
+      fetchUsers();
+    } catch(e:any) { alert(`❌ ${e.message}`); }
+  };
+  const handleApprove = async (userId:string, approved:boolean)=>{
+    try {
+      const h = await authHeader();
+      const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+      const r = await fetch(`${base}/api/users/${userId}/approve`, {
+        method:"POST", headers:{ "Content-Type":"application/json", ...h },
+        body: JSON.stringify({ approved })
+      });
+      const j = await r.json();
+      if(!r.ok) return alert(`❌ ${j.error}`);
+      flash("ok", approved ? "✅ User approved" : "⛔ User rejected");
+      fetchUsers();
+    } catch(e:any) { alert(`❌ ${e.message}`); }
+  };
+  const fetchViolations = async ()=>{
+    try {
+      const h = await authHeader();
+      const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+      const r = await fetch(`${base}/api/anticheat/violations?limit=100`, { headers: h });
+      const d = await r.json();
+      setViolations(Array.isArray(d) ? d : []);
+      setShowViolations(true);
+    } catch {}
+  };
   // ---- Master Data editing helpers ----
   const patchDraft = (fn:(d:any)=>void)=>{
     setDraft((prev:any)=>{
@@ -408,9 +470,12 @@ export default function Admin(){
               </select>
               <button onClick={handleAddUser} className="bg-[#27ae60] text-white rounded-lg px-4 py-2 font-bold text-sm">{t("admin.addAccount")}</button>
             </div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs text-gray-500">{users.length} users • <span className="text-emerald-600 font-bold">{users.filter(u=> isOnline(u.last_seen_at)).length} online</span> <span className="text-gray-400">/ {users.length - users.filter(u=> isOnline(u.last_seen_at)).length} offline</span> <span className="ml-2 text-[10px] bg-slate-100 border rounded-full px-2 py-0.5">auto-refresh 30s</span></div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-gray-500">{users.length} users • <span className="text-emerald-600 font-bold">{users.filter(u=> isOnline(u.last_seen_at)).length} online</span> <span className="text-gray-400">/ {users.length - users.filter(u=> isOnline(u.last_seen_at)).length} offline</span> <span className="ml-2 text-[10px] bg-slate-100 border rounded-full px-2 py-0.5">auto-refresh 30s</span></div>
+            <div className="flex gap-2">
+              {isSuperAdmin && <button onClick={fetchViolations} className="text-xs bg-[#c0392b] text-white px-2 py-1 rounded font-bold">🛡️ Violations</button>}
               <button onClick={fetchUsers} className="text-xs bg-white border px-2 py-1 rounded font-bold hover:bg-gray-50">↻ Refresh</button>
+            </div>
             </div>
             <div className="overflow-auto border rounded-xl">
               <table className="w-full text-sm">
@@ -430,6 +495,7 @@ export default function Admin(){
                     const seenIso = u.last_seen_at || u.last_sign_in_at || u.last_login_at || null;
                     return (
                     <tr key={u.id} className={`border-t ${online ? "bg-emerald-50/40" : "hover:bg-gray-50"}`}>
+                      {u.banned && <tr><td colSpan={6} className="bg-red-50 border-l-4 border-l-red-500 px-3 py-1.5"><div className="flex items-center gap-2"><span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">🔨 BANNED</span><span className="text-[11px] text-red-600 truncate">{u.banned_reason || "No reason"}</span>{u.banned_until && <span className="text-[10px] text-red-400 ml-auto whitespace-nowrap">until {new Date(u.banned_until).toLocaleDateString("id-ID")}</span>}</div></td></tr>}
                       <td className="p-2.5">
                         <div className="font-medium text-slate-800 truncate max-w-[220px]" title={u.email}>{u.email}</div>
                         <div className="text-[10px] text-gray-400 font-mono hidden md:block">{u.id.slice(0,8)}…</div>
@@ -466,7 +532,17 @@ export default function Admin(){
                             <button onClick={()=> setEditing(prev=>{const n={...prev}; delete n[u.id]; return n;})} className="text-xs bg-gray-200 px-2 py-1 rounded">✖</button>
                           </div>
                         ) : (
-                          <div className="flex items-center justify-center gap-1 flex-wrap">
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                            {u.banned ? (
+                              <button onClick={()=> handleUnban(u.id)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">🔓 Unban</button>
+                            ) : (
+                              <button onClick={()=> setBanTarget({id: u.id, email: u.email})} className="text-[11px] bg-red-500 text-white px-2 py-1 rounded font-bold" disabled={u.id===profile?.id || (u.role==="SuperAdmin" && !isSuperAdmin)}>🔨</button>
+                            )}
+                            {u.approved === false ? (
+                              <button onClick={()=> handleApprove(u.id, true)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">✅ Approve</button>
+                            ) : (
+                              <button onClick={()=> handleApprove(u.id, false)} className="text-[11px] bg-gray-300 text-gray-600 px-2 py-1 rounded" title="Revoke approval">⏳</button>
+                            )}
                             <button onClick={()=> setEditing({...editing, [u.id]: { role: u.role, alias: u.alias || "" }})} className="text-[11px] bg-white border px-2 py-1 rounded hover:bg-gray-50">✏️</button>
                             <button onClick={()=> handleChangePassword(u.id, u.email)} className="text-[11px] bg-[#f39c12] text-white px-2 py-1 rounded">🔑</button>
                             <button onClick={()=> handleDelete(u.id)} className="text-[11px] bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 disabled:opacity-40" disabled={u.id===profile?.id}>🗑️</button>
@@ -783,6 +859,72 @@ export default function Admin(){
               <div className="mt-3 text-[11px] text-gray-500">{t("admin.holidayHint")}</div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Ban Dialog Modal */}
+      {banTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="bg-[#c0392b] text-white rounded-t-xl px-4 py-3 text-center">
+              <div className="text-lg font-extrabold">🔨 Ban User</div>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="text-sm"><span className="font-bold">User:</span> {banTarget.email}</div>
+              <div>
+                <label className="text-xs font-bold">Reason</label>
+                <input value={banReason} onChange={e=> setBanReason(e.target.value)} placeholder="e.g. Console access violation" className="w-full mt-1 border rounded-lg px-3 py-2 text-sm" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-bold">Duration</label>
+                <div className="grid grid-cols-4 gap-1 mt-1">
+                  {[1,7,30,undefined].map(d=> (
+                    <button key={String(d)} onClick={()=> setBanDays(d)} className={`text-xs py-1.5 rounded font-bold border ${banDays===d ? "bg-[#c0392b] text-white border-[#c0392b]" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"}`}>
+                      {d===undefined ? "Permanent" : d===1 ? "24h" : `${d}d`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-[11px] text-amber-700">
+                ⚠️ This will terminate all active sessions and block login.
+              </div>
+            </div>
+            <div className="p-3 flex gap-2 border-t bg-gray-50 rounded-b-xl">
+              <button onClick={()=> { setBanTarget(null); setBanReason(""); }} className="flex-1 bg-gray-200 rounded-lg py-2 font-bold text-sm">Cancel</button>
+              <button onClick={handleBan} disabled={!banReason} className="flex-1 bg-[#c0392b] text-white rounded-lg py-2 font-bold text-sm disabled:opacity-50">🔨 BAN USER</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Violations Viewer Modal */}
+      {showViolations && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="bg-[#2c3e50] text-white rounded-t-xl px-4 py-3 flex items-center justify-between">
+              <div className="font-bold">🛡️ Anti-Cheat Violations</div>
+              <button onClick={()=> setShowViolations(false)} className="text-white/70 hover:text-white text-lg">✖</button>
+            </div>
+            <div className="flex-1 overflow-auto p-3">
+              <table className="w-full text-xs">
+                <thead className="bg-[#f4f6f9] sticky top-0"><tr>
+                  <th className="p-2 text-left">Time</th><th className="p-2 text-left">Email</th><th className="p-2 text-left">Reason</th><th className="p-2">Count</th><th className="p-2">Auto-Ban</th>
+                </tr></thead>
+                <tbody>
+                  {violations.length===0 && <tr><td colSpan={5} className="text-center p-6 text-gray-400">No violations recorded</td></tr>}
+                  {violations.map((v:any)=> (
+                    <tr key={v.id} className="border-t hover:bg-gray-50">
+                      <td className="p-2 font-mono">{v.created_at ? new Date(v.created_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
+                      <td className="p-2">{v.email || v.user_id?.slice(0,8)}</td>
+                      <td className="p-2">{v.reason} {v.detail && <span className="text-gray-400">({v.detail})</span>}</td>
+                      <td className="p-2 text-center font-bold">{v.violation_count}</td>
+                      <td className="p-2 text-center">{v.auto_ban ? <span className="text-red-600 font-bold">Yes</span> : "No"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>
