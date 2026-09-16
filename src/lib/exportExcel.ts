@@ -364,8 +364,13 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     align: { horizontal: "center", vertical: "middle" },
   });
 
-  // ── Print area ──
+  // ── Print area + Footer (Page 1 of N | OUTLET) — user request: helps identify multi-page print order
   ws.pageSetup.printArea = "A1:E" + disclaimerRow;
+  ws.headerFooter.oddFooter = `&CPage &P of &N  |  ${outlet.toUpperCase()}`;
+  ws.headerFooter.evenFooter = `&CPage &P of &N  |  ${outlet.toUpperCase()}`;
+  ws.headerFooter.oddHeader = `&L${deliveryNo}&R${deliveryDate}`;
+  ws.headerFooter.evenHeader = `&L${deliveryNo}&R${deliveryDate}`;
+  ws.pageSetup.showRowColHeaders = false;
 
   // ════════════════════════════════════════════════════════════════
   //  BACKEND LOGGING (fire-and-forget)
