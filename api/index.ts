@@ -1251,6 +1251,50 @@ app.post("/api/track_item_usage", (req, res) => {
   jsonWrite("item_usage.json", usage);
   res.json({ status: "success" });
 });
+app.get("/api/item_usage", (req, res) => {
+  const usage = jsonRead<any[]>("item_usage.json", []);
+  res.json(usage);
+});
+// Aggregated report endpoint — computes Top 25 SKU, Top 10 Outlet, Monthly Tonnage/PL (computed from packing_status + item_usage + master weights) — non-breaking read-only
+app.get("/api/report/summary", async (_req, res) => {
+  const packing = jsonRead<any[]>("packing_status.json", []);
+  const usage = jsonRead<any[]>("item_usage.json", []);
+  const master = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
+  const w = master.ITEM_WEIGHT_GRAMS || {};
+  // Top 25 SKU by qty
+  const skuMap: Record<string, number> = {};
+  const skuKg: Record<string, number> = {};
+  for (const e of usage) {
+    const items = (e.items || {}) as Record<string, number>;
+    for (const [sku, qty] of Object.entries(items)) {
+      skuMap[sku] = (skuMap[sku] || 0) + Number(qty || 0);
+      skuKg[sku] = (skuKg[sku] || 0) + (Number(qty||0) * (w[sku]||0) / 1000);
+    }
+  }
+  const topSku = Object.entries(skuMap).sort((a,b)=> b[1]-a[1]).slice(0,25).map(([sku, qty])=> ({ sku, qty, kg: Math.round((skuKg[sku]||0)*100)/100, uom: master.ITEM_UOM?.[sku]||"Pack" }));
+  // Top 10 Outlet by PL count + tonnage
+  const outletPL: Record<string, { count:number, tonnage:number }> = {};
+  for (const p of packing) {
+    const o = String(p.outlet||"Unknown").toUpperCase();
+    if (!outletPL[o]) outletPL[o]={count:0, tonnage:0};
+    outletPL[o].count += 1;
+    outletPL[o].tonnage += Number(p.total_weight_kg||0);
+  }
+  const topOutlet = Object.entries(outletPL).sort((a,b)=> b[1].tonnage - a[1].tonnage).slice(0,10).map(([outlet, v])=> ({ outlet, ...v, tonnage: Math.round(v.tonnage*100)/100 }));
+  // Monthly tonnage + PL count (WIB)
+  const monthly: Record<string, { tonnage:number, pl:number }> = {};
+  for (const p of packing) {
+    const ts = String(p.created_at||"");
+    // expected "YYYY-MM-DD HH:MM:SS" from wibNowStr
+    const m = ts.slice(0,7); // YYYY-MM
+    if (!/^\d{4}-\d{2}$/.test(m)) continue;
+    if (!monthly[m]) monthly[m]={tonnage:0, pl:0};
+    monthly[m].tonnage += Number(p.total_weight_kg||0);
+    monthly[m].pl += 1;
+  }
+  const monthlyArr = Object.entries(monthly).sort(([a],[b])=> a.localeCompare(b)).map(([month, v])=> ({ month, tonnage: Math.round(v.tonnage*100)/100, pl: v.pl }));
+  res.json({ topSku, topOutlet, monthly: monthlyArr, totals: { totalPL: packing.length, totalTonnage: Math.round(packing.reduce((a,b)=> a+Number(b.total_weight_kg||0),0)*100)/100, totalUsageRows: usage.length } });
+});
 
 // ===== Wallet =====
 app.get("/api/wallet_info", (req, res) => {
