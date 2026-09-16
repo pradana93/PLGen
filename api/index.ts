@@ -12,6 +12,9 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "majesta93";
 const API_BEARER = process.env.API_BEARER || "JESTA-SECURE-99X";
+// Gemini key comes from Vercel env (GEMINI_API_KEY) — never hardcoded in repo
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const IS_VERCEL = !!process.env.VERCEL;
 
@@ -1978,6 +1981,89 @@ app.get("/api/anticheat/violations", requireSupabaseAdmin, async (req, res) => {
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
+});
+
+// ===== PLGen Copilot v2 — Gemini fallback (key stays server-side) =====
+app.post("/api/copilot/gemini", async (req, res) => {
+  try {
+    const { message, history, context } = req.body || {};
+    if (!message || !String(message).trim()) return res.status(400).json({ error: "message required" });
+    if (!GEMINI_API_KEY) return res.status(503).json({ error: "Gemini not configured — missing GEMINI_API_KEY env" });
+    const lang = context?.lang === "id" ? "id" : "en";
+    const isId = lang === "id";
+
+    // Build a compact data snapshot for Gemini so it can answer accurately
+    const snap: any = {};
+    const data: any[] = Array.isArray(context?.data) ? context.data : [];
+    const summary: any = context?.summary || null;
+    const stock: any = context?.stock || null;
+    const checkers: string[] = Array.isArray(context?.checkers) ? context.checkers : [];
+    if (summary?.totals) snap.kpis = summary.totals;
+    if (summary?.topSku) snap.topSku = summary.topSku.slice(0, 10);
+    if (summary?.topOutlet) snap.topOutlets = summary.topOutlet.slice(0, 10);
+    if (summary?.monthly) snap.monthly = summary.monthly.slice(-6);
+    if (checkers.length) snap.checkers = checkers;
+    if (stock && Object.keys(stock).length) {
+      const low = Object.entries(stock).filter(([, v]) => Number(v) <= 20).slice(0, 15).map(([k, v]) => `${k}: ${v}`);
+      snap.stockAlerts = low;
+      snap.totalItems = Object.keys(stock).length;
+    }
+    snap.livePLCount = data.length;
+    snap.liveTonnage = Math.round(data.reduce((a: number, b: any) => a + Number(b.total_weight_kg || 0), 0) * 10) / 10;
+
+    const systemPrompt = isId
+      ? `Kamu adalah PLGen Copilot, asisten AI cerdas untuk aplikasi logistik PLGen (Burger Bangor). Tugasmu membantu admin dan tim logistik memahami operasi packing.
+Gunakan data aplikasi di bawah ini sebagai sumber fakta. JANGAN menebak angka yang tidak ada di data — jika tidak ada, katakan dengan jujur bahwa datanya tidak tersedia.
+Jawab dalam Bahasa Indonesia, singkat, profesional, gunakan emoji dan bullet point jika membantu. Jangan sebut "snapshot" atau "data internal".
+SNAPSHOT DATA PLGEN:
+${JSON.stringify(snap, null, 1)}`
+      : `You are PLGen Copilot, a smart AI assistant for the PLGen logistics app (Burger Bangor). Your job is to help admins and logistics staff understand their packing operations.
+Use the app data snapshot below as your source of facts. DO NOT invent numbers that are not in the data — if missing, say honestly it isn't available.
+Answer in English, concise, professional, use emoji and bullet points when helpful. Never mention "snapshot" or "internal data".
+PLGEN DATA SNAPSHOT:
+${JSON.stringify(snap, null, 1)}`;
+
+    // Conversation history (last 8 turns)
+    const historyArr: { role: string; parts: { text: string }[] }[] = [];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        const role = h.role === "copilot" ? "model" : "user";
+        if (h.text) historyArr.push({ role, parts: [{ text: String(h.text).slice(0, 2000) }] });
+      }
+    }
+    historyArr.push({ role: "user", parts: [{ text: String(message).slice(0, 2000) }] });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(()=> controller.abort(), 20000);
+
+    const gRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: historyArr,
+          generationConfig: { temperature: 0.5, maxOutputTokens: 700, candidateCount: 1 },
+        }),
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!gRes.ok) {
+      const errText = await gRes.text().catch(()=> "");
+      return res.status(502).json({ error: `Gemini ${gRes.status}: ${errText.slice(0, 300)}` });
+    }
+    const gj = await gRes.json();
+    const reply = gj?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("")?.trim();
+    if (!reply) return res.status(502).json({ error: "Gemini returned empty response" });
+
+    res.json({ reply, model: GEMINI_MODEL });
+  } catch (e: any) {
+    const msg = e?.name === "AbortError" ? "Gemini request timed out (20s)" : (e?.message || "Gemini proxy error");
+    res.status(500).json({ error: msg });
+  }
 });
 
 // Static serving for uploads

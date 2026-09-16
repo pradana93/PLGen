@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { apiGet } from "../lib/api";
+import { apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../i18n";
 import { ask } from "../lib/copilot/entry";
 import type { CopilotContext } from "../lib/copilot/types";
 
-type Msg = { id: string; role: "user" | "copilot"; text: string; suggestions?: string[]; time: string };
+type Msg = { id: string; role: "user" | "copilot"; text: string; suggestions?: string[]; time: string; source?: "local" | "gemini" };
 
 let msgId = 0;
 function id() { return `cp-${++msgId}-${Date.now()}`; }
@@ -132,8 +132,44 @@ export default function Copilot(){
     setBusy(true);
     try {
       const ctx = ctxRef.current && ctxRef.current.lang === lang ? ctxRef.current : await buildCtx();
-      const { reply, intentType } = ask(text, ctx);
-      setMsgs(m => [...m, { id: id(), role: "copilot", text: reply, suggestions: suggestFor(intentType), time: now() }]);
+      const { reply, intentType, confidence } = ask(text, ctx);
+
+      // v2 Hybrid: Local Brain handles confident intents; escalate fuzzy/complex queries to Gemini
+      const needGemini = intentType === "fallback" || confidence < 0.45;
+      let finalReply = reply;
+      let source: "local" | "gemini" = "local";
+      let geminiFailed = false;
+
+      if (needGemini) {
+        try {
+          const history = msgs.slice(-6).map(m => ({ role: m.role, text: m.text }));
+          const resp = await apiPost("/api/copilot/gemini", {
+            message: text,
+            history,
+            context: {
+              lang,
+              page: ctx.page,
+              userLabel: ctx.userLabel,
+              role: ctx.role,
+              data: ctx.data,
+              summary: ctx.summary,
+              checkers: ctx.checkers,
+              stock: ctx.stock,
+            },
+          });
+          if (resp?.reply) { finalReply = resp.reply; source = "gemini"; }
+        } catch {
+          geminiFailed = true; // keep local fallback reply
+        }
+      }
+
+      setMsgs(m => [...m, {
+        id: id(), role: "copilot", text: finalReply,
+        suggestions: suggestFor(intentType), time: now(), source,
+      }]);
+      if (geminiFailed) {
+        setMsgs(m => [...m, { id: id(), role: "copilot", text: lang === "id" ? "ℹ️ Gemini tidak tersedia — jawaban lokal ditampilkan." : "ℹ️ Gemini unavailable — showing local answer.", time: now(), source: "local" }]);
+      }
     } catch (e: any) {
       setMsgs(m => [...m, { id: id(), role: "copilot", text: `⚠️ ${e?.message || "Error"}`, time: now() }]);
     }
@@ -259,7 +295,18 @@ export default function Copilot(){
                       ))}
                     </div>
                   )}
-                  <div className={`text-[9px] text-slate-300 mt-1.5 ${m.role === "user" ? "text-white/40 text-right" : ""}`}>{m.time}</div>
+                  <div className={`flex items-center gap-1.5 mt-1.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    {m.role === "copilot" && (
+                      <span className={`text-[8.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full border ${
+                        m.source === "gemini"
+                          ? "bg-gradient-to-r from-[#8e44ad]/10 to-[#3498db]/10 text-[#8e44ad] border-[#8e44ad]/20"
+                          : "bg-emerald-400/10 text-emerald-600 border-emerald-400/20"
+                      }`}>
+                        {m.source === "gemini" ? "✨ Gemini" : "⚡ Local AI"}
+                      </span>
+                    )}
+                    <span className={`text-[9px] ${m.role === "user" ? "text-white/40" : "text-slate-300"}`}>{m.time}</span>
+                  </div>
                 </div>
               </div>
             ))}
