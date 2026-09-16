@@ -110,8 +110,8 @@ function AppRoutes(){
         <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
         <div className="max-w-[1400px] mx-auto px-4 py-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Brand */}
-            <div className="lg:col-span-4">
+            {/* Brand — minimal, no stack internals */}
+            <div className="lg:col-span-5">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white to-[#eef2f7] border border-white/20 flex items-center justify-center shadow-sm text-[18px]">🛡️</div>
                 <div>
@@ -120,61 +120,41 @@ function AppRoutes(){
                     <span className="text-[11px] font-bold tracking-widest text-white/70 bg-white/10 border border-white/10 px-2 py-0.5 rounded-full">v{APP_VERSION}</span>
                     <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold tracking-widest text-emerald-300 bg-emerald-500/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">● LIVE</span>
                   </div>
-                  <div className="text-[11px] font-semibold tracking-widest text-white/40 -mt-0.5">LOGISTICS • VITTORIA — BURGER BANGOR</div>
+                  <div className="text-[11px] font-semibold tracking-widest text-white/40 -mt-0.5">LOGISTICS • VITTORIA</div>
                 </div>
               </div>
               <div className="mt-3 text-xs leading-relaxed text-white/60">
                 <div>{t("footer.madeBy")}</div>
-                <div className="mt-1 inline-flex flex-wrap gap-1.5">
-                  <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold">React + TypeScript</span>
-                  <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold">Vercel Edge</span>
-                  <span className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold">Supabase</span>
-                  <span className="px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-[11px] font-bold text-emerald-300">PythonAnywhere ★ primary</span>
-                </div>
+                <div className="text-white/40 text-[11px] mt-1">Secure • Fast • Reliable — Desktop optimized</div>
               </div>
-              <div className="mt-3 font-mono text-[11px] text-white/35">{t("footer.latest")} <span className="text-white/60 font-bold">{CHANGELOGS[0]?.hash}</span> — {CHANGELOGS[0]?.date}</div>
             </div>
 
-            {/* Changelogs flagship */}
-            <div className="lg:col-span-5">
+            {/* Changelogs — premium but no hashes/ internals */}
+            <div className="lg:col-span-7">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-sm font-black tracking-tight text-white">{t("footer.changelogs")}</span>
-                <span className="text-[11px] bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full font-black">{CHANGELOGS.length}</span>
-                <span className="ml-auto text-[11px] text-white/40 hidden sm:block">Auto-generated from git • latest first</span>
+                <span className="text-[11px] bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full font-black">{Math.min(CHANGELOGS.length, 8)}</span>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
-                <div className="max-h-[190px] overflow-auto divide-y divide-white/5">
-                  {CHANGELOGS.slice(0, 10).map((c) => (
+                <div className="max-h-[170px] overflow-auto divide-y divide-white/5">
+                  {CHANGELOGS.slice(0, 8).map((c) => (
                     <div key={c.hash} className="flex items-start gap-2.5 px-3 py-2 hover:bg-white/[0.04] transition-colors">
-                      <span className="font-mono text-[10px] bg-white text-[#0f1e2e] px-1.5 py-0.5 rounded font-black shrink-0">{c.hash}</span>
-                      <span className="text-[11px] font-bold text-white/40 shrink-0">{c.date}</span>
+                      <span className="text-[11px] font-bold text-white/30 shrink-0">{c.date}</span>
                       <span className="text-xs leading-snug text-white/75">{c.message}</span>
                     </div>
                   ))}
                 </div>
                 <div className="px-3 py-2 bg-white/[0.02] border-t border-white/5 flex items-center justify-between">
-                  <span className="text-[11px] text-white/40">Showing 10 of {CHANGELOGS.length} • scroll for more</span>
-                  <span className="text-[11px] font-mono text-white/25">{new Date().getFullYear()} © Jesta • Vittoria</span>
+                  <span className="text-[11px] text-white/35">Latest update {CHANGELOGS[0]?.date}</span>
+                  <span className="text-[11px] text-white/25">{new Date().getFullYear()} © Vittoria</span>
                 </div>
-              </div>
-            </div>
-
-            {/* Meta / Links */}
-            <div className="lg:col-span-3">
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="text-xs font-black tracking-widest text-white/60">SYSTEM</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg bg-white/5 border border-white/10 p-2.5"><div className="text-white/40 text-[11px] font-bold tracking-widest">API</div><div className="font-mono font-bold text-white">/api</div><div className="text-[11px] text-white/40">Vercel → Supabase</div></div>
-                  <div className="rounded-lg bg-white/5 border border-white/10 p-2.5"><div className="text-white/40 text-[11px] font-bold tracking-widest">MASTER</div><div className="font-bold text-emerald-300">PythonAnywhere</div><div className="text-[11px] text-white/40">Supabase fallback</div></div>
-                </div>
-                <div className="mt-3 text-[11px] leading-relaxed text-white/45">No packing core changes — <span className="text-white/70 font-bold">calculateBoxes</span> stays 1:1 with <span className="font-mono">core.py</span>.</div>
               </div>
             </div>
           </div>
 
           <div className="mt-6 pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-white/30">
             <span>Built for DC Vittoria • Desktop only • © {new Date().getFullYear()} Burger Bangor</span>
-            <span className="font-mono">pl-gen.vercel.app • {CHANGELOGS[0]?.date} • {CHANGELOGS[0]?.hash}</span>
+            <span>PLGen v{APP_VERSION} • Secure Logistics Platform</span>
           </div>
         </div>
       </footer>
