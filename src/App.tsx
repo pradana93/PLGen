@@ -1,11 +1,10 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { lazy, Suspense } from "react";
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const LiveBoard = lazy(() => import("./pages/LiveBoard"));
-const Admin = lazy(() => import("./pages/Admin"));
-const Manifests = lazy(() => import("./pages/Manifests"));
-const Inbound = lazy(() => import("./pages/Inbound"));
-const ScanPage = lazy(() => import("./pages/ScanPage"));
+import Dashboard from "./pages/Dashboard";
+import LiveBoard from "./pages/LiveBoard";
+import Admin from "./pages/Admin";
+import Manifests from "./pages/Manifests";
+import Inbound from "./pages/Inbound";
+import ScanPage from "./pages/ScanPage";
 import Login from "./pages/Login";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ServerStatus from "./components/ServerStatus";
@@ -98,7 +97,6 @@ function AppRoutes(){
   return (
     <>
       <Nav />
-      <Suspense fallback={<div className="p-8 text-center text-sm text-gray-500">{t("auth.loading")}</div>}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
@@ -108,7 +106,6 @@ function AppRoutes(){
         <Route path="/admin" element={<Protected roles={["SuperAdmin","Admin"]}><Admin /></Protected>} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
       </Routes>
-      </Suspense>
       <footer className="border-t bg-white mt-8">
         <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex flex-col md:flex-row gap-8">
