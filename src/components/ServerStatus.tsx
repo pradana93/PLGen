@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLanguage } from "../i18n";
 
 type ServiceStatus = "ok" | "down" | "checking";
@@ -18,6 +18,7 @@ export default function ServerStatus() {
   const [pyStatus, setPyStatus] = useState<ServiceStatus>("checking");
   const [sbStatus, setSbStatus] = useState<ServiceStatus>("checking");
   const [lastCheck, setLastCheck] = useState<string>("");
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
 
@@ -49,25 +50,36 @@ export default function ServerStatus() {
     return () => clearInterval(interval);
   }, []);
 
+  // Close on outside click / Escape — prevents stale overlay
+  useEffect(() => {
+    if (!expanded) return;
+    const onDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setExpanded(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setExpanded(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [expanded]);
+
   const allOk = pyStatus === "ok" && sbStatus === "ok";
   const allDown = pyStatus === "down" && sbStatus === "down";
   const dotColor = allDown ? "bg-red-500 shadow-red-500/50" : allOk ? "bg-green-500 shadow-green-500/50" : "bg-yellow-400 shadow-yellow-400/50";
-  const textColor = allDown ? "text-red-600" : allOk ? "text-green-700" : "text-yellow-700";
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       {/* Trigger */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-semibold hover:bg-white/20 transition-colors"
       >
         <span className={`w-2.5 h-2.5 rounded-full shadow-lg animate-pulse ${dotColor}`} />
-        <span className={textColor}>{allOk ? t("status.allConnected") : allDown ? t("status.offline") : t("status.partial")}</span>
+        <span className="text-white text-xs font-bold drop-shadow-sm">{allOk ? t("status.allConnected") : allDown ? t("status.offline") : t("status.partial")}</span>
       </button>
 
-      {/* Expanded panel */}
+      {/* Expanded panel — anchored below header (was bottom-full which clipped above navbar) */}
       {expanded && (
-        <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+        <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-200 z-[60] overflow-hidden">
           <div className="px-4 py-3 border-b bg-[#f4f6f9]">
             <div className="font-bold text-sm text-[#2c3e50]">{t("status.title")}</div>
             <div className="text-[10px] text-gray-400 mt-0.5">{t("status.lastChecked", { time: lastCheck || "—" })}</div>
