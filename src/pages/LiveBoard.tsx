@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPut } from "../lib/api";
 import { useLanguage } from "../i18n";
+import { useAuth } from "../context/AuthContext";
+import { supabase } from "../lib/supabase";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, Legend, Cell
@@ -19,6 +21,8 @@ function formatKg(v:number){ return `${v.toLocaleString()} kg`; }
 
 export default function LiveBoard(){
   const { t } = useLanguage();
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.role === "SuperAdmin";
   const [data, setData]=useState<any[]>([]);
   const [filter, setFilter]=useState("");
   const [summary, setSummary]=useState<Summary|null>(null);
@@ -64,6 +68,21 @@ export default function LiveBoard(){
         setTimeout(()=> URL.revokeObjectURL(url), 2000);
       }
     }catch(e:any){ alert(`Download failed: ${e.message||e}`); }
+  };
+
+  const handleDelete = async (deliveryNo:string)=>{
+    if(!isSuperAdmin) return alert("Only SuperAdmin can delete.");
+    if(!confirm(`Delete ${deliveryNo}?\nThis will remove the PL from packing_status, item_usage, and Storage — Data Report (Top 25 SKU, Top 10 Outlets, Monthly Tonnage/PL) will update automatically. This cannot be undone.`)) return;
+    try{
+      const { data } = await supabase.auth.getSession() as any;
+      const token = data?.session?.access_token;
+      const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+      const r = await fetch(`${base}/api/packing_lists/${encodeURIComponent(deliveryNo)}`, { method: "DELETE", headers: token ? { Authorization: `Bearer ${token}` } : {} as any });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error((j as any).error || `${r.status}`);
+      alert(`Deleted ${deliveryNo} — ${j.deleted?.packing_status||0} PL, ${j.deleted?.item_usage||0} usage, ${j.deleted?.files||0} files`);
+      fetchAll();
+    }catch(e:any){ alert(`Delete failed: ${e.message||e}`); }
   };
   useEffect(()=>{ fetchAll(); const id=setInterval(fetchAll, 30000); return ()=>clearInterval(id); },[]);
 
@@ -258,7 +277,7 @@ export default function LiveBoard(){
         ) : (
           <div className="overflow-auto border rounded-xl max-h-[320px]">
             <table className="w-full text-xs">
-              <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Delivery No</th><th className="p-2 text-left">Outlet</th><th className="p-2">PL</th><th className="p-2">Status</th><th className="p-2">Created (WIB)</th><th className="p-2">File</th><th className="p-2"></th></tr></thead>
+              <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Delivery No</th><th className="p-2 text-left">Outlet</th><th className="p-2">PL</th><th className="p-2">Status</th><th className="p-2">Created (WIB)</th><th className="p-2">File</th><th className="p-2 text-center">Actions</th></tr></thead>
               <tbody>
                 {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,100).map((a:any)=>(
                   <tr key={a.delivery_no} className="border-t hover:bg-gray-50">
@@ -268,7 +287,12 @@ export default function LiveBoard(){
                     <td className="p-2 text-center"><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${a.status==="READY"?"bg-emerald-100 text-emerald-700":"bg-amber-100 text-amber-700"}`}>{a.status}</span></td>
                     <td className="p-2 text-[11px]">{a.created_at||"—"}</td>
                     <td className="p-2 text-center">{a.hasFile ? "✅" : "—"}</td>
-                    <td className="p-2 text-center"><button onClick={()=> handleDownload(a.delivery_no)} className="text-xs bg-[#2c3e50] text-white px-2.5 py-1 rounded-full font-bold hover:bg-[#34495e]">⬇ Download</button></td>
+                    <td className="p-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={()=> handleDownload(a.delivery_no)} className="text-xs bg-[#2c3e50] text-white px-2.5 py-1 rounded-full font-bold hover:bg-[#34495e]">⬇</button>
+                        {isSuperAdmin && <button onClick={()=> handleDelete(a.delivery_no)} title="Delete — SuperAdmin only" className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded-full font-bold hover:bg-red-50">🗑️</button>}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

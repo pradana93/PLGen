@@ -1435,6 +1435,55 @@ app.get("/api/packing_lists/:delivery_no/download", async (req, res) => {
     return res.status(500).json({ error: e?.message || "Download error" });
   }
 });
+// SuperAdmin-only cascade delete — removes PL from packing_status, item_usage, and Storage (archive)
+// Rest of Data Report (Top SKU, Tonnage, Monthly) automatically reflects deletion because they read from those tables — non-breaking additive
+app.delete("/api/packing_lists/:delivery_no", requireSupabaseAdmin, async (req, res) => {
+  const delivery = decodeURIComponent(req.params.delivery_no);
+  if (!delivery) return res.status(400).json({ error: "Missing delivery_no" });
+  let deletedPacking = 0, deletedUsage = 0, deletedFiles = 0;
+  // File fallback cleanup
+  try {
+    const ps = jsonRead<any[]>("packing_status.json", []);
+    const nextPs = ps.filter((p:any)=> String(p.delivery_no)!==String(delivery));
+    if (nextPs.length !== ps.length) { deletedPacking = ps.length - nextPs.length; jsonWrite("packing_status.json", nextPs); }
+    const us = jsonRead<any[]>("item_usage.json", []);
+    const nextUs = us.filter((u:any)=> String(u.delivery_no)!==String(delivery));
+    if (nextUs.length !== us.length) { deletedUsage = us.length - nextUs.length; jsonWrite("item_usage.json", nextUs); }
+  } catch {}
+  // Supabase persistence
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { error: e1, count: c1 } = await sb.from("packing_status").delete({ count: "exact" } as any).eq("delivery_no", delivery);
+      if (!e1 && typeof c1==="number") deletedPacking = Math.max(deletedPacking, c1);
+      else if (!e1) {
+        // fallback count via select
+        const { data } = await sb.from("packing_status").select("delivery_no").eq("delivery_no", delivery);
+        if (!data || data.length===0) deletedPacking = deletedPacking || 1;
+      }
+      const { error: e2, count: c2 } = await sb.from("item_usage").delete({ count: "exact" } as any).eq("delivery_no", delivery);
+      if (!e2 && typeof c2==="number") deletedUsage = Math.max(deletedUsage, c2);
+      // Storage: delete all files under delivery folder
+      try {
+        const { data: files } = await sb.storage.from("packing-lists").list(delivery, { limit: 100 } as any);
+        if (files && files.length) {
+          const paths = files.map((f:any)=> `${delivery}/${f.name}`);
+          const { error: e3 } = await sb.storage.from("packing-lists").remove(paths);
+          if (!e3) deletedFiles = paths.length;
+        }
+      } catch {}
+    }
+  } catch {}
+  // Audit log for deletion
+  try {
+    const user = (req as any).supaUser;
+    const logs = jsonRead<any[]>("audit_logs.json", []);
+    logs.push({ timestamp: wibNowStr(), user: user?.email||"SuperAdmin", role: user?.role||"SuperAdmin", action_type: "DELETE_PL", details: `Deleted ${delivery} — packing:${deletedPacking} usage:${deletedUsage} files:${deletedFiles}` });
+    if (logs.length>5000) logs.splice(0, logs.length-5000);
+    jsonWrite("audit_logs.json", logs);
+  } catch {}
+  res.json({ status: "success", delivery_no: delivery, deleted: { packing_status: deletedPacking, item_usage: deletedUsage, files: deletedFiles } });
+});
 
 // ===== Wallet =====
 app.get("/api/wallet_info", (req, res) => {
