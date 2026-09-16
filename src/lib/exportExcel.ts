@@ -381,17 +381,24 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const filename = `${_ts}_${outlet}.xlsx`;
   saveAs(new Blob([buf]), filename);
 
-  // Backend logging + auto-upload — instant saveAs first, then fire-and-forget with keepalive so Live Report catches every PL after Template patch
+  // Backend logging + auto-upload — saveAs first (instant), then await Supabase so Live Board catches single-click (previous fire-and-forget sometimes dropped)
   const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+  // Ensure Live Report sees this PL even on single click — await after instant saveAs (does not block download)
   try {
-    fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))}), keepalive: true} as any).catch(()=>{});
-    fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))}), keepalive: true} as any).catch(()=>{});
+    const r1 = await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
+    if(!r1.ok) console.warn("packing_status persist", await r1.text().catch(()=>r1.statusText));
+    const r2 = await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
+    if(!r2.ok) console.warn("track_item_usage persist", await r2.text().catch(()=>r2.statusText));
+  } catch(e){ console.warn("live board sync failed", e); }
+  // Archive upload — await as well (small xlsx <100KB, fast) so packing_lists shows file
+  try {
     const fd = new FormData();
     fd.append("file", new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
     fd.append("delivery_no", deliveryNo);
     fd.append("outlet", outlet);
-    fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd, keepalive: true } as any).catch(()=>{});
-  } catch {}
+    const ru = await fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd } as any);
+    if(!ru.ok) console.warn("upload persist", await ru.text().catch(()=>ru.statusText));
+  } catch(e){ console.warn("upload failed", e); }
   return { deliveryNo, totalWeight };
 }
 
