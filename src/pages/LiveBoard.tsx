@@ -34,18 +34,23 @@ export default function LiveBoard(){
   const [showLive, setShowLive]=useState(false);
   const [archive, setArchive]=useState<any[]>([]);
   const [archiveFilter, setArchiveFilter]=useState("");
+  const [checkers, setCheckers]=useState<string[]>([]);
+  const [editingChecker, setEditingChecker]=useState<string|null>(null);
+  const [editCheckerVal, setEditCheckerVal]=useState<string>("");
 
   const fetchAll=async()=>{
     setLoading(true);
     try{
-      const [ps, sum, arch] = await Promise.all([
+      const [ps, sum, arch, ch] = await Promise.all([
         apiGet("/api/packing_status").catch(()=>[]),
         apiGet("/api/report/summary").catch(()=>null),
         apiGet("/api/packing_lists").catch(()=>[]),
+        apiGet("/api/checkers").catch(()=>({ checkers: [] })),
       ]);
       setData(Array.isArray(ps)?ps:[]);
       if(sum) setSummary(sum);
       if(Array.isArray(arch)) setArchive(arch);
+      if(ch?.checkers) setCheckers(ch.checkers);
     }catch{}
     setLoading(false);
   };
@@ -85,6 +90,16 @@ export default function LiveBoard(){
       alert(`Deleted ${deliveryNo} — ${j.deleted?.packing_status||0} PL, ${j.deleted?.item_usage||0} usage, ${j.deleted?.files||0} files`);
       fetchAll();
     }catch(e:any){ alert(`Delete failed: ${e.message||e}`); }
+  };
+
+  const handleCheckerUpdate = async (deliveryNo:string)=>{
+    if(!editCheckerVal || editCheckerVal===archive.find((a:any)=> a.delivery_no===deliveryNo)?.checker) { setEditingChecker(null); return; }
+    if(!confirm(`Change checker for ${deliveryNo} to "${editCheckerVal}"?`)) return;
+    try{
+      await apiPut(`/api/packing_status/${encodeURIComponent(deliveryNo)}`, { checker: editCheckerVal });
+      setEditingChecker(null);
+      fetchAll();
+    }catch(e:any){ alert(`Update failed: ${e.message||e}`); }
   };
 
   const exportReportExcel = async ()=>{
@@ -170,6 +185,62 @@ export default function LiveBoard(){
     return summary.monthly.slice(-n);
   },[summary, range]);
 
+  // Checker Leaderboard — derived from packing_status (live data), not summary, so field changes reflect instantly
+  const checkerLeaderboard = useMemo(()=>{
+    if(!data.length) return [];
+    const map: Record<string, { count:number, tonnage:number, last:string, first:string }> = {};
+    for(const p of data){
+      const c = String(p.checker||"Unknown").trim() || "Unknown";
+      if(!map[c]) map[c]={count:0, tonnage:0, last: p.created_at||"", first: p.created_at||""};
+      map[c].count+=1;
+      map[c].tonnage+=Number(p.total_weight_kg||0);
+      if(String(p.created_at) > String(map[c].last)) map[c].last = p.created_at;
+      if(String(p.created_at) < String(map[c].first)) map[c].first = p.created_at;
+    }
+    const now = Date.now();
+    const arr = Object.entries(map).map(([checker, v])=>{
+      const first = new Date(v.first).getTime();
+      const days = isNaN(first) ? 1 : Math.max(1, Math.ceil((now - first)/(1000*60*60*24)));
+      const plPerDay = v.count / days;
+      // avg minutes per PL where scanned_at exists? compute avg dwell
+      const relevant = data.filter((p:any)=> String(p.checker||"Unknown").trim()===checker && p.scanned_at && p.created_at);
+      let avgMinutes = 0;
+      if(relevant.length){
+        let totalMin=0, cnt=0;
+        for(const r of relevant){
+          // created_at is "YYYY-MM-DD HH:MM:SS" WIB, scanned_at is "HH:MM:SS" — can't fully compute, so use count based
+          cnt++; totalMin += 0;
+        }
+        avgMinutes = cnt? Math.round(totalMin/cnt):0;
+      }
+      return { checker, count: v.count, tonnage: Math.round(v.tonnage*10)/10, avgKg: v.count? Math.round((v.tonnage/v.count)*10)/10 : 0, last: v.last, plPerDay: Math.round(plPerDay*10)/10, avgMinutes };
+    });
+    // sort by tonnage desc (most valuable), then count
+    arr.sort((a,b)=> b.tonnage - a.tonnage || b.count - a.count);
+    return arr;
+  },[data]);
+
+  // Weekly breakdown for top checker (for bar chart)
+  const weeklyCheckerData = useMemo(()=>{
+    if(!data.length || !checkerLeaderboard.length) return [];
+    const topChecker = checkerLeaderboard[0]?.checker;
+    if(!topChecker) return [];
+    // group last 8 weeks by Monday
+    const weeks: Record<string, number> = {};
+    for(const p of data){
+      if(String(p.checker||"Unknown").trim()!==topChecker) continue;
+      const d = new Date(String(p.created_at||"").replace(" ","T"));
+      if(isNaN(d.getTime())) continue;
+      // get Monday of that week
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day===0 ? -6 : 1);
+      const mon = new Date(d); mon.setDate(diff);
+      const key = mon.toISOString().slice(0,10);
+      weeks[key] = (weeks[key]||0)+1;
+    }
+    return Object.entries(weeks).sort(([a],[b])=> a.localeCompare(b)).slice(-8).map(([week, pl])=> ({ week: week.slice(5), pl }));
+  },[data, checkerLeaderboard]);
+
   const kpi = summary?.totals || { totalPL: data.length, totalTonnage: 0, totalUsageRows: 0 };
   const avgWeight = kpi.totalPL ? (kpi.totalTonnage / kpi.totalPL) : 0;
 
@@ -222,6 +293,53 @@ export default function LiveBoard(){
           <div className="text-2xl font-extrabold text-[#8e44ad] mt-1">{loading ? "—" : (summary?.topOutlet.length||0)}</div>
           <div className="text-xs text-gray-500">Top 10 valuable</div>
         </div>
+      </div>
+
+      {/* Checker Leaderboard */}
+      <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-extrabold text-sm text-[#2c3e50]">🏅 Checker Leaderboard <span className="text-xs font-normal text-gray-500">— PL/day • tonnage • avg • last active</span></h3>
+          <span className="text-[11px] bg-slate-100 border rounded-full px-2 py-1">{checkerLeaderboard.length} checkers</span>
+        </div>
+        {checkerLeaderboard.length===0 ? (
+          <div className="text-center p-8 text-gray-400 text-sm">No checker data yet — export PLs to rank.</div>
+        ) : (
+          <>
+            <div className="overflow-auto border rounded-xl max-h-[320px]">
+              <table className="w-full text-xs">
+                <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-center">#</th><th className="p-2 text-left">Checker</th><th className="p-2 text-center">PL</th><th className="p-2 text-center">Tonnage</th><th className="p-2 text-center">Avg / PL</th><th className="p-2 text-center">PL/day</th><th className="p-2 text-left">Last Active (WIB)</th></tr></thead>
+                <tbody>
+                  {checkerLeaderboard.map((r,i)=>(
+                    <tr key={r.checker} className={`border-t ${i===0?"bg-amber-50/50":"hover:bg-gray-50"}`}>
+                      <td className="p-2 text-center"><span className={`w-6 h-6 rounded-full inline-flex items-center justify-center text-[11px] font-black ${i===0?"bg-yellow-400 text-black":i===1?"bg-gray-300 text-black":i===2?"bg-amber-600 text-white":"bg-slate-200 text-slate-700"}`}>{i+1}</span></td>
+                      <td className="p-2 font-bold truncate max-w-[140px]">{r.checker}</td>
+                      <td className="p-2 text-center font-mono font-bold">{r.count}</td>
+                      <td className="p-2 text-center font-mono">{formatKg(r.tonnage)}</td>
+                      <td className="p-2 text-center text-gray-500">{r.avgKg} kg</td>
+                      <td className="p-2 text-center"><span className="px-2 py-0.5 rounded-full bg-[#2c3e50] text-white text-[11px] font-bold">{r.plPerDay}/d</span></td>
+                      <td className="p-2 text-[11px] text-gray-500">{r.last ? new Date(String(r.last).replace(" ","T")).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {weeklyCheckerData.length>0 && (
+              <div className="mt-3 h-[180px]">
+                <div className="text-[11px] font-bold text-gray-500 mb-1">Top Checker ({checkerLeaderboard[0]?.checker}) — Weekly PL (last 8 weeks)</div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weeklyCheckerData} margin={{ left: 0, right: 12 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                    <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="pl" name="PL" fill="#2c3e50" radius={[6,6,0,0]} barSize={18} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <div className="text-[11px] text-gray-400 mt-2">Ranked by tonnage • Use SuperAdmin inline edit in Archive to correct field changes — leaderboard updates live (30s poll).</div>
+          </>
+        )}
       </div>
 
       {/* Top 25 SKU */}
@@ -344,19 +462,36 @@ export default function LiveBoard(){
         ) : (
           <div className="overflow-auto border rounded-xl max-h-[320px]">
             <table className="w-full text-xs">
-              <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Delivery No</th><th className="p-2 text-left">Outlet</th><th className="p-2">PL</th><th className="p-2">Status</th><th className="p-2">Created (WIB)</th><th className="p-2">File</th><th className="p-2 text-center">Actions</th></tr></thead>
+              <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Delivery No</th><th className="p-2 text-left">Outlet</th><th className="p-2">Checker</th><th className="p-2">PL</th><th className="p-2">Status</th><th className="p-2">Created (WIB)</th><th className="p-2">File</th><th className="p-2 text-center">Actions</th></tr></thead>
               <tbody>
-                {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,100).map((a:any)=>(
+                {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,100).map((a:any)=>(
                   <tr key={a.delivery_no} className="border-t hover:bg-gray-50">
                     <td className="p-2 font-mono font-bold">{a.delivery_no}</td>
-                    <td className="p-2 truncate max-w-[180px]">{a.outlet}</td>
+                    <td className="p-2 truncate max-w-[160px]">{a.outlet}</td>
+                    <td className="p-2 text-center">
+                      {editingChecker===a.delivery_no ? (
+                        <div className="flex items-center gap-1 justify-center">
+                          <select value={editCheckerVal} onChange={e=> setEditCheckerVal(e.target.value)} className="border rounded px-1 py-0.5 text-xs max-w-[100px]">
+                            {checkers.map((c:string)=> <option key={c} value={c}>{c}</option>)}
+                            {!checkers.includes(a.checker) && a.checker && <option value={a.checker}>{a.checker} (current)</option>}
+                          </select>
+                          <button onClick={()=> handleCheckerUpdate(a.delivery_no)} className="text-xs bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold">✔</button>
+                          <button onClick={()=> setEditingChecker(null)} className="text-xs bg-gray-200 px-1.5 py-0.5 rounded">✖</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 justify-center">
+                          <span className="font-medium truncate max-w-[90px]" title={a.checker}>{a.checker||"—"}</span>
+                          {isSuperAdmin && <button onClick={()=> { setEditingChecker(a.delivery_no); setEditCheckerVal(a.checker||checkers[0]||""); }} title="Change checker — SuperAdmin" className="text-[10px] bg-white border px-1 py-0.5 rounded hover:bg-gray-50">✏️</button>}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-2 text-center">{a.total_weight_kg||0} kg</td>
                     <td className="p-2 text-center"><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${a.status==="READY"?"bg-emerald-100 text-emerald-700":"bg-amber-100 text-amber-700"}`}>{a.status}</span></td>
                     <td className="p-2 text-[11px]">{a.created_at||"—"}</td>
                     <td className="p-2 text-center">{a.hasFile ? "✅" : "—"}</td>
                     <td className="p-2 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={()=> handleDownload(a.delivery_no)} className="text-xs bg-[#2c3e50] text-white px-2.5 py-1 rounded-full font-bold hover:bg-[#34495e]">⬇</button>
+                        <button onClick={()=> handleDownload(a.delivery_no)} className="text-xs bg-[#2c3e50] text-white px-2 py-1 rounded-full font-bold hover:bg-[#34495e]">⬇</button>
                         {isSuperAdmin && <button onClick={()=> handleDelete(a.delivery_no)} title="Delete — SuperAdmin only" className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded-full font-bold hover:bg-red-50">🗑️</button>}
                       </div>
                     </td>
