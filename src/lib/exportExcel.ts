@@ -376,9 +376,19 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
   } catch {}
 
-  const buf = await wb.xlsx.writeBuffer();
+  const buf = await wb.xlsx.writeBuffer() as ArrayBuffer;
   const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
-  saveAs(new Blob([buf]), `${_ts}_${outlet}.xlsx`);
+  const filename = `${_ts}_${outlet}.xlsx`;
+  saveAs(new Blob([buf]), filename);
+  // Auto-upload to Supabase Storage via backend (persistent, downloadable later) — non-blocking, keeps local save
+  try {
+    const fd = new FormData();
+    fd.append("file", new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
+    fd.append("delivery_no", deliveryNo);
+    fd.append("outlet", outlet);
+    // fire-and-forget, backend stores to packing-lists bucket + packing_status
+    fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd } as any).catch(()=>{});
+  } catch {}
   return { deliveryNo, totalWeight };
 }
 

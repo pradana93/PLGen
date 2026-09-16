@@ -98,6 +98,38 @@ async function saveSupabaseStock(stock: Record<string,number>): Promise<void> {
     await sb.from("current_stock").upsert({ id: 1, data: stock, updated_at: new Date().toISOString() }, { onConflict: "id" });
   } catch {}
 }
+async function fetchSupabasePackingStatus(): Promise<any[] | null> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.from("packing_status").select("*").order("created_at", { ascending: false }).limit(2000);
+    if (!error && data) return data;
+  } catch {}
+  return null;
+}
+async function saveSupabasePackingStatus(entry: any): Promise<void> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return;
+    await sb.from("packing_status").upsert(entry, { onConflict: "delivery_no" });
+  } catch {}
+}
+async function fetchSupabaseItemUsage(): Promise<any[] | null> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.from("item_usage").select("*").order("timestamp", { ascending: false }).limit(5000);
+    if (!error && data) return data.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, items: r.items, timestamp: r.timestamp }));
+  } catch {}
+  return null;
+}
+async function saveSupabaseItemUsage(entry: any): Promise<void> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return;
+    await sb.from("item_usage").insert(entry);
+  } catch {}
+}
 
 async function fetchPythonAnywhereMaster(): Promise<any | null> {
   try {
@@ -1171,51 +1203,81 @@ app.post("/api/checkers", async (req, res) => {
   res.json({ status: "success" });
 });
 
-// ===== Packing Status (Live Board) =====
-app.get("/api/packing_status", (req, res) => {
+// ===== Packing Status (Live Board) — now persistent on Supabase ====
+app.get("/api/packing_status", async (req, res) => {
+  const supa = await fetchSupabasePackingStatus();
+  if (supa && supa.length) {
+    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0 }))); } catch {}
+    return res.json(supa);
+  }
+  // Fallback + also try to backfill from file if supabase empty
   const data = jsonRead<any[]>("packing_status.json", []);
+  // If supabase empty but file has data, backfill to Supabase asynchronously
+  if (data.length && (!supa || supa.length===0)) {
+    (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0 }); })().catch(()=>{});
+  }
   res.json(data);
 });
-app.post("/api/packing_status", (req, res) => {
+app.post("/api/packing_status", async (req, res) => {
   const { delivery_no, outlet, checker, status, total_weight_kg } = req.body;
   if (!delivery_no) return res.status(400).json({ error: "Missing delivery_no" });
   const statuses = jsonRead<any[]>("packing_status.json", []);
   let found = statuses.find(s=>s.delivery_no===delivery_no);
+  const nowWib = wibNowStr();
   if (found) {
     found.outlet = outlet ?? found.outlet;
     found.checker = checker ?? found.checker;
     found.status = status ?? found.status;
     if (total_weight_kg!==undefined) found.total_weight_kg = total_weight_kg;
-    if (status==="IN PROGRESS") found.created_at = wibNowStr();
+    if (status==="IN PROGRESS") found.created_at = nowWib;
   } else {
-    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: wibNowStr(), scanned_at: "" });
+    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "" });
   }
   jsonWrite("packing_status.json", statuses);
+  // Supabase persistent copy (service_role bypasses RLS)
+  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0 }).catch(()=>{});
   res.json({ status: "success" });
 });
 app.get("/scan/:delivery_no", (req, res) => {
   // Compatibility: redirect to frontend scan page handled by frontend, but provide API
   res.json({ delivery_no: req.params.delivery_no });
 });
-app.post("/api/scan/:delivery_no", (req, res) => {
+app.post("/api/scan/:delivery_no", async (req, res) => {
   const delivery_no = decodeURIComponent(req.params.delivery_no);
   const { checker, dus_l, dus_s, dus_besar } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
   const entry = statuses.find(s=>s.delivery_no===delivery_no);
-  if (!entry) return res.status(404).json({ error: "Not found" });
-  if (entry.status==="READY"||entry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
-  entry.status = "READY";
-  if (checker) entry.checker = checker;
-  entry.dus_l = Number(dus_l)||0; entry.dus_s = Number(dus_s)||0; entry.dus_besar = Number(dus_besar)||0;
-  entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
-  jsonWrite("packing_status.json", statuses);
-  res.json({ status: "success", entry });
+  if (!entry) {
+    // try Supabase
+    const supa = await fetchSupabasePackingStatus();
+    const supaEntry = supa?.find((s:any)=> s.delivery_no===delivery_no);
+    if (!supaEntry) return res.status(404).json({ error: "Not found" });
+    if (supaEntry.status==="READY"||supaEntry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
+  } else {
+    if (entry.status==="READY"||entry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
+    entry.status = "READY";
+    if (checker) entry.checker = checker;
+    entry.dus_l = Number(dus_l)||0; entry.dus_s = Number(dus_s)||0; entry.dus_besar = Number(dus_besar)||0;
+    entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
+    jsonWrite("packing_status.json", statuses);
+  }
+  // Supabase mirror
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      await sb.from("packing_status").update({ status: "READY", checker: checker||undefined, dus_l: Number(dus_l)||0, dus_s: Number(dus_s)||0, dus_besar: Number(dus_besar)||0, scanned_at: new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"}) }).eq("delivery_no", delivery_no);
+    }
+  } catch {}
+  res.json({ status: "success", entry: entry || { delivery_no, status:"READY" } });
 });
-// Pretty HTML scan pages (for QR)
-app.get("/scan/*", (req, res) => {
+// Pretty HTML scan pages (for QR) — Supabase-aware
+app.get("/scan/*", async (req, res) => {
   const delivery_no = decodeURIComponent((req.params as any)[0] || "");
-  const statuses = jsonRead<any[]>("packing_status.json", []);
-  const entry = statuses.find(s=>s.delivery_no===delivery_no);
+  let entry = jsonRead<any[]>("packing_status.json", []).find(s=>s.delivery_no===delivery_no) as any;
+  if (!entry) {
+    const supa = await fetchSupabasePackingStatus();
+    entry = supa?.find((s:any)=> s.delivery_no===delivery_no);
+  }
   if (!entry) return res.status(404).send("<h1>❌ Not found</h1>");
   if (entry.status==="READY"||entry.status==="CANCELLED") {
     return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1 style="color:#c0392b">⛔ SCAN REJECTED</h1><p>Already ${entry.status} at ${entry.scanned_at}</p><p>${delivery_no}</p></body></html>`);
@@ -1226,7 +1288,7 @@ app.get("/scan/*", (req, res) => {
 });
 
 // ===== Packing Board update via PUT for status override =====
-app.put("/api/packing_status/:delivery_no", (req, res) => {
+app.put("/api/packing_status/:delivery_no", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);
   const { status, checker } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
@@ -1236,29 +1298,61 @@ app.put("/api/packing_status/:delivery_no", (req, res) => {
   if (checker) entry.checker = checker;
   if (status==="READY") entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
   jsonWrite("packing_status.json", statuses);
+  // Supabase mirror
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const upd:any={};
+      if (status) upd.status=status;
+      if (checker) upd.checker=checker;
+      if (status==="READY") upd.scanned_at=entry.scanned_at;
+      if (Object.keys(upd).length) await sb.from("packing_status").update(upd).eq("delivery_no", dn);
+    }
+  } catch {}
   res.json({ status: "success" });
 });
 
-// ===== Upload packing list =====
+// ===== Upload packing list — now persisted to Supabase Storage (packing-lists bucket) =====
 const upload = multer({ dest: UPLOAD_DIR });
-app.post("/api/upload_packing_list", upload.single("file"), (req, res) => {
-  // just ack
-  res.json({ status: "success", filename: req.file?.originalname });
+app.post("/api/upload_packing_list", upload.single("file"), async (req, res) => {
+  const fname = req.file?.originalname || `PL_${Date.now()}.xlsx`;
+  const delivery = String((req.body as any)?.delivery_no || fname.replace(/\.xlsx$/i,"")).slice(0,120);
+  // Supabase Storage upload (service_role)
+  try {
+    const sb = await getSupabase();
+    if (sb && req.file?.path) {
+      const buf = fs.readFileSync(req.file.path);
+      const key = `${delivery}/${fname}`.replace(/[^a-zA-Z0-9_\-./]/g,"_");
+      await sb.storage.from("packing-lists").upload(key, buf, { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", upsert: true } as any);
+      // also create signed url not needed — list via bucket
+    }
+  } catch {}
+  res.json({ status: "success", filename: fname });
 });
-app.post("/api/track_item_usage", (req, res) => {
+app.post("/api/track_item_usage", async (req, res) => {
+  const entry = { ...req.body, timestamp: wibNowStr() };
   const usage = jsonRead<any[]>("item_usage.json", []);
-  usage.push({ ...req.body, timestamp: wibNowStr() });
+  usage.push(entry);
   jsonWrite("item_usage.json", usage);
+  // Supabase persistent
+  saveSupabaseItemUsage({ delivery_no: entry.delivery_no||null, outlet: entry.outlet||null, items: entry.items||{}, timestamp: new Date().toISOString() }).catch(()=>{});
   res.json({ status: "success" });
 });
-app.get("/api/item_usage", (req, res) => {
+app.get("/api/item_usage", async (req, res) => {
+  const supa = await fetchSupabaseItemUsage();
+  if (supa && supa.length) return res.json(supa);
   const usage = jsonRead<any[]>("item_usage.json", []);
+  if (usage.length && (!supa || supa.length===0)) {
+    (async()=>{ for(const e of usage) await saveSupabaseItemUsage({ delivery_no: e.delivery_no||null, outlet: e.outlet||null, items: e.items||{}, timestamp: e.timestamp ? new Date(e.timestamp).toISOString() : new Date().toISOString() }); })().catch(()=>{});
+  }
   res.json(usage);
 });
-// Aggregated report endpoint — computes Top 25 SKU, Top 10 Outlet, Monthly Tonnage/PL (computed from packing_status + item_usage + master weights) — non-breaking read-only
+// Aggregated report endpoint — now Supabase-persistent (packing_status + item_usage), still file fallback — non-breaking read-only
 app.get("/api/report/summary", async (_req, res) => {
-  const packing = jsonRead<any[]>("packing_status.json", []);
-  const usage = jsonRead<any[]>("item_usage.json", []);
+  let packing = await fetchSupabasePackingStatus();
+  if (!packing || !packing.length) packing = jsonRead<any[]>("packing_status.json", []);
+  let usage = await fetchSupabaseItemUsage();
+  if (!usage || !usage.length) usage = jsonRead<any[]>("item_usage.json", []);
   const master = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   const w = master.ITEM_WEIGHT_GRAMS || {};
   // Top 25 SKU by qty
@@ -1294,6 +1388,52 @@ app.get("/api/report/summary", async (_req, res) => {
   }
   const monthlyArr = Object.entries(monthly).sort(([a],[b])=> a.localeCompare(b)).map(([month, v])=> ({ month, tonnage: Math.round(v.tonnage*100)/100, pl: v.pl }));
   res.json({ topSku, topOutlet, monthly: monthlyArr, totals: { totalPL: packing.length, totalTonnage: Math.round(packing.reduce((a,b)=> a+Number(b.total_weight_kg||0),0)*100)/100, totalUsageRows: usage.length } });
+});
+// List all exported PLs with Supabase storage file presence (for download) — non-breaking additive
+app.get("/api/packing_lists", async (_req, res) => {
+  let packing = await fetchSupabasePackingStatus();
+  if (!packing || !packing.length) packing = jsonRead<any[]>("packing_status.json", []);
+  let storageMap: Record<string, any[]> = {};
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      // list at root to discover delivery folders (supabase returns first level)
+      const { data } = await sb.storage.from("packing-lists").list("", { limit: 1000 } as any);
+      // data contains folders as objects with id null; we treat each as potential delivery folder via its name
+      for (const item of (data||[])) {
+        const delivery = String(item.name);
+        if (!delivery || delivery.includes(".")) continue; // skip files at root
+        const { data: files } = await sb.storage.from("packing-lists").list(delivery, { limit: 20 } as any);
+        if (files && files.length) storageMap[delivery] = files;
+      }
+    }
+  } catch {}
+  const enriched = packing.map((p:any)=> ({ ...p, hasFile: !!storageMap[String(p.delivery_no)]?.length, fileCount: (storageMap[String(p.delivery_no)]||[]).length }));
+  res.json(enriched);
+});
+app.get("/api/packing_lists/:delivery_no/download", async (req, res) => {
+  const delivery = decodeURIComponent(req.params.delivery_no);
+  const sb = await getSupabase();
+  if (!sb) return res.status(503).json({ error: "Storage not configured" });
+  try {
+    const { data, error } = await sb.storage.from("packing-lists").list(delivery, { limit: 20 } as any);
+    if (error || !data || data.length===0) return res.status(404).json({ error: "No file for delivery " + delivery });
+    const file = data.find((f:any)=> f.name.toLowerCase().endsWith(".xlsx")) || data[0];
+    const path = `${delivery}/${file.name}`;
+    const { data: dl, error: dlErr } = await sb.storage.from("packing-lists").download(path);
+    if (dlErr || !dl) {
+      const { data: urlData, error: urlErr } = await sb.storage.from("packing-lists").createSignedUrl(path, 3600);
+      if (urlErr || !urlData?.signedUrl) return res.status(404).json({ error: "Download failed" });
+      return res.json({ url: urlData.signedUrl, filename: file.name });
+    }
+    const buf = Buffer.from(await (dl as any).arrayBuffer());
+    res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Length", String(buf.length));
+    return res.send(buf);
+  } catch (e:any) {
+    return res.status(500).json({ error: e?.message || "Download error" });
+  }
 });
 
 // ===== Wallet =====
