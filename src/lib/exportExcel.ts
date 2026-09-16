@@ -144,16 +144,16 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   });
 
   // ── Ship-to content rows ──
-  // Row 6: outlet name — taller to avoid clipping 2-line outlet (see screenshot BBT - ASTHA ARCADE SUVARNA)
+  // Row 6: outlet name — Fix Print Preview overlap: taller + top align, smaller font to fit 2-line long outlet without clipping (BBT - ASTHA ARCADE SUVARNA)
   ws.mergeCells("A6:C6");
   setAll(ws.getCell("A6"), {
     value: "BANGOR — " + outlet.toUpperCase(),
-    font: { name: "Arial Black", size: 11, bold: true, color: { argb: NAVY } },
+    font: { name: "Arial Black", size: 10, bold: true, color: { argb: NAVY } },
     fill: WARM_LIGHT,
-    align: { horizontal: "left", vertical: "middle", indent: 1, wrapText: true },
+    align: { horizontal: "left", vertical: "top", indent: 1, wrapText: true },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
-  ws.getRow(6).height = 30;
+  ws.getRow(6).height = 36;
 
   // Row 6 right: DOC NO
   setAll(ws.getCell("D6"), {
@@ -168,18 +168,18 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     align: { horizontal: "left", vertical: "middle" },
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
-  ws.getRow(6).height = 30;
+  ws.getRow(6).height = 36;
 
-  // Row 7: address + DATE — taller for long address wrap (Ruko Astha Arcade long text)
+  // Row 7: address + DATE — taller for long address wrap (Ruko Astha Arcade long text), top-aligned to prevent middle overlap
   ws.mergeCells("A7:C7");
   setAll(ws.getCell("A7"), {
     value: receiverAddr,
-    font: { name: "Arial", size: 8.5, color: { argb: MID_GRAY } },
+    font: { name: "Arial", size: 8, color: { argb: MID_GRAY } },
     fill: WARM_LIGHT,
-    align: { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 },
+    align: { horizontal: "left", vertical: "top", wrapText: true, indent: 1 },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
-  ws.getRow(7).height = 30;
+  ws.getRow(7).height = 36;
 
   setAll(ws.getCell("D7"), {
     value: "DATE",
@@ -194,16 +194,16 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
 
-  // Row 8: phone + CHECKER
+  // Row 8: phone + CHECKER — taller to fit Cluster text without overlap (Fadly | Cluster: Traga Baru 26)
   ws.mergeCells("A8:C8");
   setAll(ws.getCell("A8"), {
     value: receiverPhone,
-    font: { name: "Arial", size: 9, color: { argb: MID_GRAY } },
+    font: { name: "Arial", size: 8.5, color: { argb: MID_GRAY } },
     fill: WARM_LIGHT,
-    align: { horizontal: "left", vertical: "middle", indent: 1 },
+    align: { horizontal: "left", vertical: "middle", indent: 1, wrapText: true },
     border: { top: thin, left: medium, bottom: medium, right: medium },
   });
-  ws.getRow(8).height = 18;
+  ws.getRow(8).height = 20;
 
   setAll(ws.getCell("D8"), {
     value: "CHECKER",
@@ -213,8 +213,8 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   });
   setAll(ws.getCell("E8"), {
     value: checkerDisplay,
-    font: { name: "Arial", size: 9, bold: true, color: { argb: NAVY } },
-    align: { horizontal: "left", vertical: "middle" },
+    font: { name: "Arial", size: 8.5, bold: true, color: { argb: NAVY } },
+    align: { horizontal: "left", vertical: "middle", wrapText: true },
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
 
