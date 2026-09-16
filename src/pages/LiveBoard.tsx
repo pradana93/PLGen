@@ -7,6 +7,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, AreaChart, Area, Legend, Cell
 } from "recharts";
+import ExcelJS from "exceljs";
+import { saveAs } from "file-saver";
 
 type Summary = {
   topSku: { sku: string; qty: number; kg: number; uom: string }[];
@@ -84,6 +86,69 @@ export default function LiveBoard(){
       fetchAll();
     }catch(e:any){ alert(`Delete failed: ${e.message||e}`); }
   };
+
+  const exportReportExcel = async ()=>{
+    if(!summary) return alert("No data to export");
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "PLGen Data Report";
+    const nav = "#FF2C3E50";
+    const addSheet = (name:string, headers:string[], rows:any[][])=>{
+      const ws = wb.addWorksheet(name);
+      ws.getRow(1).values = headers;
+      ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+      ws.getRow(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb: nav } };
+      ws.getRow(1).alignment = { horizontal:"center", vertical:"middle" };
+      rows.forEach(r=> ws.addRow(r));
+      ws.columns.forEach((c:any)=> c.width = 18);
+      if(name==="Top 25 SKU") ws.getColumn(1).width = 32;
+      if(name==="Top 10 Outlets") ws.getColumn(1).width = 28;
+      ws.views = [{ state:"frozen", ySplit:1 }];
+    };
+    addSheet("Summary", ["Metric","Value"], [
+      ["Report Generated (WIB)", new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})],
+      ["Total PL Exported", kpi.totalPL],
+      ["Total Tonnage (kg)", kpi.totalTonnage],
+      ["Avg kg / PL", avgWeight.toFixed(2)],
+      ["Unique SKUs (ranked)", summary.topSku.length],
+      ["Active Outlets (top 10)", summary.topOutlet.length],
+      ["Usage Rows", kpi.totalUsageRows],
+      ["Range", range],
+    ]);
+    addSheet("Top 25 SKU", ["Rank","SKU","Qty","Tonnage (kg)","UOM"], topSkuDisplay.map((r,i)=> [i+1, r.sku, r.qty, r.kg, r.uom]));
+    addSheet("Top 10 Outlets", ["Rank","Outlet","PL Count","Tonnage (kg)"], summary.topOutlet.map((r,i)=> [i+1, r.outlet, r.count, r.tonnage]));
+    addSheet("Monthly", ["Month","PL","Tonnage (kg)","Avg kg/PL"], monthlyFiltered.map(m=> [m.month, m.pl, m.tonnage, m.pl? (m.tonnage/m.pl).toFixed(1):"—"]));
+    // Archive sheet
+    const archRows = archive.slice(0,500).map(a=> [a.delivery_no, a.outlet, a.checker||"-", a.status, a.total_weight_kg||0, a.created_at||"—", a.hasFile?"Yes":"No"]);
+    addSheet("Archive PL", ["Delivery No","Outlet","Checker","Status","Tonnage (kg)","Created WIB","File in Storage"], archRows);
+    const buf = await wb.xlsx.writeBuffer();
+    const ts = new Date().toISOString().slice(0,10);
+    saveAs(new Blob([buf]), `PLGen_Data_Report_${ts}.xlsx`);
+  };
+
+  const exportReportCSV = ()=>{
+    if(!summary) return alert("No data");
+    const esc = (v:any)=> `"${String(v??"").replace(/"/g,'""')}"`;
+    const sections:string[] = [];
+    sections.push("Summary");
+    sections.push(["Metric","Value"].map(esc).join(","));
+    [["Total PL",kpi.totalPL],["Total Tonnage kg",kpi.totalTonnage],["Avg kg/PL",avgWeight.toFixed(2)],["Range",range]].forEach(r=> sections.push(r.map(esc).join(",")));
+    sections.push("");
+    sections.push("Top 25 SKU");
+    sections.push(["Rank","SKU","Qty","Tonnage kg","UOM"].map(esc).join(","));
+    topSkuDisplay.forEach((r,i)=> sections.push([i+1,r.sku,r.qty,r.kg,r.uom].map(esc).join(",")));
+    sections.push("");
+    sections.push("Top 10 Outlets");
+    sections.push(["Rank","Outlet","PL Count","Tonnage kg"].map(esc).join(","));
+    summary.topOutlet.forEach((r,i)=> sections.push([i+1,r.outlet,r.count,r.tonnage].map(esc).join(",")));
+    sections.push("");
+    sections.push("Monthly");
+    sections.push(["Month","PL","Tonnage kg","Avg"].map(esc).join(","));
+    monthlyFiltered.forEach(m=> sections.push([m.month,m.pl,m.tonnage,m.pl?(m.tonnage/m.pl).toFixed(1):""].map(esc).join(",")));
+    const csv = sections.join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const ts = new Date().toISOString().slice(0,10);
+    saveAs(blob, `PLGen_Data_Report_${ts}.csv`);
+  };
   useEffect(()=>{ fetchAll(); const id=setInterval(fetchAll, 30000); return ()=>clearInterval(id); },[]);
 
   const filtered = data.filter(e=> !filter || e.outlet?.toLowerCase().includes(filter.toLowerCase()) || e.delivery_no?.toLowerCase().includes(filter.toLowerCase()));
@@ -122,12 +187,14 @@ export default function LiveBoard(){
               <div className="text-xs text-white/70">Top SKU • Valuable Outlets • Monthly Tonnage & PL — PythonAnywhere primary</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <select value={range} onChange={e=> setRange(e.target.value as any)} className="bg-white/10 border border-white/15 rounded-lg px-3 py-1.5 text-xs font-bold backdrop-blur-sm">
               <option value="all" className="text-slate-800">All Time</option>
               <option value="90d" className="text-slate-800">Last 90 Days</option>
               <option value="30d" className="text-slate-800">Last 30 Days</option>
             </select>
+            <button onClick={exportReportExcel} className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-extrabold shadow hover:bg-emerald-600">⬇ Excel</button>
+            <button onClick={exportReportCSV} className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg text-xs font-extrabold hover:bg-white/20">CSV</button>
             <button onClick={fetchAll} className="px-3 py-1.5 bg-white text-[#2c3e50] rounded-lg text-xs font-extrabold shadow hover:bg-gray-100">↻ Refresh</button>
           </div>
         </div>
