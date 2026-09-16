@@ -25,8 +25,6 @@ function Nav(){
       <div className="ml-6 flex gap-1">
         {link("/", t("nav.dashboard"))}
         {link("/live", t("nav.live"))}
-        {link("/manifests", t("nav.manifests"))}
-        {link("/inbound", t("nav.inbound"))}
         {link("/admin", t("nav.admin"))}
       </div>
       <div className="ml-auto flex items-center gap-2">
