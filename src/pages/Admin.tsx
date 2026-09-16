@@ -152,6 +152,11 @@ export default function Admin(){
   // ---- Anti-Cheat / Ban Handlers ----
   const handleBan = async ()=>{
     if(!banTarget || !banReason) return;
+    const until = banDays ? new Date(Date.now() + banDays * 86400000).toISOString() : null;
+    // Optimistic: update UI instantly, rollback on failure
+    setUsers(prev => prev.map(u => u.id === banTarget.id ? { ...u, banned: true, banned_reason: banReason, banned_at: new Date().toISOString(), banned_until: until } : u));
+    flash("ok", `🔨 Banned ${banTarget.email} ${banDays ? `for ${banDays} days` : "permanently"}`);
+    setBanTarget(null); setBanReason(""); setBanDays(1);
     try {
       const h = await authHeader();
       const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -160,14 +165,14 @@ export default function Admin(){
         body: JSON.stringify({ reason: banReason, days: banDays })
       });
       const j = await r.json();
-      if(!r.ok) return alert(`❌ ${j.error}`);
-      flash("ok", `🔨 Banned ${banTarget.email} ${banDays ? `for ${banDays} days` : "permanently"}`);
-      setBanTarget(null); setBanReason(""); setBanDays(1);
-      fetchUsers();
+      if(!r.ok) { setUsers(prev => prev.map(u => u.id === banTarget.id ? { ...u, banned: false } : u)); alert(`❌ ${j.error}`); }
     } catch(e:any) { alert(`❌ ${e.message}`); }
   };
   const handleUnban = async (userId:string)=>{
     if(!confirm("Unban this user?")) return;
+    // Optimistic: update UI instantly, rollback on failure
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, banned: false, banned_reason: null, banned_at: null, banned_until: null } : u));
+    flash("ok", "✅ User unbanned");
     try {
       const h = await authHeader();
       const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -175,12 +180,13 @@ export default function Admin(){
         method:"POST", headers:{ "Content-Type":"application/json", ...h }
       });
       const j = await r.json();
-      if(!r.ok) return alert(`❌ ${j.error}`);
-      flash("ok", "✅ User unbanned");
-      fetchUsers();
+      if(!r.ok) { setUsers(prev => prev.map(u => u.id === userId ? { ...u, banned: true } : u)); alert(`❌ ${j.error}`); }
     } catch(e:any) { alert(`❌ ${e.message}`); }
   };
   const handleApprove = async (userId:string, approved:boolean)=>{
+    // Optimistic: update UI instantly, rollback on failure
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, approved, approved_at: approved ? new Date().toISOString() : null } : u));
+    flash("ok", approved ? "✅ User approved" : "⛔ User rejected");
     try {
       const h = await authHeader();
       const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -189,9 +195,7 @@ export default function Admin(){
         body: JSON.stringify({ approved })
       });
       const j = await r.json();
-      if(!r.ok) return alert(`❌ ${j.error}`);
-      flash("ok", approved ? "✅ User approved" : "⛔ User rejected");
-      fetchUsers();
+      if(!r.ok) { setUsers(prev => prev.map(u => u.id === userId ? { ...u, approved: !approved } : u)); alert(`❌ ${j.error}`); }
     } catch(e:any) { alert(`❌ ${e.message}`); }
   };
   const fetchViolations = async ()=>{
