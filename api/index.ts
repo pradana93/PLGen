@@ -895,11 +895,27 @@ app.get("/api/me", async (req, res) => {
 });
 
 // GET /api/users — list profiles (Admin only) — Supabase primary, file fallback for Vercel without env
+// Now includes Online Status / Last Seen (last_seen_at, last_login_at, last_sign_in_at) — non-breaking additive
 app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
   const sb = await getSupabase();
   if (sb) {
-    const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at").order("created_at", { ascending: false });
-    if (!error) return res.json(data || []);
+    const { data, error } = await sb.from("profiles").select("id,email,role,alias,created_at,last_seen_at,last_login_at").order("created_at", { ascending: false });
+    if (!error && data) {
+      // Enrich with auth.last_sign_in_at for true last login (supabase auth is source of truth)
+      try {
+        const { data: authData } = await sb.auth.admin.listUsers({ perPage: 1000 } as any);
+        const map = new Map<string, string>();
+        for (const u of (authData?.users || []) as any[]) {
+          if (u.id && u.last_sign_in_at) map.set(String(u.id), String(u.last_sign_in_at));
+        }
+        const enriched = (data as any[]).map(r => ({
+          ...r,
+          last_sign_in_at: map.get(String(r.id)) || null,
+        }));
+        return res.json(enriched);
+      } catch {}
+      return res.json(data || []);
+    }
   }
   // File fallback when Supabase not configured on Vercel
   const users = jsonRead<any[]>("users.json", []);
@@ -908,8 +924,20 @@ app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
     users.unshift({ id: "superadmin", email: "majestap93@gmail.com", role: "SuperAdmin", alias: "Majesta", created_at: new Date().toISOString() });
   }
   // Never expose passwords
-  const safe = users.map((u:any)=> ({ id: u.id, email: u.email, role: u.role, alias: u.alias, created_at: u.created_at }));
+  const safe = users.map((u:any)=> ({ id: u.id, email: u.email, role: u.role, alias: u.alias, created_at: u.created_at, last_seen_at: (u as any).last_seen_at || null, last_login_at: (u as any).last_login_at || null, last_sign_in_at: (u as any).last_sign_in_at || null }));
   res.json(safe);
+});
+
+// Heartbeat endpoint — keep Online Status fresh without breaking auth (called by AuthContext every 30s)
+app.post("/api/users/heartbeat", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  const sb = await getSupabase();
+  if (!sb) return res.json({ status: "no-supabase" });
+  try {
+    await sb.from("profiles").update({ last_seen_at: new Date().toISOString() }).eq("id", user.id);
+  } catch {}
+  res.json({ status: "ok" });
 });
 
 // POST /api/users — Admin creates account (email+password+role) — no public signup — Supabase primary, file fallback

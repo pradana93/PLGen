@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-type Profile = { id: string; email: string; role: string; alias?: string };
+type Profile = { id: string; email: string; role: string; alias?: string; last_seen_at?: string; last_login_at?: string };
 type AuthState = {
   user: { id: string; email: string } | null;
   profile: Profile | null;
@@ -18,15 +18,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile|null>(null);
   const [loading, setLoading] = useState(true);
 
+  const touchLastSeen = async (uid: string) => {
+    if (!supabase) return;
+    try {
+      // fire-and-forget heartbeat — ignore RLS / missing-column errors (non-breaking)
+      await supabase.from("profiles").update({ last_seen_at: new Date().toISOString() }).eq("id", uid);
+    } catch {}
+  };
+
   const fetchProfile = async (uid: string, email: string) => {
     if (!supabase) return null;
-    const { data } = await supabase.from("profiles").select("id,email,role,alias").eq("id", uid).single();
+    const { data } = await supabase.from("profiles").select("id,email,role,alias,last_seen_at,last_login_at,created_at").eq("id", uid).single();
     if (data) {
       // Auto-fix SuperAdmin for majestap93@gmail.com if needed (in case trigger missed)
-      if (email.toLowerCase()==="majestap93@gmail.com" && data.role!=="SuperAdmin") {
+      if (email.toLowerCase()==="majestap93@gmail.com" && (data as any).role!=="SuperAdmin") {
         await supabase.from("profiles").update({ role: "SuperAdmin" }).eq("id", uid);
-        data.role = "SuperAdmin";
+        (data as any).role = "SuperAdmin";
       }
+      // opportunistic last_seen refresh (non-blocking)
+      touchLastSeen(uid);
       return data as Profile;
     }
     // Fallback: create profile via API if not exists (should be created by trigger, but handle)
@@ -49,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser({ id: session.user.id, email: session.user.email || "" });
         const p = await fetchProfile(session.user.id, session.user.email || "");
         setProfile(p);
+        // record login time separately (audit)
+        try { await supabase.from("profiles").update({ last_login_at: new Date().toISOString(), last_seen_at: new Date().toISOString() }).eq("id", session.user.id); } catch {}
       } else {
         setUser(null); setProfile(null);
       }
@@ -56,6 +68,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return ()=> sub.subscription.unsubscribe();
   },[]);
+
+  // Heartbeat for Online Status — every 30s + on visibility
+  useEffect(()=>{
+    if (!supabase || !user?.id) return;
+    const beat = () => touchLastSeen(user.id);
+    beat();
+    const id = setInterval(beat, 30000);
+    const onVis = () => { if (document.visibilityState === "visible") beat(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", beat);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("focus", beat); };
+  }, [user?.id]);
 
   const signIn = async (email:string, password:string)=>{
     if (!supabase) return { error: "Supabase not configured" };

@@ -87,6 +87,33 @@ export default function Admin(){
   const isSuperAdmin = profile?.role==="SuperAdmin";
   const isAdmin = profile?.role==="SuperAdmin" || profile?.role==="Admin";
 
+  // Helpers for Online Status / Last Seen (WIB) — non-breaking additive
+  const isOnline = (iso: string|null|undefined) => {
+    if (!iso) return false;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return false;
+    return Date.now() - t < 5 * 60 * 1000; // 5 min threshold
+  };
+  const formatWIB = (iso: string|null|undefined) => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }) + " WIB";
+    } catch { return String(iso); }
+  };
+  const timeAgo = (iso: string|null|undefined) => {
+    if (!iso) return "";
+    const diff = Date.now() - new Date(iso).getTime();
+    if (isNaN(diff) || diff < 0) return "";
+    const m = Math.floor(diff/60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m/60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h/24);
+    return `${d}d ago`;
+  };
+
   const authHeader = async ()=>{
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
@@ -105,6 +132,13 @@ export default function Admin(){
     apiGet("/api/checkers").then(d=> setCheckers(d.checkers||[])).catch(()=>{});
     fetchUsers();
   },[profile]);
+
+  // Auto-refresh Online status every 30s (non-breaking)
+  useEffect(()=>{
+    if(!isAdmin) return;
+    const id = setInterval(fetchUsers, 30000);
+    return ()=> clearInterval(id);
+  },[isAdmin]);
 
   const flash = (type:"ok"|"err", text:string)=>{ setMsg({type,text}); setTimeout(()=> setMsg(null), 3500); };
 
@@ -374,41 +408,75 @@ export default function Admin(){
               </select>
               <button onClick={handleAddUser} className="bg-[#27ae60] text-white rounded-lg px-4 py-2 font-bold text-sm">{t("admin.addAccount")}</button>
             </div>
-            <div className="overflow-auto border rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-gray-500">{users.length} users • <span className="text-emerald-600 font-bold">{users.filter(u=> isOnline(u.last_seen_at)).length} online</span> <span className="text-gray-400">/ {users.length - users.filter(u=> isOnline(u.last_seen_at)).length} offline</span> <span className="ml-2 text-[10px] bg-slate-100 border rounded-full px-2 py-0.5">auto-refresh 30s</span></div>
+              <button onClick={fetchUsers} className="text-xs bg-white border px-2 py-1 rounded font-bold hover:bg-gray-50">↻ Refresh</button>
+            </div>
+            <div className="overflow-auto border rounded-xl">
               <table className="w-full text-sm">
-                <thead className="bg-[#f4f6f9]"><tr><th className="p-2 text-left">{t("admin.email")}</th><th className="p-2">{t("admin.alias")}</th><th className="p-2">{t("admin.role")}</th><th className="p-2">{t("admin.actions")}</th></tr></thead>
+                <thead className="bg-[#f4f6f9] text-[11px] tracking-wide">
+                  <tr>
+                    <th className="p-2.5 text-left">{t("admin.email")}</th>
+                    <th className="p-2.5 text-left">{t("admin.alias")}</th>
+                    <th className="p-2.5 text-center">{t("admin.role")}</th>
+                    <th className="p-2.5 text-center">Status</th>
+                    <th className="p-2.5 text-left">Last Seen / Login</th>
+                    <th className="p-2.5 text-center">{t("admin.actions")}</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {users.map(u=>(
-                    <tr key={u.id} className="border-t">
-                      <td className="p-2">{u.email}</td>
-                      <td className="p-2 text-center">{u.alias||"-"}</td>
-                      <td className="p-2 text-center">
+                  {users.map(u=>{
+                    const online = isOnline(u.last_seen_at);
+                    const seenIso = u.last_seen_at || u.last_sign_in_at || u.last_login_at || null;
+                    return (
+                    <tr key={u.id} className={`border-t ${online ? "bg-emerald-50/40" : "hover:bg-gray-50"}`}>
+                      <td className="p-2.5">
+                        <div className="font-medium text-slate-800 truncate max-w-[220px]" title={u.email}>{u.email}</div>
+                        <div className="text-[10px] text-gray-400 font-mono hidden md:block">{u.id.slice(0,8)}…</div>
+                      </td>
+                      <td className="p-2.5 text-center">
                         {editing[u.id] ? (
-                          <select value={editing[u.id].role} onChange={e=> setEditing({...editing,[u.id]:{...editing[u.id],role:e.target.value}})} className="border rounded px-1 py-0.5 text-xs">
+                          <input value={editing[u.id].alias} onChange={e=> setEditing({...editing,[u.id]:{...editing[u.id],alias:e.target.value}})} placeholder="Alias" className="border rounded px-2 py-1 text-xs w-28" />
+                        ) : (
+                          <span className="text-xs">{u.alias||"—"}</span>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-center">
+                        {editing[u.id] ? (
+                          <select value={editing[u.id].role} onChange={e=> setEditing({...editing,[u.id]:{...editing[u.id],role:e.target.value}})} className="border rounded px-2 py-1 text-xs">
                             {ROLES.filter(r=> isSuperAdmin || r!=="SuperAdmin").map(r=> <option key={r} value={r}>{r}</option>)}
                           </select>
                         ) : (
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${u.role==="SuperAdmin"?"bg-yellow-400 text-black":u.role==="Admin"?"bg-[#3498db] text-white":"bg-[#ecf0f1] text-gray-700"}`}>{u.role}</span>
+                          <span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="SuperAdmin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>
                         )}
                       </td>
-                      <td className="p-2 text-center">
+                      <td className="p-2.5 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${online ? "bg-emerald-500 text-white border-emerald-600 shadow-sm" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                          <span className={`w-2 h-2 rounded-full ${online ? "bg-white animate-pulse" : "bg-gray-400"}`} /> {online ? "Online" : "Offline"}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-[11px] leading-tight">
+                        <div className="font-medium text-slate-700">{formatWIB(seenIso)}</div>
+                        <div className={`text-[10px] ${online ? "text-emerald-600 font-bold" : "text-gray-400"}`}>{seenIso ? timeAgo(seenIso) : "never"}{u.last_sign_in_at && u.last_sign_in_at !== seenIso ? ` • login ${formatWIB(u.last_sign_in_at)}` : ""}</div>
+                      </td>
+                      <td className="p-2.5 text-center">
                         {editing[u.id] ? (
-                          <>
-                            <input value={editing[u.id].alias} onChange={e=> setEditing({...editing,[u.id]:{...editing[u.id],alias:e.target.value}})} placeholder="Alias" className="border rounded px-1 py-0.5 text-xs w-24 mr-1" />
-                            <button onClick={()=> handleUpdate(u.id)} className="text-xs bg-[#27ae60] text-white px-2 py-1 rounded">{t("admin.save")}</button>
-                            <button onClick={()=> setEditing(prev=>{const n={...prev}; delete n[u.id]; return n;})} className="text-xs bg-gray-300 px-2 py-1 rounded ml-1">{t("admin.cancel")}</button>
-                          </>
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={()=> handleUpdate(u.id)} className="text-xs bg-[#27ae60] text-white px-2 py-1 rounded font-bold">{t("admin.save")}</button>
+                            <button onClick={()=> setEditing(prev=>{const n={...prev}; delete n[u.id]; return n;})} className="text-xs bg-gray-200 px-2 py-1 rounded">✖</button>
+                          </div>
                         ) : (
-                          <>
-                            <button onClick={()=> setEditing({...editing, [u.id]: { role: u.role, alias: u.alias || "" }})} className="text-xs bg-[#3498db] text-white px-2 py-1 rounded">{t("admin.edit")}</button>
-                            <button onClick={()=> handleChangePassword(u.id, u.email)} className="text-xs bg-[#f39c12] text-white px-2 py-1 rounded">{t("admin.password")}</button>
-                            <button onClick={()=> handleDelete(u.id)} className="text-xs bg-[#e74c3c] text-white px-2 py-1 rounded" disabled={u.id===profile?.id}>{t("admin.delete")}</button>
-                          </>
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
+                            <button onClick={()=> setEditing({...editing, [u.id]: { role: u.role, alias: u.alias || "" }})} className="text-[11px] bg-white border px-2 py-1 rounded hover:bg-gray-50">✏️</button>
+                            <button onClick={()=> handleChangePassword(u.id, u.email)} className="text-[11px] bg-[#f39c12] text-white px-2 py-1 rounded">🔑</button>
+                            <button onClick={()=> handleDelete(u.id)} className="text-[11px] bg-white border border-red-200 text-red-600 px-2 py-1 rounded hover:bg-red-50 disabled:opacity-40" disabled={u.id===profile?.id}>🗑️</button>
+                          </div>
                         )}
                       </td>
                     </tr>
-                  ))}
-                  {users.length===0 && <tr><td colSpan={4} className="text-center p-4 text-gray-400 text-xs">{t("admin.noUsers", { email: "majestap93@gmail.com" })}</td></tr>}
+                    );
+                  })}
+                  {users.length===0 && <tr><td colSpan={6} className="text-center p-6 text-gray-400 text-xs">{t("admin.noUsers", { email: "majestap93@gmail.com" })}</td></tr>}
                 </tbody>
               </table>
             </div>
