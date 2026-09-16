@@ -381,16 +381,16 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const filename = `${_ts}_${outlet}.xlsx`;
   saveAs(new Blob([buf]), filename);
 
-  // Backend logging + auto-upload (fire-and-forget, no await) — ensures instant download
+  // Backend logging + auto-upload — instant saveAs first, then fire-and-forget with keepalive so Live Report catches every PL after Template patch
   const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
   try {
-    fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})}).catch(()=>{});
-    fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})}).catch(()=>{});
+    fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))}), keepalive: true} as any).catch(()=>{});
+    fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))}), keepalive: true} as any).catch(()=>{});
     const fd = new FormData();
     fd.append("file", new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
     fd.append("delivery_no", deliveryNo);
     fd.append("outlet", outlet);
-    fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd } as any).catch(()=>{});
+    fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd, keepalive: true } as any).catch(()=>{});
   } catch {}
   return { deliveryNo, totalWeight };
 }

@@ -1389,7 +1389,7 @@ app.get("/api/report/summary", async (_req, res) => {
   const monthlyArr = Object.entries(monthly).sort(([a],[b])=> a.localeCompare(b)).map(([month, v])=> ({ month, tonnage: Math.round(v.tonnage*100)/100, pl: v.pl }));
   res.json({ topSku, topOutlet, monthly: monthlyArr, totals: { totalPL: packing.length, totalTonnage: Math.round(packing.reduce((a,b)=> a+Number(b.total_weight_kg||0),0)*100)/100, totalUsageRows: usage.length } });
 });
-// List all exported PLs with Supabase storage file presence (for download) — non-breaking additive
+// List all exported PLs with Supabase storage file presence (for download) — fixed for slash delivery_no (DO/BBB/...)
 app.get("/api/packing_lists", async (_req, res) => {
   let packing = await fetchSupabasePackingStatus();
   if (!packing || !packing.length) packing = jsonRead<any[]>("packing_status.json", []);
@@ -1397,15 +1397,16 @@ app.get("/api/packing_lists", async (_req, res) => {
   try {
     const sb = await getSupabase();
     if (sb) {
-      // list at root to discover delivery folders (supabase returns first level)
-      const { data } = await sb.storage.from("packing-lists").list("", { limit: 1000 } as any);
-      // data contains folders as objects with id null; we treat each as potential delivery folder via its name
-      for (const item of (data||[])) {
-        const delivery = String(item.name);
-        if (!delivery || delivery.includes(".")) continue; // skip files at root
-        const { data: files } = await sb.storage.from("packing-lists").list(delivery, { limit: 20 } as any);
-        if (files && files.length) storageMap[delivery] = files;
-      }
+      // Direct per-delivery check handles slash paths correctly (DO/BBB/16092026/021)
+      // Batch in parallel (limit 50 to avoid burst)
+      const slice = packing.slice(0, 100);
+      await Promise.all(slice.map(async (p:any)=>{
+        const delivery = String(p.delivery_no);
+        try{
+          const { data: files } = await sb.storage.from("packing-lists").list(delivery, { limit: 5 } as any);
+          if(files && files.length) storageMap[delivery]=files;
+        }catch{}
+      }));
     }
   } catch {}
   const enriched = packing.map((p:any)=> ({ ...p, hasFile: !!storageMap[String(p.delivery_no)]?.length, fileCount: (storageMap[String(p.delivery_no)]||[]).length }));
