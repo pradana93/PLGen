@@ -94,6 +94,14 @@ function Protected({ children, roles }: { children: React.ReactNode, roles?: str
 
 function AppRoutes(){
   const { t } = useLanguage();
+  const latestBuild = CHANGELOGS[0]?.hash || "—";
+  const groups = {
+    features: CHANGELOGS.filter(c=> c.message.startsWith("feat")),
+    fixes: CHANGELOGS.filter(c=> c.message.startsWith("fix")),
+    perf: CHANGELOGS.filter(c=> c.message.startsWith("perf")),
+    others: CHANGELOGS.filter(c=> !["feat","fix","perf"].some(p=> c.message.startsWith(p))),
+  };
+  const clean = (m:string)=> m.replace(/^(feat|fix|perf|chore|chore\(.*\)|docs|style|refactor|test)(\(\w+\))?:\s*/i,"");
   return (
     <>
       <Nav />
@@ -110,15 +118,15 @@ function AppRoutes(){
         <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent" />
         <div className="max-w-[1400px] mx-auto px-4 py-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Brand — minimal, no stack internals */}
-            <div className="lg:col-span-5">
+            {/* Brand — now shows latest build version */}
+            <div className="lg:col-span-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white to-[#eef2f7] border border-white/20 flex items-center justify-center shadow-sm text-[18px]">🛡️</div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-black tracking-tight text-white text-[15px]">PLGen</span>
                     <span className="text-[11px] font-bold tracking-widest text-white/70 bg-white/10 border border-white/10 px-2 py-0.5 rounded-full">v{APP_VERSION}</span>
-                    <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold tracking-widest text-emerald-300 bg-emerald-500/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">● LIVE</span>
+                    <span className="text-[11px] font-mono font-black tracking-widest text-emerald-300 bg-emerald-500/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">Build {latestBuild}</span>
                   </div>
                   <div className="text-[11px] font-semibold tracking-widest text-white/40 -mt-0.5">LOGISTICS • VITTORIA</div>
                 </div>
@@ -127,34 +135,54 @@ function AppRoutes(){
                 <div>{t("footer.madeBy")}</div>
                 <div className="text-white/40 text-[11px] mt-1">Secure • Fast • Reliable — Desktop optimized</div>
               </div>
+              <div className="mt-3 inline-flex items-center gap-2 text-[11px] font-mono text-white/25">© {new Date().getFullYear()} Vittoria • Latest {CHANGELOGS[0]?.date}</div>
             </div>
 
-            {/* Changelogs — premium but no hashes/ internals */}
-            <div className="lg:col-span-7">
+            {/* Changelogs — grouped */}
+            <div className="lg:col-span-8">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-sm font-black tracking-tight text-white">{t("footer.changelogs")}</span>
-                <span className="text-[11px] bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full font-black">{Math.min(CHANGELOGS.length, 8)}</span>
+                <span className="text-[11px] bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full font-black">{CHANGELOGS.length} updates</span>
+                <span className="hidden sm:inline text-[11px] text-white/25 ml-auto">Grouped • Build {latestBuild}</span>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] overflow-hidden">
-                <div className="max-h-[170px] overflow-auto divide-y divide-white/5">
-                  {CHANGELOGS.slice(0, 8).map((c) => (
-                    <div key={c.hash} className="flex items-start gap-2.5 px-3 py-2 hover:bg-white/[0.04] transition-colors">
-                      <span className="text-[11px] font-bold text-white/30 shrink-0">{c.date}</span>
-                      <span className="text-xs leading-snug text-white/75">{c.message}</span>
-                    </div>
-                  ))}
+                <div className="max-h-[190px] overflow-auto p-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Features */}
+                  <div>
+                    <div className="text-[11px] font-black tracking-widest text-emerald-300 mb-1.5">✨ FEATURES ADDED</div>
+                    <ul className="space-y-1">
+                      {groups.features.slice(0,5).map(c=> <li key={c.hash} className="text-xs leading-snug text-white/75 list-disc ml-4">{clean(c.message)}</li>)}
+                      {groups.features.length===0 && <li className="text-xs text-white/30">—</li>}
+                    </ul>
+                  </div>
+                  {/* Fixes */}
+                  <div>
+                    <div className="text-[11px] font-black tracking-widest text-amber-300 mb-1.5">🔧 FIXES</div>
+                    <ul className="space-y-1">
+                      {groups.fixes.slice(0,5).map(c=> <li key={c.hash} className="text-xs leading-snug text-white/75 list-disc ml-4">{clean(c.message)}</li>)}
+                      {groups.fixes.length===0 && <li className="text-xs text-white/30">—</li>}
+                    </ul>
+                  </div>
+                  {/* Others */}
+                  <div>
+                    <div className="text-[11px] font-black tracking-widest text-white/50 mb-1.5">⚡ OTHER</div>
+                    <ul className="space-y-1">
+                      {[...groups.perf, ...groups.others].slice(0,5).map(c=> <li key={c.hash} className="text-xs leading-snug text-white/60 list-disc ml-4">{clean(c.message)}</li>)}
+                      {groups.perf.length+groups.others.length===0 && <li className="text-xs text-white/30">—</li>}
+                    </ul>
+                  </div>
                 </div>
-                <div className="px-3 py-2 bg-white/[0.02] border-t border-white/5 flex items-center justify-between">
-                  <span className="text-[11px] text-white/35">Latest update {CHANGELOGS[0]?.date}</span>
-                  <span className="text-[11px] text-white/25">{new Date().getFullYear()} © Vittoria</span>
+                <div className="px-3 py-2 bg-white/[0.02] border-t border-white/5 flex items-center justify-between text-[11px] text-white/30">
+                  <span>Build {latestBuild} • {CHANGELOGS[0]?.date}</span>
+                  <span>Showing recent • {CHANGELOGS.length} total</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-white/30">
+          <div className="mt-6 pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-white/25">
             <span>Built for DC Vittoria • Desktop only • © {new Date().getFullYear()} Burger Bangor</span>
-            <span>PLGen v{APP_VERSION} • Secure Logistics Platform</span>
+            <span>v{APP_VERSION} • Build {latestBuild}</span>
           </div>
         </div>
       </footer>
