@@ -132,7 +132,6 @@ export default function LiveBoard(){
     addSheet("Top 25 SKU", ["Rank","SKU","Qty","Tonnage (kg)","UOM"], topSkuDisplay.map((r,i)=> [i+1, r.sku, r.qty, r.kg, r.uom]));
     addSheet("Top 10 Outlets", ["Rank","Outlet","PL Count","Tonnage (kg)"], summary.topOutlet.map((r,i)=> [i+1, r.outlet, r.count, r.tonnage]));
     addSheet("Monthly", ["Month","PL","Tonnage (kg)","Avg kg/PL"], monthlyFiltered.map(m=> [m.month, m.pl, m.tonnage, m.pl? (m.tonnage/m.pl).toFixed(1):"—"]));
-    // Archive sheet
     const archRows = archive.slice(0,500).map(a=> [a.delivery_no, a.outlet, a.checker||"-", a.status, a.total_weight_kg||0, a.created_at||"—", a.hasFile?"Yes":"No"]);
     addSheet("Archive PL", ["Delivery No","Outlet","Checker","Status","Tonnage (kg)","Created WIB","File in Storage"], archRows);
     const buf = await wb.xlsx.writeBuffer();
@@ -168,11 +167,9 @@ export default function LiveBoard(){
 
   const filtered = data.filter(e=> !filter || e.outlet?.toLowerCase().includes(filter.toLowerCase()) || e.delivery_no?.toLowerCase().includes(filter.toLowerCase()));
 
-  // Derived KPIs (supports range filtering on monthly only for now; sku/outlet are overall — keeps core simple)
   const topSkuDisplay = useMemo(()=>{
     if(!summary) return [];
     const arr = [...summary.topSku];
-    // sort by selected metric
     if(skuMetric==="kg") arr.sort((a,b)=> b.kg - a.kg);
     return arr.slice(0,25);
   },[summary, skuMetric]);
@@ -180,12 +177,10 @@ export default function LiveBoard(){
   const monthlyFiltered = useMemo(()=>{
     if(!summary) return [];
     if(range==="all") return summary.monthly;
-    // assume summary.monthly sorted asc; take last N months
-    const n = range==="30d" ? 2 : 4; // 30d ~ 1-2 months, 90d ~ 3-4 months
+    const n = range==="30d" ? 2 : 4;
     return summary.monthly.slice(-n);
   },[summary, range]);
 
-  // Checker Leaderboard — derived from packing_status (live data), not summary, so field changes reflect instantly
   const checkerLeaderboard = useMemo(()=>{
     if(!data.length) return [];
     const map: Record<string, { count:number, tonnage:number, last:string, first:string }> = {};
@@ -202,36 +197,30 @@ export default function LiveBoard(){
       const first = new Date(v.first).getTime();
       const days = isNaN(first) ? 1 : Math.max(1, Math.ceil((now - first)/(1000*60*60*24)));
       const plPerDay = v.count / days;
-      // avg minutes per PL where scanned_at exists? compute avg dwell
       const relevant = data.filter((p:any)=> String(p.checker||"Unknown").trim()===checker && p.scanned_at && p.created_at);
       let avgMinutes = 0;
       if(relevant.length){
         let totalMin=0, cnt=0;
         for(const r of relevant){
-          // created_at is "YYYY-MM-DD HH:MM:SS" WIB, scanned_at is "HH:MM:SS" — can't fully compute, so use count based
           cnt++; totalMin += 0;
         }
         avgMinutes = cnt? Math.round(totalMin/cnt):0;
       }
       return { checker, count: v.count, tonnage: Math.round(v.tonnage*10)/10, avgKg: v.count? Math.round((v.tonnage/v.count)*10)/10 : 0, last: v.last, plPerDay: Math.round(plPerDay*10)/10, avgMinutes };
     });
-    // sort by tonnage desc (most valuable), then count
     arr.sort((a,b)=> b.tonnage - a.tonnage || b.count - a.count);
     return arr;
   },[data]);
 
-  // Weekly breakdown for top checker (for bar chart)
   const weeklyCheckerData = useMemo(()=>{
     if(!data.length || !checkerLeaderboard.length) return [];
     const topChecker = checkerLeaderboard[0]?.checker;
     if(!topChecker) return [];
-    // group last 8 weeks by Monday
     const weeks: Record<string, number> = {};
     for(const p of data){
       if(String(p.checker||"Unknown").trim()!==topChecker) continue;
       const d = new Date(String(p.created_at||"").replace(" ","T"));
       if(isNaN(d.getTime())) continue;
-      // get Monday of that week
       const day = d.getDay();
       const diff = d.getDate() - day + (day===0 ? -6 : 1);
       const mon = new Date(d); mon.setDate(diff);
@@ -245,308 +234,492 @@ export default function LiveBoard(){
   const avgWeight = kpi.totalPL ? (kpi.totalTonnage / kpi.totalPL) : 0;
 
   return (
-    <div className="max-w-[1400px] mx-auto p-4 space-y-4">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-[#2c3e50] via-[#34495e] to-[#2c3e50] rounded-2xl shadow-lg p-5 text-white overflow-hidden relative">
-        <div className="absolute -right-10 -top-10 w-32 h-32 bg-white/5 rounded-full blur-2xl" />
-        <div className="absolute -left-10 -bottom-10 w-24 h-24 bg-emerald-400/10 rounded-full blur-xl" />
-        <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-sm shrink-0">📊</div>
-            <div>
-              <div className="text-lg font-extrabold tracking-tight">Data Report</div>
-              <div className="text-xs text-white/70">Top SKU • Valuable Outlets • Monthly Tonnage & PL — PythonAnywhere primary</div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <style>{`
+        @keyframes lb-shimmer {
+          0% { background-position: -200% center; }
+          100% { background-position: 200% center; }
+        }
+        @keyframes lb-fadeUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes lb-pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.4); }
+        }
+        @keyframes lb-countUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .lb-section { animation: lb-fadeUp 0.4s ease-out both; }
+        .lb-section:nth-child(2) { animation-delay: 0.05s; }
+        .lb-section:nth-child(3) { animation-delay: 0.10s; }
+        .lb-section:nth-child(4) { animation-delay: 0.15s; }
+        .lb-section:nth-child(5) { animation-delay: 0.20s; }
+        .lb-section:nth-child(6) { animation-delay: 0.25s; }
+        .lb-section:nth-child(7) { animation-delay: 0.30s; }
+        .lb-section:nth-child(8) { animation-delay: 0.35s; }
+        .lb-kpi-value { animation: lb-countUp 0.5s ease-out both; }
+        .lb-shimmer-header {
+          background: linear-gradient(110deg, #1a252f 0%, #2c3e50 25%, #3d566e 50%, #2c3e50 75%, #1a252f 100%);
+          background-size: 200% 100%;
+          animation: lb-shimmer 8s linear infinite;
+        }
+        .lb-card-hover { transition: all 0.25s cubic-bezier(0.4,0,0.2,1); }
+        .lb-card-hover:hover { transform: translateY(-3px); box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12); }
+        .lb-glass { background: rgba(255,255,255,0.72); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .lb-pulse-live { animation: lb-pulse-dot 2s ease-in-out infinite; }
+        .lb-row-hover { transition: background-color 0.15s ease; }
+        .lb-row-hover:hover { background-color: rgba(44,62,80,0.04); }
+      `}</style>
+
+      <div className="max-w-[1400px] mx-auto p-6 space-y-5">
+
+        {/* ── Premium Header ── */}
+        <div className="lb-section lb-shimmer-header rounded-2xl shadow-xl p-6 text-white overflow-hidden relative">
+          {/* Decorative orbs */}
+          <div className="absolute -right-16 -top-16 w-48 h-48 bg-white/[0.04] rounded-full blur-3xl" />
+          <div className="absolute -left-12 -bottom-12 w-36 h-36 bg-emerald-400/[0.08] rounded-full blur-2xl" />
+          <div className="absolute right-1/4 top-0 w-24 h-24 bg-blue-400/[0.06] rounded-full blur-xl" />
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-white/[0.1] border border-white/[0.15] flex items-center justify-center backdrop-blur-sm shadow-lg shadow-black/10">
+                <span className="text-xl">📊</span>
+              </div>
+              <div>
+                <h1 className="text-xl font-extrabold tracking-tight leading-tight">Data Report</h1>
+                <p className="text-[13px] text-white/60 font-medium mt-0.5">Top SKU · Premium Outlets · Monthly Tonnage & PL Analytics</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <select value={range} onChange={e=> setRange(e.target.value as any)} className="bg-white/[0.1] border border-white/[0.15] rounded-xl px-4 py-2 text-xs font-bold backdrop-blur-sm text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all cursor-pointer">
+                <option value="all" className="text-slate-800">All Time</option>
+                <option value="90d" className="text-slate-800">Last 90 Days</option>
+                <option value="30d" className="text-slate-800">Last 30 Days</option>
+              </select>
+              <button onClick={exportReportExcel} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-extrabold shadow-lg shadow-emerald-500/25 hover:shadow-emerald-400/30 transition-all active:scale-95">⬇ Excel</button>
+              <button onClick={exportReportCSV} className="px-4 py-2 bg-white/[0.1] border border-white/[0.2] text-white hover:bg-white/[0.18] rounded-xl text-xs font-extrabold transition-all active:scale-95">CSV</button>
+              <button onClick={fetchAll} className="px-4 py-2 bg-white text-[#1a252f] hover:bg-gray-100 rounded-xl text-xs font-extrabold shadow-lg shadow-black/10 transition-all active:scale-95">↻ Refresh</button>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <select value={range} onChange={e=> setRange(e.target.value as any)} className="bg-white/10 border border-white/15 rounded-lg px-3 py-1.5 text-xs font-bold backdrop-blur-sm">
-              <option value="all" className="text-slate-800">All Time</option>
-              <option value="90d" className="text-slate-800">Last 90 Days</option>
-              <option value="30d" className="text-slate-800">Last 30 Days</option>
-            </select>
-            <button onClick={exportReportExcel} className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-extrabold shadow hover:bg-emerald-600">⬇ Excel</button>
-            <button onClick={exportReportCSV} className="px-3 py-1.5 bg-white/10 border border-white/20 text-white rounded-lg text-xs font-extrabold hover:bg-white/20">CSV</button>
-            <button onClick={fetchAll} className="px-3 py-1.5 bg-white text-[#2c3e50] rounded-lg text-xs font-extrabold shadow hover:bg-gray-100">↻ Refresh</button>
+        </div>
+
+        {/* ── KPI Cards ── */}
+        <div className="lb-section grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "TOTAL PL EXPORTED", value: loading ? "—" : kpi.totalPL.toLocaleString(), sub: `${kpi.totalUsageRows} usage rows`, color: "from-[#2c3e50] to-[#34495e]", accent: "bg-[#2c3e50]", icon: "📋" },
+            { label: "TOTAL TONNAGE", value: loading ? "—" : formatKg(kpi.totalTonnage), sub: `avg ${avgWeight.toFixed(1)} kg / PL`, color: "from-emerald-500 to-emerald-600", accent: "bg-emerald-500", icon: "⚖️" },
+            { label: "UNIQUE SKUS TRACKED", value: loading ? "—" : String(summary?.topSku.length||0), sub: "Top 25 shown", color: "from-[#3498db] to-[#2980b9]", accent: "bg-[#3498db]", icon: "🏷️" },
+            { label: "ACTIVE OUTLETS", value: loading ? "—" : String(summary?.topOutlet.length||0), sub: "Top 10 valuable", color: "from-[#8e44ad] to-[#9b59b6]", accent: "bg-[#8e44ad]", icon: "🏪" },
+          ].map((kpiCard, idx) => (
+            <div key={idx} className="lb-card-hover bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 relative overflow-hidden">
+              <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${kpiCard.color}`} />
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-sm">{kpiCard.icon}</div>
+              </div>
+              <div className="text-[10px] font-extrabold tracking-[0.15em] text-slate-400 uppercase">{kpiCard.label}</div>
+              <div className="lb-kpi-value text-2xl font-black text-[#1a252f] mt-1.5 leading-none">{kpiCard.value}</div>
+              <div className="text-[11px] text-slate-400 mt-2 font-medium">{kpiCard.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Checker Leaderboard ── */}
+        <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <div className="px-6 pt-5 pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md shadow-amber-500/20">
+                  <span className="text-sm">🏅</span>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#1a252f]">Checker Leaderboard</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">PL/day · tonnage · avg · last active</p>
+                </div>
+              </div>
+              <span className="text-[11px] font-bold bg-slate-100 border border-slate-200 rounded-full px-3 py-1 text-slate-600">{checkerLeaderboard.length} checkers</span>
+            </div>
+            {checkerLeaderboard.length===0 ? (
+              <div className="text-center py-12 text-slate-300">
+                <div className="text-3xl mb-2">📊</div>
+                <div className="text-sm font-medium">No checker data yet — export PLs to rank.</div>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-auto rounded-xl border border-slate-100 max-h-[340px]">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">#</th>
+                        <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Checker</th>
+                        <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">PL</th>
+                        <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Tonnage</th>
+                        <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Avg / PL</th>
+                        <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">PL/day</th>
+                        <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Last Active (WIB)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {checkerLeaderboard.map((r,i)=>{
+                        const rankBadge = i===0 ? "bg-gradient-to-br from-yellow-400 to-amber-500 text-white shadow-lg shadow-amber-500/30" : i===1 ? "bg-gradient-to-br from-gray-300 to-gray-400 text-white" : i===2 ? "bg-gradient-to-br from-amber-600 to-amber-700 text-white" : "bg-slate-100 text-slate-500";
+                        return (
+                          <tr key={r.checker} className={`border-t border-slate-50 lb-row-hover ${i===0 ? "bg-amber-50/30" : ""}`}>
+                            <td className="px-3 py-3 text-center">
+                              <span className={`w-7 h-7 rounded-full inline-flex items-center justify-center text-[11px] font-black ${rankBadge}`}>{i+1}</span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className="font-bold text-[#1a252f] truncate max-w-[160px] block">{r.checker}</span>
+                            </td>
+                            <td className="px-3 py-3 text-center font-mono font-black text-[#1a252f]">{r.count}</td>
+                            <td className="px-3 py-3 text-center font-mono font-bold text-emerald-600">{formatKg(r.tonnage)}</td>
+                            <td className="px-3 py-3 text-center text-slate-500 font-medium">{r.avgKg} kg</td>
+                            <td className="px-3 py-3 text-center">
+                              <span className="px-2.5 py-1 rounded-full bg-[#1a252f] text-white text-[11px] font-bold shadow-sm">{r.plPerDay}/d</span>
+                            </td>
+                            <td className="px-3 py-3 text-[11px] text-slate-400 font-medium">{r.last ? new Date(String(r.last).replace(" ","T")).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {weeklyCheckerData.length>0 && (
+                  <div className="mt-4 p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-xl border border-slate-100">
+                    <div className="text-[11px] font-extrabold text-slate-400 tracking-wider uppercase mb-2">Top Checker ({checkerLeaderboard[0]?.checker}) — Weekly PL (last 8 weeks)</div>
+                    <div className="h-[180px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={weeklyCheckerData} margin={{ left: 0, right: 12 }}>
+                          <defs>
+                            <linearGradient id="lbBarGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#2c3e50" stopOpacity={1}/>
+                              <stop offset="100%" stopColor="#34495e" stopOpacity={0.85}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                          <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
+                          <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} allowDecimals={false} axisLine={false} />
+                          <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} />
+                          <Bar dataKey="pl" name="PL" fill="url(#lbBarGrad)" radius={[6,6,0,0]} barSize={18} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+                <div className="text-[11px] text-slate-300 mt-3 px-1">Ranked by tonnage · SuperAdmin inline edit in Archive to correct field changes — leaderboard updates live (30s poll).</div>
+              </>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl shadow p-4 border border-slate-200/60">
-          <div className="text-[11px] font-bold tracking-widest text-slate-500">TOTAL PL EXPORTED</div>
-          <div className="text-2xl font-extrabold text-[#2c3e50] mt-1">{loading ? "—" : kpi.totalPL.toLocaleString()}</div>
-          <div className="text-xs text-gray-500">{kpi.totalUsageRows} usage rows</div>
-        </div>
-        <div className="bg-white rounded-xl shadow p-4 border border-slate-200/60">
-          <div className="text-[11px] font-bold tracking-widest text-slate-500">TOTAL TONNAGE</div>
-          <div className="text-2xl font-extrabold text-emerald-600 mt-1">{loading ? "—" : formatKg(kpi.totalTonnage)}</div>
-          <div className="text-xs text-gray-500">avg {avgWeight.toFixed(1)} kg / PL</div>
-        </div>
-        <div className="bg-white rounded-xl shadow p-4 border border-slate-200/60">
-          <div className="text-[11px] font-bold tracking-widest text-slate-500">UNIQUE SKUS TRACKED</div>
-          <div className="text-2xl font-extrabold text-[#3498db] mt-1">{loading ? "—" : (summary?.topSku.length||0)}</div>
-          <div className="text-xs text-gray-500">Top 25 shown</div>
-        </div>
-        <div className="bg-white rounded-xl shadow p-4 border border-slate-200/60">
-          <div className="text-[11px] font-bold tracking-widest text-slate-500">ACTIVE OUTLETS</div>
-          <div className="text-2xl font-extrabold text-[#8e44ad] mt-1">{loading ? "—" : (summary?.topOutlet.length||0)}</div>
-          <div className="text-xs text-gray-500">Top 10 valuable</div>
-        </div>
-      </div>
-
-      {/* Checker Leaderboard */}
-      <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-extrabold text-sm text-[#2c3e50]">🏅 Checker Leaderboard <span className="text-xs font-normal text-gray-500">— PL/day • tonnage • avg • last active</span></h3>
-          <span className="text-[11px] bg-slate-100 border rounded-full px-2 py-1">{checkerLeaderboard.length} checkers</span>
-        </div>
-        {checkerLeaderboard.length===0 ? (
-          <div className="text-center p-8 text-gray-400 text-sm">No checker data yet — export PLs to rank.</div>
-        ) : (
-          <>
-            <div className="overflow-auto border rounded-xl max-h-[320px]">
-              <table className="w-full text-xs">
-                <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-center">#</th><th className="p-2 text-left">Checker</th><th className="p-2 text-center">PL</th><th className="p-2 text-center">Tonnage</th><th className="p-2 text-center">Avg / PL</th><th className="p-2 text-center">PL/day</th><th className="p-2 text-left">Last Active (WIB)</th></tr></thead>
-                <tbody>
-                  {checkerLeaderboard.map((r,i)=>(
-                    <tr key={r.checker} className={`border-t ${i===0?"bg-amber-50/50":"hover:bg-gray-50"}`}>
-                      <td className="p-2 text-center"><span className={`w-6 h-6 rounded-full inline-flex items-center justify-center text-[11px] font-black ${i===0?"bg-yellow-400 text-black":i===1?"bg-gray-300 text-black":i===2?"bg-amber-600 text-white":"bg-slate-200 text-slate-700"}`}>{i+1}</span></td>
-                      <td className="p-2 font-bold truncate max-w-[140px]">{r.checker}</td>
-                      <td className="p-2 text-center font-mono font-bold">{r.count}</td>
-                      <td className="p-2 text-center font-mono">{formatKg(r.tonnage)}</td>
-                      <td className="p-2 text-center text-gray-500">{r.avgKg} kg</td>
-                      <td className="p-2 text-center"><span className="px-2 py-0.5 rounded-full bg-[#2c3e50] text-white text-[11px] font-bold">{r.plPerDay}/d</span></td>
-                      <td className="p-2 text-[11px] text-gray-500">{r.last ? new Date(String(r.last).replace(" ","T")).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* ── Top 25 SKU ── */}
+        <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <div className="px-6 pt-5 pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md shadow-blue-500/20">
+                  <span className="text-sm">🏆</span>
+                </div>
+                <h3 className="font-extrabold text-sm text-[#1a252f]">Top 25 SKU Exported</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-bold hidden md:block">Metric</span>
+                <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
+                  <button onClick={()=> setSkuMetric("qty")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${skuMetric==="qty"?"bg-[#1a252f] text-white shadow-sm":"text-slate-500 hover:text-slate-700"}`}>Qty</button>
+                  <button onClick={()=> setSkuMetric("kg")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${skuMetric==="kg"?"bg-emerald-600 text-white shadow-sm":"text-slate-500 hover:text-slate-700"}`}>Kg</button>
+                </div>
+              </div>
             </div>
-            {weeklyCheckerData.length>0 && (
-              <div className="mt-3 h-[180px]">
-                <div className="text-[11px] font-bold text-gray-500 mb-1">Top Checker ({checkerLeaderboard[0]?.checker}) — Weekly PL (last 8 weeks)</div>
+            {!summary || topSkuDisplay.length===0 ? (
+              <div className="text-center py-12 text-slate-300">
+                <div className="text-3xl mb-2">📦</div>
+                <div className="text-sm font-medium">No SKU data yet — export a Packing List to populate.</div>
+              </div>
+            ) : (
+              <div className="h-[440px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={weeklyCheckerData} margin={{ left: 0, right: 12 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="pl" name="PL" fill="#2c3e50" radius={[6,6,0,0]} barSize={18} />
+                  <BarChart data={topSkuDisplay} layout="vertical" margin={{ left: 12, right: 24, top: 5, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="lbSkuGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor={skuMetric==="qty" ? "#2c3e50" : "#27ae60"} stopOpacity={1}/>
+                        <stop offset="100%" stopColor={skuMetric==="qty" ? "#34495e" : "#2ecc71"} stopOpacity={0.85}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
+                    <YAxis dataKey="sku" type="category" width={160} tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> [n==="qty"? `${v} ${topSkuDisplay[0]?.uom||""}` : formatKg(Number(v)), n==="qty"?"Qty":"Tonnage"]} />
+                    <Bar dataKey={skuMetric} fill="url(#lbSkuGrad)" radius={[0,6,6,0]} barSize={12}>
+                      {topSkuDisplay.map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
-            <div className="text-[11px] text-gray-400 mt-2">Ranked by tonnage • Use SuperAdmin inline edit in Archive to correct field changes — leaderboard updates live (30s poll).</div>
-          </>
-        )}
-      </div>
-
-      {/* Top 25 SKU */}
-      <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-extrabold text-sm text-[#2c3e50]">🏆 Top 25 SKU Exported</h3>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 hidden md:block">Metric:</span>
-            <div className="inline-flex rounded-full border p-0.5 bg-slate-100">
-              <button onClick={()=> setSkuMetric("qty")} className={`px-3 py-1 text-xs font-bold rounded-full ${skuMetric==="qty"?"bg-[#2c3e50] text-white":"text-gray-600"}`}>Qty</button>
-              <button onClick={()=> setSkuMetric("kg")} className={`px-3 py-1 text-xs font-bold rounded-full ${skuMetric==="kg"?"bg-emerald-600 text-white":"text-gray-600"}`}>Kg</button>
-            </div>
+            {summary && <div className="text-[11px] text-slate-300 mt-2 px-1">Sorted by {skuMetric==="qty"?"quantity":"tonnage"} · {summary.topSku.length} SKUs ranked</div>}
           </div>
         </div>
-        {!summary || topSkuDisplay.length===0 ? (
-          <div className="text-center p-8 text-gray-400 text-sm">No SKU data yet — export a Packing List to populate <code>/api/track_item_usage</code>.</div>
-        ) : (
-          <div className="h-[420px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topSkuDisplay} layout="vertical" margin={{ left: 12, right: 24, top: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis dataKey="sku" type="category" width={160} tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(v:any, n:any)=> [n==="qty"? `${v} ${topSkuDisplay[0]?.uom||""}` : formatKg(Number(v)), n==="qty"?"Qty":"Tonnage"]} />
-                <Bar dataKey={skuMetric} fill={skuMetric==="qty" ? "#2c3e50" : "#27ae60"} radius={[0,6,6,0]} barSize={12}>
-                  {topSkuDisplay.map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-        {summary && <div className="text-[11px] text-gray-400 mt-2">Sorted by {skuMetric==="qty"?"quantity":"tonnage"} • {summary.topSku.length} SKUs ranked</div>}
-      </div>
 
-      {/* Top 10 Outlet + Monthly */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top 10 Outlet */}
-        <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
-          <h3 className="font-extrabold text-sm text-[#2c3e50] mb-3">💎 Top 10 Most Valuable Outlets <span className="text-xs font-normal text-gray-500">(by tonnage)</span></h3>
-          {!summary || summary.topOutlet.length===0 ? (
-            <div className="text-center p-8 text-gray-400 text-sm">No outlet data yet.</div>
-          ) : (
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={summary.topOutlet} layout="vertical" margin={{ left: 0, right: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis dataKey="outlet" type="category" width={140} tick={{ fontSize: 9 }} tickFormatter={(v:string)=> v.length>18? v.slice(0,18)+"…":v} />
-                  <Tooltip formatter={(v:any, n:any)=> n==="tonnage"? formatKg(Number(v)) : `${v} PL`} />
-                  <Legend />
-                  <Bar dataKey="tonnage" name="Tonnage (kg)" fill="#8e44ad" radius={[0,6,6,0]} barSize={14} />
-                  <Bar dataKey="count" name="PL Count" fill="#3498db" radius={[0,6,6,0]} barSize={14} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          <div className="grid grid-cols-1 gap-1.5 mt-3 max-h-[140px] overflow-auto pr-1">
-            {summary?.topOutlet.map((o,i)=>(
-              <div key={o.outlet} className="flex items-center justify-between text-xs bg-slate-50 border rounded-lg px-2.5 py-1.5">
-                <span className="flex items-center gap-2 truncate"><span className="w-5 h-5 rounded-full bg-[#2c3e50] text-white flex items-center justify-center text-[10px] font-bold shrink-0">{i+1}</span><span className="font-bold truncate">{o.outlet}</span></span>
-                <span className="text-gray-500 shrink-0">{o.count} PL • {formatKg(o.tonnage)}</span>
+        {/* ── Top 10 Outlet + Monthly (side by side) ── */}
+        <div className="lb-section grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Top 10 Outlet */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div className="px-6 pt-5 pb-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-md shadow-purple-500/20">
+                  <span className="text-sm">💎</span>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#1a252f]">Top 10 Most Valuable Outlets</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Ranked by tonnage</p>
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Monthly */}
-        <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
-          <h3 className="font-extrabold text-sm text-[#2c3e50] mb-3">📅 Monthly Tonnage & Exported PL</h3>
-          {!summary || monthlyFiltered.length===0 ? (
-            <div className="text-center p-8 text-gray-400 text-sm">No monthly data — {summary?.monthly.length||0} months tracked.</div>
-          ) : (
-            <div className="h-[360px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={monthlyFiltered} margin={{ left: 0, right: 12, top: 10 }}>
-                  <defs>
-                    <linearGradient id="tonG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#27ae60" stopOpacity={0.4}/><stop offset="95%" stopColor="#27ae60" stopOpacity={0}/></linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v:any, n:any)=> n==="tonnage"? formatKg(Number(v)) : `${v} PL`} />
-                  <Legend />
-                  <Area yAxisId="left" type="monotone" dataKey="tonnage" name="Tonnage (kg)" stroke="#27ae60" fill="url(#tonG)" strokeWidth={2} dot />
-                  <Line yAxisId="right" type="monotone" dataKey="pl" name="PL Count" stroke="#2c3e50" strokeWidth={2.5} dot={{ r:3 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          {/* Monthly table */}
-          <div className="mt-3 border rounded-xl overflow-hidden">
-            <div className="max-h-[140px] overflow-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Month</th><th className="p-2 text-center">PL</th><th className="p-2 text-right">Tonnage</th><th className="p-2 text-right">Avg / PL</th></tr></thead>
-                <tbody>
-                  {monthlyFiltered.slice().reverse().map(m=>(
-                    <tr key={m.month} className="border-t hover:bg-gray-50">
-                      <td className="p-2 font-mono font-bold">{m.month}</td>
-                      <td className="p-2 text-center">{m.pl}</td>
-                      <td className="p-2 text-right">{formatKg(m.tonnage)}</td>
-                      <td className="p-2 text-right text-gray-500">{m.pl? (m.tonnage/m.pl).toFixed(1):"—"} kg</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Packing Lists Archive — auto-uploaded PLs, downloadable (Supabase Storage) */}
-      <div className="bg-white rounded-2xl shadow p-4 border border-slate-200/60">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-extrabold text-sm text-[#2c3e50]">📦 Exported PL Archive <span className="ml-2 text-xs font-normal text-gray-500">({archive.length} files — Supabase Storage)</span></h3>
-          <input value={archiveFilter} onChange={e=> setArchiveFilter(e.target.value)} placeholder="Filter outlet / DO..." className="border rounded-lg px-3 py-1.5 text-xs w-48" />
-        </div>
-        {archive.length===0 ? (
-          <div className="text-center p-6 text-gray-400 text-sm">No PLs yet — export from Dashboard to auto-upload.</div>
-        ) : (
-          <div className="overflow-auto border rounded-xl max-h-[320px]">
-            <table className="w-full text-xs">
-              <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">Delivery No</th><th className="p-2 text-left">Outlet</th><th className="p-2">Checker</th><th className="p-2">PL</th><th className="p-2">Status</th><th className="p-2">Created (WIB)</th><th className="p-2">File</th><th className="p-2 text-center">Actions</th></tr></thead>
-              <tbody>
-                {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,100).map((a:any)=>(
-                  <tr key={a.delivery_no} className="border-t hover:bg-gray-50">
-                    <td className="p-2 font-mono font-bold">{a.delivery_no}</td>
-                    <td className="p-2 truncate max-w-[160px]">{a.outlet}</td>
-                    <td className="p-2 text-center">
-                      {editingChecker===a.delivery_no ? (
-                        <div className="flex items-center gap-1 justify-center">
-                          <select value={editCheckerVal} onChange={e=> setEditCheckerVal(e.target.value)} className="border rounded px-1 py-0.5 text-xs max-w-[100px]">
-                            {checkers.map((c:string)=> <option key={c} value={c}>{c}</option>)}
-                            {!checkers.includes(a.checker) && a.checker && <option value={a.checker}>{a.checker} (current)</option>}
-                          </select>
-                          <button onClick={()=> handleCheckerUpdate(a.delivery_no)} className="text-xs bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold">✔</button>
-                          <button onClick={()=> setEditingChecker(null)} className="text-xs bg-gray-200 px-1.5 py-0.5 rounded">✖</button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 justify-center">
-                          <span className="font-medium truncate max-w-[90px]" title={a.checker}>{a.checker||"—"}</span>
-                          {isSuperAdmin && <button onClick={()=> { setEditingChecker(a.delivery_no); setEditCheckerVal(a.checker||checkers[0]||""); }} title="Change checker — SuperAdmin" className="text-[10px] bg-white border px-1 py-0.5 rounded hover:bg-gray-50">✏️</button>}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-2 text-center">{a.total_weight_kg||0} kg</td>
-                    <td className="p-2 text-center"><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${a.status==="READY"?"bg-emerald-100 text-emerald-700":"bg-amber-100 text-amber-700"}`}>{a.status}</span></td>
-                    <td className="p-2 text-[11px]">{a.created_at||"—"}</td>
-                    <td className="p-2 text-center">{a.hasFile ? "✅" : "—"}</td>
-                    <td className="p-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={()=> handleDownload(a.delivery_no)} className="text-xs bg-[#2c3e50] text-white px-2 py-1 rounded-full font-bold hover:bg-[#34495e]">⬇</button>
-                        {isSuperAdmin && <button onClick={()=> handleDelete(a.delivery_no)} title="Delete — SuperAdmin only" className="text-xs bg-white border border-red-200 text-red-600 px-2 py-1 rounded-full font-bold hover:bg-red-50">🗑️</button>}
-                      </div>
-                    </td>
-                  </tr>
+              {!summary || summary.topOutlet.length===0 ? (
+                <div className="text-center py-12 text-slate-300">
+                  <div className="text-3xl mb-2">🏪</div>
+                  <div className="text-sm font-medium">No outlet data yet.</div>
+                </div>
+              ) : (
+                <div className="h-[380px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={summary.topOutlet} layout="vertical" margin={{ left: 0, right: 24 }}>
+                      <defs>
+                        <linearGradient id="lbOutletGrad" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor="#8e44ad" stopOpacity={1}/>
+                          <stop offset="100%" stopColor="#9b59b6" stopOpacity={0.85}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
+                      <YAxis dataKey="outlet" type="category" width={140} tick={{ fontSize: 9, fill: "#64748b" }} tickFormatter={(v:string)=> v.length>18? v.slice(0,18)+"…":v} axisLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> n==="tonnage"? formatKg(Number(v)) : `${v} PL`} />
+                      <Legend wrapperStyle={{ fontSize: "11px" }} />
+                      <Bar dataKey="tonnage" name="Tonnage (kg)" fill="url(#lbOutletGrad)" radius={[0,6,6,0]} barSize={14} />
+                      <Bar dataKey="count" name="PL Count" fill="#3498db" radius={[0,6,6,0]} barSize={14} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-1.5 mt-3 max-h-[140px] overflow-auto pr-1">
+                {summary?.topOutlet.map((o,i)=>(
+                  <div key={o.outlet} className="flex items-center justify-between text-xs bg-slate-50/80 border border-slate-100 rounded-xl px-3 py-2 hover:bg-slate-100/80 transition-colors">
+                    <span className="flex items-center gap-2.5 truncate">
+                      <span className="w-6 h-6 rounded-lg bg-[#1a252f] text-white flex items-center justify-center text-[10px] font-black shrink-0">{i+1}</span>
+                      <span className="font-bold text-[#1a252f] truncate">{o.outlet}</span>
+                    </span>
+                    <span className="text-slate-400 shrink-0 font-medium">{o.count} PL · {formatKg(o.tonnage)}</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="text-[11px] text-gray-400 mt-2">Files stored in Supabase Storage bucket <code>packing-lists</code> per delivery folder — downloadable via signed URL (1h) or direct stream. Auto-upload happens on every Dashboard export.</div>
-      </div>
-
-      {/* Live Stream — preserved, collapsible, not removed */}
-      <div className="bg-white rounded-2xl shadow border border-slate-200/60 overflow-hidden">
-        <button onClick={()=> setShowLive(!showLive)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50">
-          <span className="font-bold text-sm text-[#2c3e50]">🔴 Live Stream — Packing Status <span className="ml-2 text-xs font-normal text-gray-500">({filtered.length}/{data.length})</span></span>
-          <span className={`text-xs font-bold px-2 py-1 rounded-full border ${showLive?"bg-[#2c3e50] text-white":"bg-white"}`}>{showLive?"Hide":"Show"}</span>
-        </button>
-        {showLive && (
-          <div className="p-4 border-t">
-            <div className="flex items-center justify-between mb-3">
-              <h4 className="font-bold text-sm">{t("live.title")}</h4>
-              <div className="flex gap-2">
-                <input value={filter} onChange={e=> setFilter(e.target.value)} placeholder={t("live.filter")} className="border rounded-lg px-3 py-1.5 text-sm" />
-                <button onClick={fetchAll} className="px-3 py-1.5 bg-[#3498db] text-white rounded-lg text-sm font-bold">↻ {t("live.refresh")}</button>
               </div>
             </div>
-            <div className="overflow-auto border rounded-xl">
-              <table className="w-full text-sm">
-                <thead className="bg-[#f4f6f9] sticky top-0"><tr><th className="p-2 text-left">{t("live.deliveryNo")}</th><th className="p-2">{t("live.outlet")}</th><th className="p-2">{t("live.checker")}</th><th className="p-2">{t("live.status")}</th><th className="p-2">{t("live.scannedAt")}</th><th className="p-2">{t("live.created")}</th><th className="p-2">{t("live.weight")}</th><th className="p-2">{t("dash.action")}</th></tr></thead>
-                <tbody>
-                  {filtered.length===0 && <tr><td colSpan={8} className="text-center p-8 text-gray-400">{t("live.noData")}</td></tr>}
-                  {filtered.map((e:any)=>(
-                    <tr key={e.delivery_no} className="border-b hover:bg-gray-50">
-                      <td className="p-2 font-mono text-xs">{e.delivery_no}</td>
-                      <td className="p-2">{e.outlet}</td>
-                      <td className="p-2">{e.checker}</td>
-                      <td className="p-2"><span className={`px-2 py-1 rounded-full text-xs font-bold ${e.status==="READY"?"bg-emerald-100 text-emerald-700":e.status==="CANCELLED"?"bg-red-100 text-red-700":"bg-amber-100 text-amber-700"}`}>{e.status==="READY"?t("live.ready"): e.status==="CANCELLED"?t("live.cancelled"):t("live.packing")}</span></td>
-                      <td className="p-2">{e.scanned_at||"--:--:--"}</td>
-                      <td className="p-2 text-xs">{e.created_at}</td>
-                      <td className="p-2">{e.total_weight_kg||0} kg</td>
-                      <td className="p-2">
-                        {e.status!=="READY" && <button onClick={async()=>{ await apiPut(`/api/packing_status/${encodeURIComponent(e.delivery_no)}`,{status:"READY"}); fetchAll(); }} className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700">{t("live.markReady")}</button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3 p-3 bg-[#ecf0f1] rounded-xl">
-              <h4 className="font-bold text-sm mb-1">{t("live.override")}</h4>
-              <p className="text-xs text-gray-600">{t("live.overrideDesc")}</p>
+          </div>
+
+          {/* Monthly */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div className="px-6 pt-5 pb-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-md shadow-emerald-500/20">
+                  <span className="text-sm">📅</span>
+                </div>
+                <h3 className="font-extrabold text-sm text-[#1a252f]">Monthly Tonnage & Exported PL</h3>
+              </div>
+              {!summary || monthlyFiltered.length===0 ? (
+                <div className="text-center py-12 text-slate-300">
+                  <div className="text-3xl mb-2">📆</div>
+                  <div className="text-sm font-medium">No monthly data — {summary?.monthly.length||0} months tracked.</div>
+                </div>
+              ) : (
+                <div className="h-[380px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={monthlyFiltered} margin={{ left: 0, right: 12, top: 10 }}>
+                      <defs>
+                        <linearGradient id="tonG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#27ae60" stopOpacity={0.35}/><stop offset="95%" stopColor="#27ae60" stopOpacity={0}/></linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
+                      <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> n==="tonnage"? formatKg(Number(v)) : `${v} PL`} />
+                      <Legend wrapperStyle={{ fontSize: "11px" }} />
+                      <Area yAxisId="left" type="monotone" dataKey="tonnage" name="Tonnage (kg)" stroke="#27ae60" fill="url(#tonG)" strokeWidth={2.5} dot={{ r:3, fill:"#27ae60", strokeWidth:0 }} activeDot={{ r:5, stroke:"#27ae60", strokeWidth:2, fill:"white" }} />
+                      <Line yAxisId="right" type="monotone" dataKey="pl" name="PL Count" stroke="#2c3e50" strokeWidth={2.5} dot={{ r:3, fill:"#2c3e50", strokeWidth:0 }} activeDot={{ r:5, stroke:"#2c3e50", strokeWidth:2, fill:"white" }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {/* Monthly table */}
+              <div className="mt-3 border border-slate-100 rounded-xl overflow-hidden">
+                <div className="max-h-[140px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Month</th>
+                        <th className="px-3 py-2.5 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">PL</th>
+                        <th className="px-3 py-2.5 text-right font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Tonnage</th>
+                        <th className="px-3 py-2.5 text-right font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Avg / PL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyFiltered.slice().reverse().map(m=>(
+                        <tr key={m.month} className="border-t border-slate-50 lb-row-hover">
+                          <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{m.month}</td>
+                          <td className="px-3 py-2.5 text-center font-bold">{m.pl}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-emerald-600 font-bold">{formatKg(m.tonnage)}</td>
+                          <td className="px-3 py-2.5 text-right text-slate-400 font-medium">{m.pl? (m.tonnage/m.pl).toFixed(1):"—"} kg</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
-        )}
+        </div>
+
+        {/* ── PL Archive ── */}
+        <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <div className="px-6 pt-5 pb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center shadow-md shadow-slate-600/20">
+                  <span className="text-sm">📦</span>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#1a252f]">Exported PL Archive</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">{archive.length} files · Supabase Storage</p>
+                </div>
+              </div>
+              <input value={archiveFilter} onChange={e=> setArchiveFilter(e.target.value)} placeholder="Filter outlet / DO..." className="border border-slate-200 rounded-xl px-4 py-2 text-xs font-medium w-52 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all bg-slate-50 placeholder:text-slate-300" />
+            </div>
+            {archive.length===0 ? (
+              <div className="text-center py-12 text-slate-300">
+                <div className="text-3xl mb-2">📁</div>
+                <div className="text-sm font-medium">No PLs yet — export from Dashboard to auto-upload.</div>
+              </div>
+            ) : (
+              <div className="overflow-auto rounded-xl border border-slate-100 max-h-[340px]">
+                <table className="w-full text-xs">
+                  <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Delivery No</th>
+                      <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Outlet</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Checker</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">PL</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Status</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Created (WIB)</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">File</th>
+                      <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,200).map((a:any)=>(
+                      <tr key={a.delivery_no} className="border-t border-slate-50 lb-row-hover">
+                        <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{a.delivery_no}</td>
+                        <td className="px-3 py-2.5 font-medium text-slate-600">{a.outlet}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          {editingChecker===a.delivery_no ? (
+                            <div className="flex items-center gap-1 justify-center">
+                              <select value={editCheckerVal} onChange={e=> setEditCheckerVal(e.target.value)} className="border border-slate-200 rounded-lg px-1.5 py-1 text-[11px] bg-white focus:outline-none focus:ring-1 focus:ring-[#2c3e50]/30">
+                                {checkers.map(c=> <option key={c} value={c}>{c}</option>)}
+                              </select>
+                              <button onClick={()=> handleCheckerUpdate(a.delivery_no)} className="text-emerald-600 font-bold text-[11px] hover:underline">✓</button>
+                              <button onClick={()=> setEditingChecker(null)} className="text-slate-400 text-[11px] hover:text-slate-600">✕</button>
+                            </div>
+                          ) : (
+                            <button onClick={()=>{ setEditingChecker(a.delivery_no); setEditCheckerVal(a.checker||""); }} className="text-[11px] text-[#3498db] hover:text-[#2980b9] font-bold hover:underline cursor-pointer">{a.checker||"—"}</button>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono font-bold">{a.total_weight_kg||0} kg</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${a.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{a.status}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] text-slate-400 font-medium">{a.created_at||"—"}</td>
+                        <td className="px-3 py-2.5 text-center">{a.hasFile ? <span className="text-emerald-500">✅</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button onClick={()=> handleDownload(a.delivery_no)} className="w-7 h-7 rounded-lg bg-[#1a252f] text-white flex items-center justify-center text-xs font-bold hover:bg-[#2c3e50] transition-colors shadow-sm active:scale-95" title="Download">⬇</button>
+                            {isSuperAdmin && <button onClick={()=> handleDelete(a.delivery_no)} title="Delete — SuperAdmin only" className="w-7 h-7 rounded-lg bg-white border border-red-200 text-red-500 flex items-center justify-center text-xs font-bold hover:bg-red-50 transition-colors active:scale-95">🗑️</button>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="text-[11px] text-slate-300 mt-3 px-1">Files stored in Supabase Storage bucket <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">packing-lists</code> per delivery folder — downloadable via signed URL (1h) or direct stream. Auto-upload on every Dashboard export.</div>
+          </div>
+        </div>
+
+        {/* ── Live Stream ── */}
+        <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+          <button onClick={()=> setShowLive(!showLive)} className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50/80 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-md shadow-red-500/20">
+                  <span className="text-sm">🔴</span>
+                </div>
+                {showLive && <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full lb-pulse-live border-2 border-white" />}
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-[#1a252f]">Live Stream — Packing Status</h3>
+                <p className="text-[11px] text-slate-400 font-medium">{filtered.length}/{data.length} active records</p>
+              </div>
+            </div>
+            <span className={`text-xs font-bold px-4 py-2 rounded-xl transition-all ${showLive?"bg-[#1a252f] text-white shadow-sm":"bg-slate-100 text-slate-500 border border-slate-200"}`}>{showLive?"Hide":"Show"}</span>
+          </button>
+          {showLive && (
+            <div className="px-6 pb-5 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-4 pt-4">
+                <h4 className="font-bold text-sm text-[#1a252f]">{t("live.title")}</h4>
+                <div className="flex gap-2">
+                  <input value={filter} onChange={e=> setFilter(e.target.value)} placeholder={t("live.filter")} className="border border-slate-200 rounded-xl px-4 py-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all placeholder:text-slate-300" />
+                  <button onClick={fetchAll} className="px-4 py-2 bg-[#3498db] hover:bg-[#2980b9] text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95">↻ {t("live.refresh")}</button>
+                </div>
+              </div>
+              <div className="overflow-auto rounded-xl border border-slate-100">
+                <table className="w-full text-sm">
+                  <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.deliveryNo")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.outlet")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.checker")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.status")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.scannedAt")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.created")}</th>
+                      <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("live.weight")}</th>
+                      <th className="px-3 py-3 text-center font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">{t("dash.action")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length===0 && <tr><td colSpan={8} className="text-center py-12 text-slate-300"><div className="text-2xl mb-2">📭</div><div className="text-sm font-medium">{t("live.noData")}</div></td></tr>}
+                    {filtered.map((e:any)=>(
+                      <tr key={e.delivery_no} className="border-t border-slate-50 lb-row-hover">
+                        <td className="px-3 py-2.5 font-mono text-xs font-bold text-[#1a252f]">{e.delivery_no}</td>
+                        <td className="px-3 py-2.5 font-medium text-slate-600">{e.outlet}</td>
+                        <td className="px-3 py-2.5 font-medium text-slate-600">{e.checker}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${e.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":e.status==="CANCELLED"?"bg-red-100 text-red-700 border border-red-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{e.status==="READY"?t("live.ready"): e.status==="CANCELLED"?t("live.cancelled"):t("live.packing")}</span>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{e.scanned_at||"--:--:--"}</td>
+                        <td className="px-3 py-2.5 text-xs text-slate-400 font-medium">{e.created_at}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{e.total_weight_kg||0} kg</td>
+                        <td className="px-3 py-2.5 text-center">
+                          {e.status!=="READY" && <button onClick={async()=>{ await apiPut(`/api/packing_status/${encodeURIComponent(e.delivery_no)}`,{status:"READY"}); fetchAll(); }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95">{t("live.markReady")}</button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-xl border border-slate-100">
+                <h4 className="font-bold text-sm mb-1 text-[#1a252f]">{t("live.override")}</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">{t("live.overrideDesc")}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
