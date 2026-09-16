@@ -43,12 +43,12 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.pageSetup.margins = { left: 0.4, right: 0.4, top: 0.45, bottom: 0.6, header: 0.3, footer: 0.35 };
   ws.pageSetup.printTitlesRow = "1:2"; // repeat branding on every page
 
-  // ── Column widths ──
+  // ── Column widths ── (E widened 22→28 to prevent CHECKER overlap: Fadly | Cluster: Traga Baru 26)
   ws.getColumn(1).width = 5;   // No. Koli
   ws.getColumn(2).width = 36;  // Description
   ws.getColumn(3).width = 9;   // Qty
-  ws.getColumn(4).width = 12;  // Item Unit
-  ws.getColumn(5).width = 22;  // Notes
+  ws.getColumn(4).width = 12;  // Item Unit (label)
+  ws.getColumn(5).width = 28;  // Checker / Notes — widened
 
   const thin   = { style: "thin" as const };
   const medium = { style: "medium" as const };
@@ -375,26 +375,21 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   ws.headerFooter.differentFirst = false;
   ws.pageSetup.showRowColHeaders = false;
 
-  // ════════════════════════════════════════════════════════════════
-  //  BACKEND LOGGING (fire-and-forget)
-  // ════════════════════════════════════════════════════════════════
-  const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
-  try {
-    await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
-    await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
-  } catch {}
-
+  // Generate + download instantly first — keep export snappy after PL Template change
   const buf = await wb.xlsx.writeBuffer() as ArrayBuffer;
   const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
   const filename = `${_ts}_${outlet}.xlsx`;
   saveAs(new Blob([buf]), filename);
-  // Auto-upload to Supabase Storage via backend (persistent, downloadable later) — non-blocking, keeps local save
+
+  // Backend logging + auto-upload (fire-and-forget, no await) — ensures instant download
+  const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
   try {
+    fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})}).catch(()=>{});
+    fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})}).catch(()=>{});
     const fd = new FormData();
     fd.append("file", new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), filename);
     fd.append("delivery_no", deliveryNo);
     fd.append("outlet", outlet);
-    // fire-and-forget, backend stores to packing-lists bucket + packing_status
     fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd } as any).catch(()=>{});
   } catch {}
   return { deliveryNo, totalWeight };
