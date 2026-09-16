@@ -2045,7 +2045,7 @@ ${JSON.stringify(snap, null, 1)}`;
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: historyArr,
-          generationConfig: { temperature: 0.5, maxOutputTokens: 700, candidateCount: 1 },
+          generationConfig: { temperature: 0.5, maxOutputTokens: 8192, candidateCount: 1 },
         }),
       }
     );
@@ -2056,10 +2056,11 @@ ${JSON.stringify(snap, null, 1)}`;
       return res.status(502).json({ error: `Gemini ${gRes.status}: ${errText.slice(0, 300)}` });
     }
     const gj = await gRes.json();
+    const finishReason = gj?.candidates?.[0]?.finishReason || "";
     const reply = gj?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("")?.trim();
     if (!reply) return res.status(502).json({ error: "Gemini returned empty response" });
 
-    res.json({ reply, model: GEMINI_MODEL });
+    res.json({ reply, model: GEMINI_MODEL, truncated: finishReason === "MAX_TOKENS" });
   } catch (e: any) {
     const msg = e?.name === "AbortError" ? "Gemini request timed out (20s)" : (e?.message || "Gemini proxy error");
     res.status(500).json({ error: msg });
