@@ -42,11 +42,12 @@ export const usePackingStore = create<State>()(
       setBoxes: (b)=> set({ boxes:b }),
       setItemNote: (sku, note)=>{ const { order } = get(); const next={...order}; if(next[sku]) next[sku]={ ...next[sku], note }; set({ order: next }); },
       addItem: (sku, baseQty, note)=>{
-        const { master, order } = get();
-        // multipliers ported from core.py
+        const { order } = get();
+        // multipliers ported from core.py add_item — preserve 1:1 (BBT variants are *1)
         let qty=baseQty;
-        if(["Beef Patty Small","Beef Patty Large"].includes(sku)) qty*=18;
+        if(["Beef Patty Small","Beef Patty Large","Beef Patty Small (BBT)","Beef Patty Large (BBT)"].includes(sku)) qty*=18;
         else if(sku==="Thousand Island Mayonaise") qty*=20;
+        else if(sku==="Thousand Island (BBT)") qty*=1;
         else if(sku==="Butter") qty*=40;
         const next={...order};
         if(next[sku]){ next[sku]={ qty: next[sku].qty+qty, note: next[sku].note.includes(note)? next[sku].note : `${next[sku].note}/${note}` };}
@@ -56,8 +57,9 @@ export const usePackingStore = create<State>()(
       subItem: (sku, baseQty)=>{
         const { order } = get();
         let qty=baseQty;
-        if(["Beef Patty Small","Beef Patty Large"].includes(sku)) qty*=18;
+        if(["Beef Patty Small","Beef Patty Large","Beef Patty Small (BBT)","Beef Patty Large (BBT)"].includes(sku)) qty*=18;
         else if(sku==="Thousand Island Mayonaise") qty*=20;
+        else if(sku==="Thousand Island (BBT)") qty*=1;
         else if(sku==="Butter") qty*=40;
         const next={...order};
         if(next[sku]){ next[sku].qty-=qty; if(next[sku].qty<=0) delete next[sku]; }
