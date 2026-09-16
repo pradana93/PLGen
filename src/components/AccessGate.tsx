@@ -19,8 +19,8 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
   // Not logged in — let Login route handle it
   if (!user) return <>{children}</>;
 
-  // Banned
-  if (profile?.banned) {
+  // Banned — but SuperAdmin is immortal (never blocked even if DB glitch sets banned=true)
+  if (profile?.banned && profile?.role !== "SuperAdmin") {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-[#f4f6f9]">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
@@ -49,8 +49,8 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
     );
   }
 
-  // Pending approval
-  if (profile && profile.approved === false) {
+  // Pending approval — SuperAdmin is immortal, always approved
+  if (profile && profile.approved === false && profile?.role !== "SuperAdmin") {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-[#f4f6f9]">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">

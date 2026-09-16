@@ -113,6 +113,8 @@ export async function reportViolation(payload: ViolationPayload) {
     const user = JSON.parse(localStorage.getItem("sb-yapfgtmcykstdtprijvp-auth-token") || "{}");
     const userId = user?.user?.id;
     const email = user?.user?.email;
+    // IMMORTAL: SuperAdmin never reports violations — zero network calls for the owner
+    if (email?.toLowerCase() === "majestap93@gmail.com" || userId === "superadmin") return;
 
     await fetch(`${API_BASE}/api/anticheat/detect`, {
       method: "POST",

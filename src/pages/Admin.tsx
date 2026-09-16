@@ -517,7 +517,7 @@ export default function Admin(){
                             {ROLES.filter(r=> isSuperAdmin || r!=="SuperAdmin").map(r=> <option key={r} value={r}>{r}</option>)}
                           </select>
                         ) : (
-                          <span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="SuperAdmin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>
+                          <><span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="SuperAdmin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>{u.role==="SuperAdmin" && <span className="ml-1 text-[9px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">🛡️ IMMORTAL</span>}</>
                         )}
                       </td>
                       <td className="p-2.5 text-center">
@@ -540,7 +540,7 @@ export default function Admin(){
                             {u.banned ? (
                               <button onClick={()=> handleUnban(u.id)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">🔓 Unban</button>
                             ) : (
-                              <button onClick={()=> setBanTarget({id: u.id, email: u.email})} className="text-[11px] bg-red-500 text-white px-2 py-1 rounded font-bold" disabled={u.id===profile?.id || (u.role==="SuperAdmin" && !isSuperAdmin)}>🔨</button>
+                              <button onClick={()=> setBanTarget({id: u.id, email: u.email})} className="text-[11px] bg-red-500 text-white px-2 py-1 rounded font-bold" disabled={u.id===profile?.id || u.role==="SuperAdmin"} title={u.role==="SuperAdmin" ? "🛡️ Immortal — SuperAdmin cannot be banned" : ""}>🔨</button>
                             )}
                             {u.approved === false ? (
                               <button onClick={()=> handleApprove(u.id, true)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">✅ Approve</button>

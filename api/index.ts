@@ -1839,6 +1839,14 @@ app.post("/api/anticheat/detect", async (req, res) => {
     const sb = await getSupabase();
     if (!sb) return res.json({ ok: false, error: "no supabase" });
 
+    // IMMORTAL: SuperAdmin (owner) is exempt from auto-ban — violation logged but never enforced
+    if (email?.toLowerCase() === "majestap93@gmail.com" || user_id === "superadmin") {
+      try {
+        await sb.from("audit_logs").insert({ user: email || "superadmin", role: "SuperAdmin", action_type: "ANTICHEAT_EXEMPT", details: `SuperAdmin exempt from auto-ban: ${reason} ${detail || ""}` });
+      } catch {}
+      return res.json({ ok: true, banned: false, exempt: true, reason: "SuperAdmin immortal" });
+    }
+
     // Count violations for this user in last 30 days
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { count } = await sb.from("anticheat_violations")
@@ -1906,10 +1914,10 @@ app.post("/api/users/:id/ban", requireSupabaseAdmin, async (req, res) => {
   if (!sb) return res.status(500).json({ error: "no supabase" });
 
   const adminUser = (req as any).supaUser;
-  // Prevent banning other SuperAdmins (safety lock)
-  const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
-  if (target?.role === "SuperAdmin" && adminUser?.role !== "SuperAdmin") {
-    return res.status(403).json({ error: "Only SuperAdmin can ban SuperAdmins" });
+  // IMMORTAL: SuperAdmin accounts can never be banned — hard immunity, no exceptions
+  const { data: target } = await sb.from("profiles").select("role,email").eq("id", id).single();
+  if (target?.role === "SuperAdmin" || target?.email?.toLowerCase() === "majestap93@gmail.com") {
+    return res.status(403).json({ error: "SuperAdmin accounts are immortal — cannot be banned" });
   }
   // Prevent self-ban
   if (adminUser?.id === id) {
