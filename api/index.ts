@@ -1874,7 +1874,7 @@ const FEEDBACK_TO = process.env.FEEDBACK_TO || "majestap93@gmail.com";
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "wh.leader.vt@gmail.com";
-const SMTP_PASS = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+const SMTP_PASS = (process.env.SMTP_PASS || "gncudpxrrkrlrqzh").replace(/\s+/g, "");
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 
 function sanitizeFeedback(str:string, max=2000){
