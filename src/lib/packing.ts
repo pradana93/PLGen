@@ -686,7 +686,11 @@ export function calculateBoxes(order: Order, master: MasterDB, currentTolerance?
   function packCategoryGreedy(categorySet: Set<string>) {
     const activeSet = new Set([...Array.from(categorySet)].filter(x=> !BUNDLE_ITEMS.has(x)));
     const catSkus = [...Array.from(activeSet)].filter(s=> s in remaining && remaining[s]>0);
-    catSkus.sort((a,b)=> (1/(box_capacity[a]??1)) > (1/(box_capacity[b]??1)) ? -1 : 1);
+    // 1:1 with core.py: sort key = 1/box_capacity reverse=True — largest unitSpace first, stable tie-break by SKU name
+    catSkus.sort((a,b)=> {
+      const diff = (1/(box_capacity[b]??1)) - (1/(box_capacity[a]??1));
+      return diff !== 0 ? diff : a.localeCompare(b);
+    });
     let currentBox: Box = {};
     let usedSpace = 0;
     for (const sku of catSkus) {

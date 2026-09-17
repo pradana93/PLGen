@@ -9,7 +9,14 @@ export default defineConfig({
       '/api': 'http://localhost:4000',
       '/static': 'http://localhost:4000',
       '/check': 'http://localhost:4000',
-      '/scan': 'http://localhost:4000'
+      '/scan': 'http://localhost:4000',
+      '/uploads': 'http://localhost:4000',
+      '/register_user': 'http://localhost:4000',
+      '/list_users': 'http://localhost:4000',
+      '/delete_user': 'http://localhost:4000',
+      '/revoke_user': 'http://localhost:4000',
+      '/report_crash': 'http://localhost:4000',
+      '/upload_shift': 'http://localhost:4000'
     }
   },
   build: {
