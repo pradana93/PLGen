@@ -14,6 +14,7 @@ import AccessGate from "./components/AccessGate";
 import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
+import { useState, useRef, useEffect } from "react";
 
 function Nav(){
   const loc = useLocation();
@@ -26,6 +27,15 @@ function Nav(){
     );
   };
   const initials = profile?.email ? profile.email[0].toUpperCase() : user?.email ? user.email[0].toUpperCase() : "?";
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    const onClick = (e:MouseEvent)=> { if(profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false); };
+    const onEsc = (e:KeyboardEvent)=> { if(e.key==="Escape") setProfileOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onEsc);
+    return ()=> { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onEsc); };
+  },[]);
   return (
     <nav className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#0f1e2e] shadow-[0_4px_16px_rgba(0,0,0,0.12)]">
       <div className="max-w-[1400px] mx-auto px-4 h-[56px] flex items-center gap-4">
@@ -65,16 +75,60 @@ function Nav(){
             <span className="text-[11px]">🌐</span><span className="uppercase tracking-widest text-[11px]">{lang}</span>
           </button>
           {user ? (
-            <>
-              <div className="hidden lg:flex items-center gap-2 pl-2 ml-1 border-l border-white/10">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#3498db] to-[#2c3e50] border border-white/15 flex items-center justify-center text-xs font-black text-white shadow-sm">{initials}</div>
-                <div className="leading-tight hidden xl:block">
-                  <div className="text-xs font-bold text-white truncate max-w-[160px]">{profile?.email}</div>
-                  <div className="text-[10px] font-bold tracking-widest text-white/55">{profile?.role}</div>
+            <div className="relative" ref={profileRef}>
+              <button
+                onClick={()=> setProfileOpen(v=> !v)}
+                className={`flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-full border transition-all ${profileOpen ? "bg-white text-[#0f1e2e] border-white shadow-md" : "bg-white/[0.08] border-white/15 text-white hover:bg-white/[0.12] hover:border-white/25"}`}
+                aria-haspopup="menu" aria-expanded={profileOpen}
+              >
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shadow-sm shrink-0 ${profileOpen ? "bg-gradient-to-br from-[#3498db] to-[#2c3e50] text-white" : "bg-gradient-to-br from-[#3498db] to-[#2c3e50] border border-white/15 text-white"}`}>{initials}</div>
+                <div className="hidden sm:block leading-tight text-left max-w-[160px]">
+                  <div className={`text-xs font-extrabold truncate ${profileOpen?"text-[#0f1e2e]":"text-white"}`}>{profile?.alias || profile?.email?.split("@")[0] || user.email.split("@")[0]}</div>
+                  <div className={`text-[10px] font-bold tracking-widest truncate ${profileOpen?"text-slate-500":"text-white/55"}`}>{profile?.role || "—"}</div>
                 </div>
-              </div>
-              <button onClick={signOut} className="text-xs bg-white text-[#0f1e2e] hover:bg-gray-100 px-3 py-1.5 rounded-full font-extrabold shadow-sm transition-colors">{t("nav.logout")}</button>
-            </>
+                <span className={`hidden sm:block text-[10px] ml-0.5 transition-transform ${profileOpen?"rotate-180 text-slate-400":"text-white/60"}`}>▾</span>
+              </button>
+              {profileOpen && (
+                <div className="absolute right-0 top-[44px] w-[320px] rounded-2xl bg-white shadow-[0_16px_48px_rgba(0,0,0,0.18)] border border-slate-200 overflow-hidden z-50 animate-[lb-fadeUp_0.18s_ease-out]">
+                  {/* Flagship profile header */}
+                  <div className="bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] p-4 text-white relative overflow-hidden">
+                    <div className="absolute -right-8 -top-8 w-24 h-24 bg-white/[0.06] rounded-full blur-2xl" />
+                    <div className="absolute -left-6 -bottom-6 w-20 h-20 bg-emerald-400/[0.08] rounded-full blur-xl" />
+                    <div className="relative flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-white text-[#0f1e2e] flex items-center justify-center text-sm font-black shadow-lg border border-white/20">{initials}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-extrabold text-sm leading-tight truncate">{profile?.alias || user.email.split("@")[0]}</div>
+                        <div className="text-xs text-white/70 truncate">{profile?.email || user.email}</div>
+                        <div className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-white/15 border border-white/15 text-[10px] font-black tracking-widest text-white/90">{profile?.role || "—"}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-3 space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                        <div className="text-[10px] font-black tracking-widest text-slate-400">STATUS</div>
+                        <div className="text-xs font-bold text-emerald-600 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Online</div>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                        <div className="text-[10px] font-black tracking-widest text-slate-400">USER ID</div>
+                        <div className="text-[11px] font-mono font-bold text-slate-600 truncate" title={profile?.id || user.id}>{(profile?.id || user.id).slice(0,8)}…</div>
+                      </div>
+                    </div>
+                    {profile?.last_login_at && (
+                      <div className="rounded-xl border border-slate-100 px-3 py-2 bg-white flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-400">Last login</span>
+                        <span className="text-xs font-mono font-bold text-slate-700">{new Date(profile.last_login_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Link to="/admin" onClick={()=> setProfileOpen(false)} className="flex-1 text-center px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold hover:bg-black transition">View Admin</Link>
+                      <button onClick={()=> { setProfileOpen(false); signOut(); }} className="flex-1 px-3 py-2 rounded-xl bg-white border border-red-200 text-red-600 text-xs font-extrabold hover:bg-red-50 transition">{t("nav.logout")}</button>
+                    </div>
+                    <div className="text-[10px] text-slate-300 text-center">Secure • PLGen Vittoria • v{APP_VERSION}</div>
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <Link to="/login" className="text-xs bg-white text-[#0f1e2e] px-3.5 py-1.5 rounded-full font-extrabold shadow hover:bg-gray-100 transition-colors">{t("nav.login")}</Link>
           )}
