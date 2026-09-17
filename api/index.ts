@@ -1867,6 +1867,135 @@ app.post("/api/offline_pin/verify", (req,res)=>{
   res.json({ valid });
 });
 
+// ===== Feedback → Gmail (wh.leader.vt@gmail.com → majestap93@gmail.com) + server-authoritative anti-cheat =====
+const FEEDBACK_COOLDOWN_SEC = 300; // 5 min server-authoritative
+const FEEDBACK_THROTTLE_FILE = "feedback_throttle.json";
+const FEEDBACK_TO = process.env.FEEDBACK_TO || "majestap93@gmail.com";
+const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_USER = process.env.SMTP_USER || "wh.leader.vt@gmail.com";
+const SMTP_PASS = (process.env.SMTP_PASS || "").replace(/\s+/g, "");
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+
+function sanitizeFeedback(str:string, max=2000){
+  let s = String(str||"").trim();
+  s = s.replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ");
+  // block header injection
+  if (/^(cc|bcc|to|from|subject)\s*:/i.test(s)) s = s.replace(/^(cc|bcc|to|from|subject)\s*:/i, "");
+  return s.slice(0, max);
+}
+function loadThrottle(): Record<string, number> {
+  try { return jsonRead<Record<string,number>>(FEEDBACK_THROTTLE_FILE, {}); } catch { return {}; }
+}
+function saveThrottle(m: Record<string,number>) { try { jsonWrite(FEEDBACK_THROTTLE_FILE, m); } catch {} }
+
+app.post("/api/feedback", async (req,res)=>{
+  try {
+    const user = await getUserFromReq(req);
+    if(!user) return res.status(401).json({ error: "Login required to send feedback" });
+    const ip = String(req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || (req as any).socket?.remoteAddress || "").split(",")[0].trim() || "unknown";
+    const { category, subject, message, timeToken, website } = req.body || {};
+
+    // Honeypot
+    if (website && String(website).trim() !== "") {
+      try { jsonRead<any[]>("feedback_audit.json", []); } catch {}
+      const logs = jsonRead<any[]>("feedback_audit.json", []);
+      logs.push({ ts: wibNowStr(), user: user.email, ip, reason: "honeypot", ua: String(req.headers["user-agent"]||"").slice(0,300) });
+      if(logs.length>2000) logs.splice(0, logs.length-2000);
+      jsonWrite("feedback_audit.json", logs);
+      return res.status(200).json({ status: "ok", ghost: true }); // fake success to troll bot
+    }
+    // Time gate — must take >=3s, token <30min and not from future
+    const tk = Number(timeToken);
+    const nowMs = Date.now();
+    if(!tk || isNaN(tk) || tk > nowMs + 2000 || nowMs - tk < 3000 || nowMs - tk > 30*60*1000) {
+      return res.status(429).json({ error: "Please take a moment to write your feedback (anti-spam). Try again." });
+    }
+    const cat = sanitizeFeedback(category||"General", 30) || "General";
+    const subj = sanitizeFeedback(subject||"", 120);
+    const msg = sanitizeFeedback(message||"", 2000);
+    if(!subj || subj.length < 5) return res.status(400).json({ error: "Subject too short (min 5 chars)" });
+    if(!msg || msg.length < 20) return res.status(400).json({ error: "Message too short (min 20 chars)" });
+    if(/(\r\n|%0A|%0D|bcc:|cc:|to:)/i.test(String(req.body.subject||"") + String(req.body.message||""))) {
+      return res.status(400).json({ error: "Invalid content" });
+    }
+    // Duplicate check last 10 min per user
+    const throttle = loadThrottle();
+    const keyUser = `u:${user.id}`;
+    const keyIp = `ip:${ip}`;
+    const lastUser = throttle[keyUser] || 0;
+    const lastIp = throttle[keyIp] || 0;
+    const last = Math.max(lastUser, lastIp);
+    const nowSec = Math.floor(Date.now()/1000);
+    if (last && nowSec - last < FEEDBACK_COOLDOWN_SEC) {
+      const retry = FEEDBACK_COOLDOWN_SEC - (nowSec - last);
+      // log bypass attempt
+      const logs = jsonRead<any[]>("feedback_audit.json", []);
+      logs.push({ ts: wibNowStr(), user: user.email, ip, reason: "cooldown_bypass", retry, ua: String(req.headers["user-agent"]||"").slice(0,300) });
+      if(logs.length>2000) logs.splice(0, logs.length-2000);
+      jsonWrite("feedback_audit.json", logs);
+      return res.status(429).json({ error: `Cooldown active — please wait ${Math.ceil(retry/60)} min before next feedback`, retryAfter: retry });
+    }
+    // Rate limit 3/hour, 10/day per user (checks throttle history via audit file)
+    try {
+      const audit = jsonRead<any[]>("feedback_audit.json", []);
+      const oneHourAgo = Date.now() - 60*60*1000;
+      const oneDayAgo = Date.now() - 24*60*60*1000;
+      let c1h=0, c1d=0;
+      for(const a of audit){ if(a.user===user.email && a.reason==="sent"){ const t = new Date(a.ts.replace(" ","T")).getTime(); if(!isNaN(t)){ if(t>oneHourAgo) c1h++; if(t>oneDayAgo) c1d++; } } }
+      // simpler: count from throttle file via extra keys — fallback to audit
+      if(c1h>=3) return res.status(429).json({ error: "Hourly limit reached (3/hour). Please try later." });
+      if(c1d>=10) return res.status(429).json({ error: "Daily limit reached (10/day)." });
+    } catch {}
+    // Check SMTP configured
+    if(!SMTP_USER || !SMTP_PASS) return res.status(503).json({ error: "Feedback email not configured on server" });
+
+    // Send via Nodemailer
+    const nodemailer = await import("nodemailer");
+    const transporter = (nodemailer as any).createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT===465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    const html = `
+      <div style="font-family: Segoe UI, sans-serif; max-width:640px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden">
+        <div style="background:#0f1e2e; color:white; padding:16px 20px;">
+          <div style="font-weight:900; font-size:16px;">PLGen Feedback — ${cat}</div>
+          <div style="font-size:12px; opacity:0.7;">From ${user.email} (${user.role}) • ${wibNowStr()} WIB • IP ${ip}</div>
+        </div>
+        <div style="padding:16px 20px;">
+          <div style="font-weight:800; color:#0f1e2e; margin-bottom:6px;">${subj}</div>
+          <div style="white-space:pre-wrap; color:#334155; line-height:1.6; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:12px;">${msg.replace(/</g,"&lt;")}</div>
+          <div style="margin-top:12px; font-size:11px; color:#94a3b8;">Reply-To: ${user.email} • Sent via PLGen Live Board → Gmail SMTP (wh.leader.vt@gmail.com)</div>
+        </div>
+      </div>
+    `;
+    await transporter.sendMail({
+      from: `"PLGen Feedback" <${SMTP_FROM}>`,
+      to: FEEDBACK_TO,
+      replyTo: user.email,
+      subject: `[PLGen][${cat}] ${subj} — ${user.email}`,
+      text: `Category: ${cat}\nFrom: ${user.email} (${user.role})\nIP: ${ip}\nWIB: ${wibNowStr()}\n\nSubject: ${subj}\n\n${msg}`,
+      html,
+    });
+
+    // Mark throttle server-authoritative
+    throttle[keyUser]=nowSec;
+    throttle[keyIp]=nowSec;
+    saveThrottle(throttle);
+    const logs2 = jsonRead<any[]>("feedback_audit.json", []);
+    logs2.push({ ts: wibNowStr(), user: user.email, ip, reason: "sent", cat, subj: subj.slice(0,80) });
+    if(logs2.length>2000) logs2.splice(0, logs2.length-2000);
+    jsonWrite("feedback_audit.json", logs2);
+
+    res.json({ status: "ok", message: "Feedback sent to majestap93@gmail.com" });
+  } catch(e:any){
+    console.error("feedback error", e);
+    res.status(500).json({ error: e?.message || "Failed to send feedback" });
+  }
+});
+
 // Version
 app.get("/static/version.txt", (req,res)=> res.send("2.0.0"));
 app.get("/static/core_update.sha256", (req,res)=> res.send("mock-hash"));

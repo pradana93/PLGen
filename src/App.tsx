@@ -13,6 +13,7 @@ import AntiCheatProvider from "./components/AntiCheatProvider";
 import AccessGate from "./components/AccessGate";
 import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
+import FeedbackModal from "./components/FeedbackModal";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 import { useState, useRef, useEffect } from "react";
 
@@ -120,6 +121,7 @@ function Nav(){
                         <span className="text-xs font-mono font-bold text-slate-700">{new Date(profile.last_login_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}</span>
                       </div>
                     )}
+                    <button onClick={()=> { setProfileOpen(false); (window as any).__openFeedback?.(); }} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white text-xs font-extrabold hover:from-black hover:to-[#0f1e2e] transition flex items-center justify-center gap-1.5">💬 Send Feedback</button>
                     <div className="flex items-center gap-2 pt-1">
                       <Link to="/admin" onClick={()=> setProfileOpen(false)} className="flex-1 text-center px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold hover:bg-black transition">View Admin</Link>
                       <button onClick={()=> { setProfileOpen(false); signOut(); }} className="flex-1 px-3 py-2 rounded-xl bg-white border border-red-200 text-red-600 text-xs font-extrabold hover:bg-red-50 transition">{t("nav.logout")}</button>
@@ -159,10 +161,15 @@ function AppRoutes(){
     others: CHANGELOGS.filter(c=> !["feat","fix","perf"].some(p=> c.message.startsWith(p))),
   };
   const clean = (m:string)=> m.replace(/^(feat|fix|perf|chore|chore\(.*\)|docs|style|refactor|test)(\(\w+\))?:\s*/i,"");
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  useEffect(()=>{ (window as any).__openFeedback = ()=> setFeedbackOpen(true); return ()=> { delete (window as any).__openFeedback; }; },[]);
   return (
     <>
       <Nav />
       <Copilot />
+      <FeedbackModal open={feedbackOpen} onClose={()=> setFeedbackOpen(false)} />
+      {/* Flagship floating Feedback pill */}
+      <button onClick={()=> setFeedbackOpen(true)} className="fixed bottom-5 left-5 z-40 hidden md:flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0f1e2e] text-white text-xs font-black shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-white/10 hover:bg-black transition">💬 Feedback</button>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
