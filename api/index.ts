@@ -1351,11 +1351,48 @@ app.get("/api/item_usage", async (req, res) => {
   res.json(usage);
 });
 // Aggregated report endpoint — now Supabase-persistent (packing_status + item_usage), still file fallback — non-breaking read-only
-app.get("/api/report/summary", async (_req, res) => {
+// Flagship: supports ?from=YYYY-MM-DD&to=YYYY-MM-DD (WIB calendar filter) — filters both packing and usage by date range inclusive
+app.get("/api/report/summary", async (req, res) => {
   let packing = await fetchSupabasePackingStatus();
   if (!packing || !packing.length) packing = jsonRead<any[]>("packing_status.json", []);
   let usage = await fetchSupabaseItemUsage();
   if (!usage || !usage.length) usage = jsonRead<any[]>("item_usage.json", []);
+  // Calendar filter — parse query YYYY-MM-DD inclusive WIB dates
+  const qFrom = String(req.query.from || "").trim();
+  const qTo = String(req.query.to || "").trim();
+  const parseDate = (s:string)=> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const d = new Date(s + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  };
+  const fromD = parseDate(qFrom);
+  const toD = parseDate(qTo);
+  const toEnd = toD ? new Date(toD.getTime() + 24*60*60*1000 - 1) : null; // inclusive end of day
+  const extractDate = (ts:string)=> {
+    // Handles "YYYY-MM-DD HH:MM:SS" (wibNowStr) or ISO timestamp
+    const m = String(ts||"").match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!m) return null;
+    const d = new Date(m[1] + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  };
+  if (fromD || toEnd) {
+    packing = packing.filter((p:any)=>{
+      const d = extractDate(String(p.created_at||""));
+      if (!d) return false;
+      if (fromD && d < fromD) return false;
+      if (toEnd && d > toEnd) return false;
+      return true;
+    });
+    usage = usage.filter((u:any)=>{
+      const ts = String(u.timestamp || u.created_at || "");
+      const d = extractDate(ts);
+      // if usage has no timestamp, keep it (legacy rows)
+      if (!d) return true;
+      if (fromD && d < fromD) return false;
+      if (toEnd && d > toEnd) return false;
+      return true;
+    });
+  }
   const master = jsonRead<any>(MASTER_FILE, FALLBACK_MASTER_DATA);
   const w = master.ITEM_WEIGHT_GRAMS || {};
   // Top 25 SKU by qty

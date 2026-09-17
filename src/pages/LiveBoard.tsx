@@ -5,7 +5,8 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, AreaChart, Area, Legend, Cell
+  LineChart, Line, AreaChart, Area, Legend, Cell,
+  PieChart, Pie
 } from "recharts";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
@@ -31,6 +32,10 @@ export default function LiveBoard(){
   const [loading, setLoading]=useState(true);
   const [range, setRange]=useState<"all"|"30d"|"90d">("all");
   const [skuMetric, setSkuMetric]=useState<"qty"|"kg">("qty");
+  const [skuView, setSkuView]=useState<"bar"|"barH"|"doughnut"|"pie"|"line">("bar");
+  const [dateFrom, setDateFrom]=useState<string>("");
+  const [dateTo, setDateTo]=useState<string>("");
+  const [activePie, setActivePie]=useState<number>(0);
   const [showLive, setShowLive]=useState(false);
   const [archive, setArchive]=useState<any[]>([]);
   const [archiveFilter, setArchiveFilter]=useState("");
@@ -38,12 +43,22 @@ export default function LiveBoard(){
   const [editingChecker, setEditingChecker]=useState<string|null>(null);
   const [editCheckerVal, setEditCheckerVal]=useState<string>("");
 
+  const buildSummaryQs = ()=>{
+    if(dateFrom || dateTo) {
+      const p = new URLSearchParams();
+      if(dateFrom) p.set("from", dateFrom);
+      if(dateTo) p.set("to", dateTo);
+      return `/api/report/summary?${p.toString()}`;
+    }
+    return "/api/report/summary";
+  };
+
   const fetchAll=async()=>{
     setLoading(true);
     try{
       const [ps, sum, arch, ch] = await Promise.all([
         apiGet("/api/packing_status").catch(()=>[]),
-        apiGet("/api/report/summary").catch(()=>null),
+        apiGet(buildSummaryQs()).catch(()=>null),
         apiGet("/api/packing_lists").catch(()=>[]),
         apiGet("/api/checkers").catch(()=>({ checkers: [] })),
       ]);
@@ -164,8 +179,27 @@ export default function LiveBoard(){
     saveAs(blob, `PLGen_Data_Report_${ts}.csv`);
   };
   useEffect(()=>{ fetchAll(); const id=setInterval(fetchAll, 30000); return ()=>clearInterval(id); },[]);
+  // Re-fetch summary when calendar range changes (packing_status poll stays 30s, summary re-fetches on apply)
+  useEffect(()=>{ if(dateFrom || dateTo) fetchAll(); else if(!dateFrom && !dateTo) fetchAll(); },[dateFrom, dateTo]);
 
-  const filtered = data.filter(e=> !filter || e.outlet?.toLowerCase().includes(filter.toLowerCase()) || e.delivery_no?.toLowerCase().includes(filter.toLowerCase()));
+  const inCalendarRange = (ts:string)=>{
+    if(!dateFrom && !dateTo) return true;
+    const m = String(ts||"").match(/^(\d{4}-\d{2}-\d{2})/);
+    if(!m) return false;
+    const d = m[1];
+    if(dateFrom && d < dateFrom) return false;
+    if(dateTo && d > dateTo) return false;
+    return true;
+  };
+
+  const filtered = data.filter(e=>{
+    const hit = !filter || e.outlet?.toLowerCase().includes(filter.toLowerCase()) || e.delivery_no?.toLowerCase().includes(filter.toLowerCase());
+    return hit && inCalendarRange(String(e.created_at||""));
+  });
+  const filteredArchive = archive.filter((a:any)=>{
+    const hit = !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase());
+    return hit && inCalendarRange(String(a.created_at||""));
+  });
 
   const topSkuDisplay = useMemo(()=>{
     if(!summary) return [];
@@ -276,31 +310,57 @@ export default function LiveBoard(){
 
       <div className="max-w-[1400px] mx-auto p-6 space-y-5">
 
-        {/* ── Premium Header ── */}
+          {/* ── Premium Header ── */}
         <div className="lb-section lb-shimmer-header rounded-2xl shadow-xl p-6 text-white overflow-hidden relative">
           {/* Decorative orbs */}
           <div className="absolute -right-16 -top-16 w-48 h-48 bg-white/[0.04] rounded-full blur-3xl" />
           <div className="absolute -left-12 -bottom-12 w-36 h-36 bg-emerald-400/[0.08] rounded-full blur-2xl" />
           <div className="absolute right-1/4 top-0 w-24 h-24 bg-blue-400/[0.06] rounded-full blur-xl" />
-          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-5">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-white/[0.1] border border-white/[0.15] flex items-center justify-center backdrop-blur-sm shadow-lg shadow-black/10">
-                <span className="text-xl">📊</span>
+          <div className="relative flex flex-col gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-white/[0.1] border border-white/[0.15] flex items-center justify-center backdrop-blur-sm shadow-lg shadow-black/10">
+                  <span className="text-xl">📊</span>
+                </div>
+                <div>
+                  <h1 className="text-xl font-extrabold tracking-tight leading-tight">Data Report</h1>
+                  <p className="text-[13px] text-white/60 font-medium mt-0.5">Top SKU · Premium Outlets · Monthly Tonnage & PL Analytics</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-xl font-extrabold tracking-tight leading-tight">Data Report</h1>
-                <p className="text-[13px] text-white/60 font-medium mt-0.5">Top SKU · Premium Outlets · Monthly Tonnage & PL Analytics</p>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <select value={range} onChange={e=> setRange(e.target.value as any)} className="bg-white/[0.1] border border-white/[0.15] rounded-xl px-4 py-2 text-xs font-bold backdrop-blur-sm text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all cursor-pointer">
+                  <option value="all" className="text-slate-800">All Time</option>
+                  <option value="90d" className="text-slate-800">Last 90 Days</option>
+                  <option value="30d" className="text-slate-800">Last 30 Days</option>
+                </select>
+                <button onClick={exportReportExcel} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-extrabold shadow-lg shadow-emerald-500/25 hover:shadow-emerald-400/30 transition-all active:scale-95">⬇ Excel</button>
+                <button onClick={exportReportCSV} className="px-4 py-2 bg-white/[0.1] border border-white/[0.2] text-white hover:bg-white/[0.18] rounded-xl text-xs font-extrabold transition-all active:scale-95">CSV</button>
+                <button onClick={fetchAll} className="px-4 py-2 bg-white text-[#1a252f] hover:bg-gray-100 rounded-xl text-xs font-extrabold shadow-lg shadow-black/10 transition-all active:scale-95">↻ Refresh</button>
               </div>
             </div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <select value={range} onChange={e=> setRange(e.target.value as any)} className="bg-white/[0.1] border border-white/[0.15] rounded-xl px-4 py-2 text-xs font-bold backdrop-blur-sm text-white focus:outline-none focus:ring-2 focus:ring-white/20 transition-all cursor-pointer">
-                <option value="all" className="text-slate-800">All Time</option>
-                <option value="90d" className="text-slate-800">Last 90 Days</option>
-                <option value="30d" className="text-slate-800">Last 30 Days</option>
-              </select>
-              <button onClick={exportReportExcel} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-extrabold shadow-lg shadow-emerald-500/25 hover:shadow-emerald-400/30 transition-all active:scale-95">⬇ Excel</button>
-              <button onClick={exportReportCSV} className="px-4 py-2 bg-white/[0.1] border border-white/[0.2] text-white hover:bg-white/[0.18] rounded-xl text-xs font-extrabold transition-all active:scale-95">CSV</button>
-              <button onClick={fetchAll} className="px-4 py-2 bg-white text-[#1a252f] hover:bg-gray-100 rounded-xl text-xs font-extrabold shadow-lg shadow-black/10 transition-all active:scale-95">↻ Refresh</button>
+            {/* Flagship Calendar Filter */}
+            <div className="flex flex-col md:flex-row md:items-center gap-3 bg-white/[0.08] border border-white/[0.12] rounded-2xl p-3 backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-xs font-extrabold tracking-widest text-white/90">
+                <span className="w-8 h-8 rounded-xl bg-white text-[#1a252f] flex items-center justify-center text-sm shadow">📅</span>
+                CALENDAR FILTER
+                {(dateFrom || dateTo) && <span className="ml-1 px-2 py-0.5 rounded-full bg-emerald-400 text-white text-[10px]">ACTIVE</span>}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap flex-1">
+                <label className="flex items-center gap-1.5 bg-white rounded-xl px-3 py-2 border border-slate-200 shadow-sm">
+                  <span className="text-[10px] font-black tracking-widest text-slate-400">FROM</span>
+                  <input type="date" value={dateFrom} onChange={e=> setDateFrom(e.target.value)} className="text-xs font-bold text-[#1a252f] bg-transparent focus:outline-none cursor-pointer" />
+                </label>
+                <span className="text-white/60 font-bold">—</span>
+                <label className="flex items-center gap-1.5 bg-white rounded-xl px-3 py-2 border border-slate-200 shadow-sm">
+                  <span className="text-[10px] font-black tracking-widest text-slate-400">TO</span>
+                  <input type="date" value={dateTo} onChange={e=> setDateTo(e.target.value)} className="text-xs font-bold text-[#1a252f] bg-transparent focus:outline-none cursor-pointer" />
+                </label>
+                <div className="flex items-center gap-1.5 ml-1">
+                  <button onClick={()=> {setDateFrom(""); setDateTo("");}} className="px-3 py-2 bg-white/[0.12] border border-white/20 text-white rounded-xl text-xs font-bold hover:bg-white/[0.18] transition">Clear</button>
+                  <button onClick={fetchAll} className="px-3 py-2 bg-white text-[#1a252f] rounded-xl text-xs font-extrabold shadow hover:bg-gray-100 transition">Apply</button>
+                </div>
+                <span className="hidden lg:block text-[11px] text-white/50 ml-auto">Filters Top 25 SKU, Top Outlets, Monthly, Archive & Live Stream • WIB</span>
+              </div>
             </div>
           </div>
         </div>
@@ -412,18 +472,35 @@ export default function LiveBoard(){
           </div>
         </div>
 
-        {/* ── Top 25 SKU ── */}
+        {/* ── Top 25 SKU — Flagship Multi-View ── */}
         <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           <div className="px-6 pt-5 pb-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md shadow-blue-500/20">
                   <span className="text-sm">🏆</span>
                 </div>
-                <h3 className="font-extrabold text-sm text-[#1a252f]">Top 25 SKU Exported</h3>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#1a252f]">Top 25 SKU Exported</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Multiple views for Management — easy read</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-400 font-bold hidden md:block">Metric</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Chart type switcher — flagship pills */}
+                <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50 shadow-sm">
+                  {[
+                    {id:"bar", label:"Bar", icon:"▮"},
+                    {id:"barH", label:"Horizontal", icon:"▬"},
+                    {id:"doughnut", label:"Doughnut", icon:"◉"},
+                    {id:"pie", label:"Pie", icon:"◯"},
+                    {id:"line", label:"Trend", icon:"〰"},
+                  ].map(v=> (
+                    <button key={v.id} onClick={()=> setSkuView(v.id as any)} className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all flex items-center gap-1 ${skuView===v.id?"bg-[#1a252f] text-white shadow-sm":"text-slate-500 hover:text-slate-700 hover:bg-white"}`}>
+                      <span className="text-[11px]">{v.icon}</span>{v.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="hidden md:block w-px h-6 bg-slate-200 mx-1" />
                 <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
                   <button onClick={()=> setSkuMetric("qty")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${skuMetric==="qty"?"bg-[#1a252f] text-white shadow-sm":"text-slate-500 hover:text-slate-700"}`}>Qty</button>
                   <button onClick={()=> setSkuMetric("kg")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${skuMetric==="kg"?"bg-emerald-600 text-white shadow-sm":"text-slate-500 hover:text-slate-700"}`}>Kg</button>
@@ -436,27 +513,103 @@ export default function LiveBoard(){
                 <div className="text-sm font-medium">No SKU data yet — export a Packing List to populate.</div>
               </div>
             ) : (
-              <div className="h-[440px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topSkuDisplay} layout="vertical" margin={{ left: 12, right: 24, top: 5, bottom: 5 }}>
-                    <defs>
-                      <linearGradient id="lbSkuGrad" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor={skuMetric==="qty" ? "#2c3e50" : "#27ae60"} stopOpacity={1}/>
-                        <stop offset="100%" stopColor={skuMetric==="qty" ? "#34495e" : "#2ecc71"} stopOpacity={0.85}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
-                    <YAxis dataKey="sku" type="category" width={160} tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> [n==="qty"? `${v} ${topSkuDisplay[0]?.uom||""}` : formatKg(Number(v)), n==="qty"?"Qty":"Tonnage"]} />
-                    <Bar dataKey={skuMetric} fill="url(#lbSkuGrad)" radius={[0,6,6,0]} barSize={12}>
-                      {topSkuDisplay.map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <>
+                {skuView==="bar" && (
+                  <div className="h-[440px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={topSkuDisplay} layout="vertical" margin={{ left: 12, right: 24, top: 5, bottom: 5 }}>
+                        <defs>
+                          <linearGradient id="lbSkuGrad" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor={skuMetric==="qty" ? "#2c3e50" : "#27ae60"} stopOpacity={1}/>
+                            <stop offset="100%" stopColor={skuMetric==="qty" ? "#34495e" : "#2ecc71"} stopOpacity={0.85}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={{ stroke: "#e2e8f0" }} />
+                        <YAxis dataKey="sku" type="category" width={160} tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> [n==="qty"? `${v} ${topSkuDisplay[0]?.uom||""}` : formatKg(Number(v)), n==="qty"?"Qty":"Tonnage"]} />
+                        <Bar dataKey={skuMetric} fill="url(#lbSkuGrad)" radius={[0,6,6,0]} barSize={12}>
+                          {topSkuDisplay.map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {skuView==="barH" && (
+                  <div className="h-[440px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={topSkuDisplay} margin={{ left: 12, right: 12, top: 10, bottom: 40 }}>
+                        <defs>
+                          <linearGradient id="lbSkuGradH" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={skuMetric==="qty" ? "#3498db" : "#27ae60"} stopOpacity={1}/>
+                            <stop offset="100%" stopColor={skuMetric==="qty" ? "#2c3e50" : "#16a085"} stopOpacity={0.85}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="sku" tick={{ fontSize: 9, fill: "#64748b" } as any} interval={0} height={70} axisLine={{ stroke: "#e2e8f0" }} angle={-28} textAnchor="end" />
+                        <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 8px 24px -4px rgba(0,0,0,0.1)", fontSize: "12px" }} formatter={(v:any, n:any)=> [n==="qty"? `${v}` : formatKg(Number(v)), n==="qty"?"Qty":"Tonnage"]} />
+                        <Bar dataKey={skuMetric} fill="url(#lbSkuGradH)" radius={[6,6,0,0]} barSize={22}>
+                          {topSkuDisplay.map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {skuView==="doughnut" && (
+                  <div className="h-[440px] flex flex-col lg:flex-row gap-4">
+                    <div className="flex-1 min-h-[320px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={topSkuDisplay.slice(0,12)} dataKey={skuMetric} nameKey="sku" cx="50%" cy="50%" innerRadius={74} outerRadius={122} paddingAngle={2} onMouseEnter={(_,i)=> setActivePie(i)}>
+                            {topSkuDisplay.slice(0,12).map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} stroke="white" strokeWidth={2} />)}
+                          </Pie>
+                          <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: "12px" }} formatter={(v:any, n:any, p:any)=> [skuMetric==="qty"? `${v} ${p.payload?.uom||""}` : formatKg(Number(v)), p.payload?.sku]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="lg:w-[340px] grid grid-cols-1 gap-1.5 max-h-[440px] overflow-auto pr-1 content-start">
+                      {topSkuDisplay.slice(0,12).map((r,i)=>(
+                        <div key={r.sku} className={`flex items-center justify-between rounded-xl px-3 py-2 border text-xs ${activePie===i?"bg-slate-900 text-white border-slate-900 shadow":"bg-slate-50 border-slate-100 hover:bg-white"}`}>
+                          <span className="flex items-center gap-2 truncate">
+                            <span className="w-3 h-3 rounded-full shrink-0" style={{background: COLORS[i%COLORS.length]}} />
+                            <span className="font-bold truncate max-w-[160px]">{r.sku}</span>
+                          </span>
+                          <span className={`font-mono font-black ${activePie===i?"text-white":"text-[#1a252f]"}`}>{skuMetric==="qty"? r.qty.toLocaleString(): formatKg(r.kg)}</span>
+                        </div>
+                      ))}
+                      <div className="text-[11px] text-slate-400 px-1 pt-1">Doughnut shows Top 12 — hover slice for share. Total Top 25 {skuMetric==="qty"? "qty" : "tonnage"} dominates report.</div>
+                    </div>
+                  </div>
+                )}
+                {skuView==="pie" && (
+                  <div className="h-[440px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={topSkuDisplay.slice(0,10)} dataKey={skuMetric} nameKey="sku" cx="50%" cy="50%" outerRadius={148} label={({sku, percent})=> `${sku.slice(0,14)} ${(percent*100).toFixed(0)}%`} labelLine>
+                          {topSkuDisplay.slice(0,10).map((_,i)=> <Cell key={i} fill={COLORS[i%COLORS.length]} stroke="white" strokeWidth={2} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: "12px" }} formatter={(v:any, n:any, p:any)=> [skuMetric==="qty"? `${v}` : formatKg(Number(v)), p.payload?.sku]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+                {skuView==="line" && (
+                  <div className="h-[440px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={topSkuDisplay} margin={{ left: 12, right: 24, top: 10, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="sku" tick={{ fontSize: 9, fill: "#64748b" } as any} interval={0} height={70} axisLine={{ stroke: "#e2e8f0" }} angle={-22} textAnchor="end" />
+                        <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: "12px" }} formatter={(v:any)=> skuMetric==="qty"? `${v}` : formatKg(Number(v))} />
+                        <Line type="monotone" dataKey={skuMetric} stroke={skuMetric==="qty" ? "#2c3e50" : "#27ae60"} strokeWidth={2.5} dot={{ r: 3, fill: skuMetric==="qty" ? "#2c3e50" : "#27ae60" }} activeDot={{ r: 5 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </>
             )}
-            {summary && <div className="text-[11px] text-slate-300 mt-2 px-1">Sorted by {skuMetric==="qty"?"quantity":"tonnage"} · {summary.topSku.length} SKUs ranked</div>}
+            {summary && <div className="text-[11px] text-slate-300 mt-2 px-1 flex items-center gap-2 flex-wrap">Sorted by {skuMetric==="qty"?"quantity":"tonnage"} · {summary.topSku.length} SKUs ranked {(dateFrom||dateTo) && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 font-bold">Filtered {dateFrom||"…"} → {dateTo||"…"} </span>}</div>}
           </div>
         </div>
 
@@ -591,10 +744,10 @@ export default function LiveBoard(){
               </div>
               <input value={archiveFilter} onChange={e=> setArchiveFilter(e.target.value)} placeholder="Filter outlet / DO..." className="border border-slate-200 rounded-xl px-4 py-2 text-xs font-medium w-52 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all bg-slate-50 placeholder:text-slate-300" />
             </div>
-            {archive.length===0 ? (
+            {filteredArchive.length===0 ? (
               <div className="text-center py-12 text-slate-300">
                 <div className="text-3xl mb-2">📁</div>
-                <div className="text-sm font-medium">No PLs yet — export from Dashboard to auto-upload.</div>
+                <div className="text-sm font-medium">{archive.length===0 ? "No PLs yet — export from Dashboard to auto-upload." : "No results for current calendar/filter — try Clear."}</div>
               </div>
             ) : (
               <div className="overflow-auto rounded-xl border border-slate-100 max-h-[340px]">
@@ -612,7 +765,7 @@ export default function LiveBoard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {archive.filter((a:any)=> !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase())).slice(0,200).map((a:any)=>(
+                    {filteredArchive.slice(0,200).map((a:any)=>(
                       <tr key={a.delivery_no} className="border-t border-slate-50 lb-row-hover">
                         <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{a.delivery_no}</td>
                         <td className="px-3 py-2.5 font-medium text-slate-600">{a.outlet}</td>
