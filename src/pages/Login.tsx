@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../i18n";
@@ -11,6 +11,42 @@ export default function Login(){
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+
+  // Flagship login shield — block Inspect / DevTools even before auth (AntiCheat runs only after login)
+  useEffect(()=>{
+    const blockCtx = (e: MouseEvent)=> { e.preventDefault(); return false as any; };
+    const blockKeys = (e: KeyboardEvent)=>{
+      if(e.key==="F12") { e.preventDefault(); e.stopPropagation(); return false as any; }
+      if(e.ctrlKey && e.shiftKey && ["I","J","C","K"].includes(e.key.toUpperCase())) { e.preventDefault(); e.stopPropagation(); return false as any; }
+      if(e.ctrlKey && e.key.toLowerCase()==="u") { e.preventDefault(); e.stopPropagation(); return false as any; }
+      if(e.metaKey && e.altKey && e.key.toLowerCase()==="i") { e.preventDefault(); e.stopPropagation(); return false as any; }
+    };
+    document.addEventListener("contextmenu", blockCtx as any, true);
+    document.addEventListener("keydown", blockKeys as any, true);
+    // DevTools dock detection via window chrome gap + debugger timing (no auth needed)
+    let dbgTimer: ReturnType<typeof setTimeout> | null = null;
+    const runDbg = ()=>{
+      const start = performance.now();
+      try { eval("debugger"); } catch {}
+      const elapsed = performance.now() - start;
+      if(elapsed > 100) setDevtoolsOpen(true);
+      dbgTimer = setTimeout(runDbg, 3000);
+    };
+    dbgTimer = setTimeout(runDbg, 2500);
+    const sizeCheck = setInterval(()=>{
+      const dw = window.outerWidth - window.innerWidth;
+      const dh = window.outerHeight - window.innerHeight;
+      if(dw > 180 || dh > 180) setDevtoolsOpen(true);
+      else if(dw < 100 && dh < 100) setDevtoolsOpen(false);
+    }, 1500);
+    return ()=>{
+      document.removeEventListener("contextmenu", blockCtx as any, true);
+      document.removeEventListener("keydown", blockKeys as any, true);
+      if(dbgTimer) clearTimeout(dbgTimer);
+      clearInterval(sizeCheck);
+    };
+  },[]);
 
   const submit = async (e: React.FormEvent)=>{
     e.preventDefault();
@@ -65,11 +101,17 @@ export default function Login(){
 
         {/* Right — form, flagship glass */}
         <div className="bg-white p-8 lg:p-10 flex flex-col justify-center">
+          {devtoolsOpen && (
+            <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 flex items-start gap-2">
+              <span className="text-amber-600 mt-0.5">⚠️</span>
+              <div className="text-xs leading-relaxed text-amber-800"><b>Inspection blocked.</b> Close Developer Tools to continue — this login is anti-cheat protected.</div>
+            </div>
+          )}
           <div className="mb-6">
             <h2 className="text-[22px] font-black text-[#0f1e2e]">Welcome back</h2>
             <p className="text-sm text-slate-500 mt-1">{t("login.subtitle")} — sign in to continue</p>
           </div>
-          <form onSubmit={submit} className="space-y-4">
+          <form onSubmit={submit} className={`space-y-4 ${devtoolsOpen ? "blur-[6px] pointer-events-none select-none" : ""}`}>
             <div>
               <label className="text-xs font-extrabold tracking-wide text-slate-700">{t("login.email")}</label>
               <div className="relative mt-1">
