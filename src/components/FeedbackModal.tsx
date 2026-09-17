@@ -3,8 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../i18n";
 
 export default function FeedbackModal({ open, onClose }: { open: boolean; onClose: ()=>void }){
-  const { profile, user } = useAuth();
-  const { t } = useLanguage();
+  const { profile } = useAuth();
   const [category, setCategory]=useState("General");
   const [subject, setSubject]=useState("");
   const [message, setMessage]=useState("");
@@ -51,7 +50,7 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
       if(!r.ok) throw new Error(j.error||`${r.status}`);
       localStorage.setItem("feedback_last", String(Math.floor(Date.now()/1000)));
       setCooldown(300);
-      setToast("✅ Feedback sent to majestap93@gmail.com — thank you!");
+      setToast("✅ Feedback sent — thank you!");
       setSubject(""); setMessage("");
       setTimeout(onClose, 1200);
     }catch(err:any){
@@ -70,15 +69,14 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
           <div className="relative flex items-start justify-between gap-3">
             <div>
               <div className="text-[11px] font-black tracking-[0.18em] text-white/60">FEEDBACK</div>
-              <div className="text-lg font-black leading-tight">Send Feedback to Owner</div>
-              <div className="text-xs text-white/60">Straight to <b className="text-white">majestap93@gmail.com</b> via Gmail SMTP • Anti-cheat protected</div>
+              <div className="text-lg font-black leading-tight">Send Feedback</div>
+              <div className="text-xs text-white/60">Direct to owner • Secure • Anti-cheat protected</div>
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/10 border border-white/15 text-white hover:bg-white/15 flex items-center justify-center">✕</button>
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px]">
-            <span className="px-2 py-1 rounded-full bg-white text-[#0f1e2e] font-black">{profile?.alias || user?.email?.split("@")[0] || "User"}</span>
-            <span className="px-2 py-1 rounded-full bg-white/15 border border-white/15 font-bold">{profile?.role || "—"}</span>
-            <span className="text-white/50 truncate">{profile?.email || user?.email}</span>
+            <span className="px-2 py-1 rounded-full bg-white/15 border border-white/15 font-bold">Logged in as {profile?.role || "User"}</span>
+            <span className="px-2 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/20 text-emerald-100 font-bold">Secure</span>
           </div>
         </div>
         <form onSubmit={onSubmit} className="p-5 space-y-3">
@@ -99,14 +97,14 @@ export default function FeedbackModal({ open, onClose }: { open: boolean; onClos
             <input value={subject} onChange={e=> setSubject(e.target.value)} maxLength={120} placeholder="Short title (min 5 chars)" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/20" />
           </label>
           <label className="text-xs font-bold text-slate-600">Message
-            <textarea value={message} onChange={e=> setMessage(e.target.value)} maxLength={2000} rows={5} placeholder="Describe your feedback in detail (min 20 chars) — this goes straight to majestap93@gmail.com" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/20 resize-none" />
+            <textarea value={message} onChange={e=> setMessage(e.target.value)} maxLength={2000} rows={5} placeholder="Describe your feedback in detail (min 20 chars)" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/20 resize-none" />
             <div className="text-[11px] text-slate-400 text-right">{message.length}/2000</div>
           </label>
           <div className="flex items-center gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold hover:bg-slate-50">Cancel</button>
             <button disabled={sending || cooldown>0} type="submit" className={`flex-1 px-4 py-2.5 rounded-xl font-black text-white shadow transition ${sending||cooldown>0?"bg-slate-300 cursor-not-allowed":"bg-[#0f1e2e] hover:bg-black"}`}>{sending?"Sending…": cooldown>0?`Wait ${Math.ceil(cooldown/60)}m`:"Send Feedback →"}</button>
           </div>
-          <div className="text-[10px] text-slate-400 text-center">Anti-cheat: 5 min server cooldown, 3/hour, 10/day • honeypot • time-gate • header-injection guard • ghost drop on tamper</div>
+          <div className="text-[10px] text-slate-400 text-center">Protected: cooldown & rate limit • spam guard • secure delivery</div>
         </form>
         {toast && <div className="mx-5 mb-4 rounded-xl bg-[#0f1e2e] text-white px-4 py-2 text-sm font-bold text-center">{toast}</div>}
       </div>
