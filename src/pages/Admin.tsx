@@ -451,15 +451,46 @@ export default function Admin(){
   const view = draft || master;
 
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <div className="bg-white rounded-xl shadow p-4 flex items-center justify-between">
-        <div>{t("admin.loggedInAs", { email: profile?.email })} <span className="ml-2 px-2 py-1 rounded text-xs font-bold bg-[#9b59b6] text-white">{profile?.role}</span> {isSuperAdmin && <span className="ml-2 text-xs bg-yellow-400 text-black px-2 py-1 rounded">{t("admin.superAdminBadge")}</span>}</div>
-        <div className="text-xs text-gray-500">{t("admin.masterSub")}</div>
+    <div className="min-h-[calc(100vh-56px)] bg-gradient-to-br from-[#0f1e2e] via-[#162a45] to-[#1e3a5f] relative overflow-hidden">
+      {/* flagship orbs — decorative only, no logic */}
+      <div className="absolute -top-24 -right-24 w-[520px] h-[520px] bg-white/[0.06] rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute -bottom-32 -left-32 w-[640px] h-[640px] bg-sky-400/[0.07] rounded-full blur-[90px] pointer-events-none" />
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[900px] h-[420px] bg-emerald-400/[0.04] rounded-full blur-[90px] pointer-events-none" />
+      <div className="relative max-w-6xl mx-auto p-4 md:p-6 space-y-5">
+      {/* Flagship header — UI only, same profile/role logic */}
+      <div className="relative rounded-[24px] overflow-hidden border border-white/10 bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] text-white shadow-[0_24px_64px_rgba(0,0,0,0.28)]">
+        <div className="absolute -right-16 -top-16 w-48 h-48 bg-white/[0.06] rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -left-12 -bottom-12 w-36 h-36 bg-emerald-400/[0.08] rounded-full blur-2xl pointer-events-none" />
+        <div className="relative p-5 md:p-6 flex flex-col md:flex-row md:items-center gap-4 justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white text-[#0f1e2e] flex items-center justify-center text-xl shadow-lg border border-white/20">🛡️</div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-black text-[18px] tracking-tight">Admin Command Center</span>
+                <span className="text-[10px] font-bold tracking-widest bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full">FLAGSHIP</span>
+              </div>
+              <div className="text-xs text-white/60 mt-1">{t("admin.loggedInAs", { email: profile?.email })} <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#9b59b6] text-white">{profile?.role}</span> {isSuperAdmin && <span className="ml-1 text-[11px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-2 py-0.5 rounded-full font-bold shadow-sm">{t("admin.superAdminBadge")}</span>}</div>
+            </div>
+          </div>
+          <div className="flex flex-col md:items-end gap-2">
+            <div className="text-[11px] tracking-widest font-semibold text-white/50">LOGISTICS • VITTORIA</div>
+            <div className="text-xs text-white/60">{t("admin.masterSub")}</div>
+            <div className="flex flex-wrap gap-2 md:justify-end">
+              <span className="px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-[11px] font-bold">☁️ Cloud Sync</span>
+              <span className="px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-[11px] font-bold">🛡️ Anti-Cheat</span>
+              <span className="px-3 py-1.5 rounded-full bg-emerald-500 text-white text-[11px] font-black shadow">● Online</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* User Management — Admin only */}
-      <div className="bg-white rounded-xl shadow p-4">
-        <h3 className="font-bold mb-1">{t("admin.userMgmt")}</h3>
+      {/* User Management — Admin only : flagship card, logic untouched */}
+      <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-9 h-9 rounded-xl bg-[#0f1e2e] text-white flex items-center justify-center text-base shadow">👥</div>
+          <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">{t("admin.userMgmt")}</h3>
+          <span className="ml-auto text-[10px] font-bold tracking-widest bg-slate-100 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full">SECURE</span>
+        </div>
         <p className="text-xs text-gray-500 mb-3">{t("admin.userMgmtDesc1")} <b>SuperAdmin</b> ({profile?.role==="SuperAdmin"?t("admin.you"): "majestap93@gmail.com"}) {t("admin.userMgmtDesc2")} <b>Admin</b> {t("admin.userMgmtDesc3")}</p>
         {!isAdmin ? (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{t("admin.needAdmin", { role: profile?.role })}</div>
@@ -565,18 +596,26 @@ export default function Admin(){
         )}
       </div>
 
-      {/* Offline PIN Generator — Lead Dev only */}
+      {/* Offline PIN Generator — Lead Dev only : flagship card, logic untouched */}
       {isSuperAdmin && (
-        <div className="bg-white rounded-xl shadow p-4 border-2 border-[#f1c40f]/30">
-          <h3 className="font-bold mb-1">{t("admin.offlinePin")}</h3>
+        <div className="bg-white/95 backdrop-blur rounded-[20px] border-2 border-amber-300/50 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6 relative overflow-hidden">
+          <div className="absolute -right-10 -top-10 w-32 h-32 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
+          <div className="flex items-center gap-3 mb-1 relative">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-500 text-white flex items-center justify-center text-base shadow">🔑</div>
+            <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">{t("admin.offlinePin")}</h3>
+            <span className="ml-auto text-[10px] font-bold tracking-widest bg-amber-100 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full">SUPERADMIN</span>
+          </div>
           <p className="text-xs text-gray-500 mb-3">{t("admin.offlinePinDesc1")} <code>Devmode.py</code> {t("admin.offlinePinDesc2")}</p>
           <OfflinePinWidget />
         </div>
       )}
 
-      {/* Checkers */}
-      <div className="bg-white rounded-xl shadow p-4">
-        <h3 className="font-bold mb-2">{t("admin.checkerMgmt")}</h3>
+      {/* Checkers : flagship card, logic untouched */}
+      <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-base shadow">✅</div>
+          <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">{t("admin.checkerMgmt")}</h3>
+        </div>
         <div className="flex gap-2 mb-3">
           <input value={newChecker} onChange={e=> setNewChecker(e.target.value)} placeholder={t("admin.newChecker")} className="border rounded-lg px-3 py-1 flex-1" />
           <button onClick={async()=>{ if(!newChecker) return; await apiPost("/api/checkers",{admin_key:"majesta93",action:"add",checker_name:newChecker}); const d=await apiGet("/api/checkers"); setCheckers(d.checkers); setNewChecker(""); }} className="px-3 py-1 bg-[#27ae60] text-white rounded">{t("admin.add")}</button>
@@ -586,12 +625,13 @@ export default function Admin(){
         </div>
       </div>
 
-      {/* Master Data — Detailed (PythonAnywhere, with Editor) */}
+      {/* Master Data — Detailed (PythonAnywhere, with Editor) : flagship card, logic untouched */}
       {view && (
-        <div className="bg-white rounded-xl shadow p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold">{t("admin.masterEditor")}</h3>
-            <div className="text-xs bg-[#2c3e50] text-white px-3 py-1 rounded-full">{t("admin.masterSummary", { tol: view.BOX_TOLERANCE, skus: Object.keys(view.BOX_CAPACITY||{}).length, outlets: Object.keys(view.OUTLET_INFO||{}).length, kodes: Object.keys(view.KODE_BARANG||{}).length })}</div>
+        <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className="w-9 h-9 rounded-xl bg-[#0f1e2e] text-white flex items-center justify-center text-base shadow">🗄️</div>
+            <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">{t("admin.masterEditor")}</h3>
+            <div className="ml-auto text-[11px] bg-[#0f1e2e] text-white px-3 py-1.5 rounded-full font-bold shadow">{t("admin.masterSummary", { tol: view.BOX_TOLERANCE, skus: Object.keys(view.BOX_CAPACITY||{}).length, outlets: Object.keys(view.OUTLET_INFO||{}).length, kodes: Object.keys(view.KODE_BARANG||{}).length })}</div>
           </div>
 
           {/* Save bar */}
@@ -611,7 +651,7 @@ export default function Admin(){
 
           {msg && <div className={`mb-3 text-xs font-semibold p-2 rounded ${msg.type==="ok"?"bg-green-50 text-green-700 border border-green-200":"bg-red-50 text-red-700 border border-red-200"}`}>{msg.text}</div>}
 
-          <div className="flex gap-1 mb-3 border-b overflow-x-auto">
+          <div className="flex gap-1.5 mb-4 p-1.5 rounded-2xl bg-slate-100 border border-slate-200 overflow-x-auto">
             {[
               ["overview", t("admin.tabOverview")],
               ["skus", t("admin.tabSkus")],
@@ -619,7 +659,7 @@ export default function Admin(){
               ["outlets", t("admin.tabOutlets")],
               ["holidays", t("admin.tabHolidays")],
             ].map(([id,label])=>(
-              <button key={id} onClick={()=> setMasterTab(id as any)} className={`px-3 py-2 text-xs font-bold whitespace-nowrap border-b-2 ${masterTab===id ? "border-[#3498db] text-[#3498db]" : "border-transparent text-gray-500"}`}>{label}</button>
+              <button key={id} onClick={()=> setMasterTab(id as any)} className={`px-4 py-2 text-xs font-black whitespace-nowrap rounded-xl transition active:scale-[0.98] ${masterTab===id ? "bg-[#0f1e2e] text-white shadow-[0_8px_20px_rgba(15,30,46,0.22)]" : "text-slate-500 hover:bg-white hover:text-slate-700"}`}>{label}</button>
             ))}
           </div>
 
@@ -866,12 +906,13 @@ export default function Admin(){
         </div>
       )}
 
-      {/* Ban Dialog Modal */}
+      {/* Ban Dialog Modal — flagship, logic untouched */}
       {banTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="bg-[#c0392b] text-white rounded-t-xl px-4 py-3 text-center">
-              <div className="text-lg font-extrabold">🔨 Ban User</div>
+        <div className="fixed inset-0 bg-[#0f1e2e]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[20px] shadow-[0_24px_64px_rgba(0,0,0,0.35)] border border-white/40 w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-br from-[#c0392b] to-[#7b1f14] text-white px-5 py-4 text-center">
+              <div className="text-lg font-black tracking-tight">🔨 Ban User</div>
+              <div className="text-[11px] text-white/70 font-semibold tracking-widest">ANTI-CHEAT ENFORCEMENT</div>
             </div>
             <div className="p-4 space-y-3">
               <div className="text-sm"><span className="font-bold">User:</span> {banTarget.email}</div>
@@ -901,11 +942,11 @@ export default function Admin(){
         </div>
       )}
 
-      {/* Violations Viewer Modal */}
+      {/* Violations Viewer Modal — flagship, logic untouched */}
       {showViolations && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div className="bg-[#2c3e50] text-white rounded-t-xl px-4 py-3 flex items-center justify-between">
+        <div className="fixed inset-0 bg-[#0f1e2e]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[20px] shadow-[0_24px_64px_rgba(0,0,0,0.35)] border border-white/40 w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] text-white px-5 py-4 flex items-center justify-between">
               <div className="font-bold">🛡️ Anti-Cheat Violations</div>
               <button onClick={()=> setShowViolations(false)} className="text-white/70 hover:text-white text-lg">✖</button>
             </div>
@@ -931,6 +972,7 @@ export default function Admin(){
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
