@@ -245,10 +245,10 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
 
-  // Row 10: spacer + TOTAL KOLI (shifted)
+  // Row 10: spacer + TOTAL KOLI (shifted) — fix pinch: was height 6 → 18
   ws.mergeCells("A10:C10");
-  setAll(ws.getCell("A10"), { value: "" });
-  ws.getRow(10).height = 6;
+  setAll(ws.getCell("A10"), { value: "", border: { top: thin, left: medium, bottom: thin, right: medium } });
+  ws.getRow(10).height = 18;
 
   setAll(ws.getCell("D10"), {
     value: "TOTAL KOLI",
@@ -265,8 +265,8 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
 
   // Row 11: spacer + TOTAL WEIGHT (shifted)
   ws.mergeCells("A11:C11");
-  setAll(ws.getCell("A11"), { value: "" });
-  ws.getRow(11).height = 6;
+  setAll(ws.getCell("A11"), { value: "", border: { top: thin, left: medium, bottom: medium, right: medium } });
+  ws.getRow(11).height = 18;
 
   setAll(ws.getCell("D11"), {
     value: "WEIGHT (KG)",
