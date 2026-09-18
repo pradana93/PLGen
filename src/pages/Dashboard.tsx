@@ -11,7 +11,7 @@ import { useLanguage } from "../i18n";
 export default function Dashboard(){
   const { profile } = useAuth();
   const { t } = useLanguage();
-  const { master, order, boxes, outlet, checker, cluster, companyCode, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, addItem, subItem, clearOrder, setBoxes, setItemNote } = usePackingStore();
+  const { master, order, boxes, outlet, checker, cluster, companyCode, sourceDocs, setMaster, setOrder, setOutlet, setChecker, setCluster, setCompanyCode, setSourceDocs, addItem, subItem, clearOrder, setBoxes, setItemNote } = usePackingStore();
   const [sku, setSku] = useState("Beef Patty Small");
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("BGB");
@@ -88,8 +88,9 @@ export default function Dashboard(){
     if(!finalOutlet) return showToast(t("dash.errOutlet"));
     if(!checker || checker==="Select Checker") return showToast(t("dash.errChecker"));
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
+    const refCombined = sourceDocs.length ? sourceDocs.join(" / ") : "";
     try {
-      const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0]);
+      const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0], refCombined);
       await exportLabels(finalOutlet, boxes, master);
       const hist = JSON.parse(localStorage.getItem("outlet_history")||"[]");
       if(!hist.includes(finalOutlet.toUpperCase())){ hist.push(finalOutlet.toUpperCase()); localStorage.setItem("outlet_history", JSON.stringify(hist)); }
@@ -120,9 +121,10 @@ export default function Dashboard(){
     setOutletGuard({ outlet, similar, onConfirm: async (final:string)=>{ setOutletGuard(null); setOutlet(final); await doExport(final); } });
   };
 
-  // Exact port of core.py handle_drop / addons.py open_auto_mode stock validation
-  const applyScanResults = (results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string) => {
+  // Exact port of core.py handle_drop / addons.py open_auto_mode stock validation — now also captures DO/IT refs
+  const applyScanResults = (results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string, refs: string[] = []) => {
     setCompanyCode(company);
+    if(refs.length) setSourceDocs([...sourceDocs, ...refs]);
     const next = { ...order };
     // For PDF, scanner note is "" like Python; for Excel it's FILE_SCAN — keep as is
     for(const [s,r] of Object.entries(results)){
@@ -139,19 +141,20 @@ export default function Dashboard(){
     showToast(t("dash.scannedToast", { file: fileName, n: Object.keys(results).length, company }));
   };
 
-  // 1:1 port of core.py handle_drop — supports 2 files dragged simultaneously
+  // 1:1 port of core.py handle_drop — supports 2 files dragged simultaneously + DO/IT refs
   const handleFiles = async (files: File[])=>{
     if(files.length===0) return;
     let successCount = 0;
     const pendingTotals: Record<string, number> = {};
-    const processedResults: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string }[] = [];
+    const processedResults: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", fileName: string, refs: string[] }[] = [];
     let lastCompany: "BBB"|"BBT" = companyCode;
+    const pendingRefs: string[] = [];
     const errors: string[] = [];
 
     for(const file of files){
       const ext = file.name.split(".").pop()?.toLowerCase();
       try {
-        let data: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT" } | null = null;
+        let data: { results: Record<string, {qty:number, note:string}>, company: "BBB"|"BBT", refs: string[] } | null = null;
         if(ext==="xlsx"||ext==="xls"){
           data = await smartScanExcel(file, master);
         } else if(ext==="pdf"){
@@ -161,13 +164,13 @@ export default function Dashboard(){
           continue;
         }
         if(!data || Object.keys(data.results).length===0){
-          // Like Python: scanned_results is {} is falsy? Python checks if not scanned_results, but we treat empty as no scan
           if(data && Object.keys(data.results).length===0) errors.push(`${file.name}: ${t("dash.errNoSkus")}`);
           continue;
         }
         successCount++;
         processedResults.push({ ...data, fileName: file.name });
         lastCompany = data.company;
+        if(data.refs) for(const r of data.refs) if(!pendingRefs.includes(r)) pendingRefs.push(r);
         // Accumulate pendingTotals with multipliers like Python handle_drop
         for(const [sku, d] of Object.entries(data.results)){
           let adj = d.qty;
@@ -203,7 +206,7 @@ export default function Dashboard(){
       if(avail < req) shortages.push({ sku, req, avail, short: req - avail });
     }
     if(shortages.length>0){
-      // Show shortage modal once for combined files
+      // Show shortage modal once for combined files — preserve refs even on shortage so force import keeps them
       const combinedPending: Record<string, {qty:number, note:string}> = {};
       for(const pr of processedResults) for(const [k,v] of Object.entries(pr.results)) {
         if(combinedPending[k]) combinedPending[k].qty += v.qty;
@@ -211,13 +214,14 @@ export default function Dashboard(){
       }
       setShortage({ shortages, pending: combinedPending, company: lastCompany, fileName: files.map(f=> f.name).join(", ") });
       try { fetch(`${(import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000"))}/api/audit_logs`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({user:"Operator", role:"Terminal", action_type:"STOCK_SHORTAGE", details:`Shortage on ${files.map(f=>f.name).join(", ")}: ${shortages.map(s=>`${s.sku} req ${s.req} avail ${s.avail}`).join("; ")}`})}); } catch {}
-      // Store processedResults for force import
+      // Store processedResults for force import — including refs
       (window as any).__pendingScanResults = processedResults;
       (window as any).__pendingCompany = lastCompany;
+      (window as any).__pendingRefs = pendingRefs;
       return;
     }
 
-    // No shortage — merge all like Python handle_drop is_safe branch
+    // No shortage — merge all like Python handle_drop is_safe branch — also merge refs
     const next = { ...order };
     for(const pr of processedResults){
       for(const [s,r] of Object.entries(pr.results)){
@@ -230,8 +234,9 @@ export default function Dashboard(){
       }
     }
     setCompanyCode(lastCompany);
+    if(pendingRefs.length) setSourceDocs([...sourceDocs, ...pendingRefs]);
     setOrder(next);
-    showToast(t("dash.scannedFilesToast", { count: successCount, n: Object.keys(pendingTotals).length, company: lastCompany }));
+    showToast(t("dash.scannedFilesToast", { count: successCount, n: Object.keys(pendingTotals).length, company: lastCompany }) + (pendingRefs.length ? ` • REF ${pendingRefs.join(" / ")}` : ""));
   };
 
   const handleFile = async (file: File)=> handleFiles([file]);
@@ -261,6 +266,22 @@ export default function Dashboard(){
             <div>{t("dash.phone", { phone: outletInfo?.phone||"-" })}</div>
             <div>{t("dash.address", { address: outletInfo?.address || t("dash.selectOutletView") })}</div>
           </div>
+          {/* Company Code chooser — BBB / BBT flagship pill */}
+          <div className="mt-3">
+            <label className="text-xs font-bold">Company Code</label>
+            <div className="mt-1 inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50 w-full">
+              <button onClick={()=> setCompanyCode("BBB")} className={`flex-1 px-3 py-2 text-xs font-extrabold rounded-lg transition ${companyCode==="BBB" ? "bg-[#0f1e2e] text-white shadow" : "text-slate-600 hover:bg-white"}`}>BBB • BERKEMBANG BERSAMA</button>
+              <button onClick={()=> setCompanyCode("BBT")} className={`flex-1 px-3 py-2 text-xs font-extrabold rounded-lg transition ${companyCode==="BBT" ? "bg-[#0f1e2e] text-white shadow" : "text-slate-600 hover:bg-white"}`}>BBT • BERANI TERUKUR</button>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">DOC NO will be <b>PL/{companyCode}/{new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"2-digit",year:"numeric"}).replace(/\//g,"")}/001</b> • Scanner auto-detects but you can override here</div>
+          </div>
+          {sourceDocs.length>0 && (
+            <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">
+              <div className="text-[10px] font-black tracking-widest text-amber-700">REF — SURAT JALAN (from scan)</div>
+              <div className="text-xs font-mono font-bold text-[#0f1e2e] break-all">{sourceDocs.join(" / ")}</div>
+              <button onClick={()=> setSourceDocs([])} className="text-[11px] text-amber-700 underline font-bold">Clear REF</button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 mt-3">
             <div>
               <label className="text-xs font-bold">{t("dash.checker")}</label>
@@ -435,7 +456,7 @@ export default function Dashboard(){
             </div>
             <div className="p-3 flex gap-2 border-t bg-gray-50 rounded-b-xl">
               <button onClick={()=> { setShortage(null); (window as any).__pendingScanResults=null; showToast(t("dash.importCancelled")); }} className="flex-1 bg-white border border-gray-300 text-gray-700 rounded-lg py-2.5 font-bold text-sm">{t("dash.cancel")}</button>
-              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${(r as any).note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast(t("dash.forceImported")); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-2.5 font-bold text-sm">{t("dash.forceImport")}</button>
+              <button onClick={()=> { const d=shortage; const pendingResults = (window as any).__pendingScanResults as any[] | undefined; const pendingRefs = (window as any).__pendingRefs as string[] | undefined; setShortage(null); (window as any).__pendingScanResults=null; (window as any).__pendingCompany=null; (window as any).__pendingRefs=null; if(pendingResults && pendingResults.length>0){ const next={...order}; for(const pr of pendingResults){ for(const [s,r] of Object.entries(pr.results as any)){ let adj=(r as any).qty; if(["Beef Patty Small","Beef Patty Large"].includes(s)) adj*=18; else if(s==="Thousand Island Mayonaise") adj*=20; else if(s==="Butter") adj*=40; const note=(r as any).note; if(s in next) next[s]={ qty: next[s].qty+adj, note: note && !next[s].note.includes(note) ? `${next[s].note}/${(r as any).note}`.replace(/^\/|\/$/g,"") : next[s].note||note }; else next[s]={ qty:adj, note }; } } if(d) setCompanyCode(d.company); if(pendingRefs?.length) setSourceDocs([...sourceDocs, ...pendingRefs]); setOrder(next); } else if(d) applyScanResults(d.pending, d.company, d.fileName); showToast(t("dash.forceImported")); }} className="flex-1 bg-[#f39c12] text-white rounded-lg py-2.5 font-bold text-sm">{t("dash.forceImport")}</button>
             </div>
           </div>
         </div>

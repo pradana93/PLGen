@@ -10,12 +10,14 @@ type State = {
   checker: string;
   cluster: string;
   companyCode: "BBB"|"BBT";
+  sourceDocs: string[]; // DO.2026.06.00806 / IT.2026.06.00279 captured from Surat Jalan scanner — follows scan, user-editable via company toggle
   setMaster: (m: MasterDB)=>void;
   setOrder: (o: Order)=>void;
   setOutlet: (v:string)=>void;
   setChecker: (v:string)=>void;
   setCompanyCode: (v:"BBB"|"BBT")=>void;
   setCluster: (v:string)=>void;
+  setSourceDocs: (docs: string[])=>void;
   addItem: (sku:string, baseQty:number, note:string)=>void;
   subItem: (sku:string, baseQty:number)=>void;
   clearOrder: ()=>void;
@@ -33,12 +35,14 @@ export const usePackingStore = create<State>()(
       checker: "Select Checker",
       cluster: "",
       companyCode: "BBB",
+      sourceDocs: [],
       setMaster: (m)=> set({ master:m }),
       setOrder: (o)=> set({ order:o }),
       setOutlet: (v)=> set({ outlet:v }),
       setChecker: (v)=> set({ checker:v }),
       setCompanyCode: (v)=> set({ companyCode:v }),
       setCluster: (v)=> set({ cluster:v }),
+      setSourceDocs: (docs)=> set({ sourceDocs: [...new Set(docs.map(d=> String(d).trim().toUpperCase()).filter(Boolean))] }),
       setBoxes: (b)=> set({ boxes:b }),
       setItemNote: (sku, note)=>{ const { order } = get(); const next={...order}; if(next[sku]) next[sku]={ ...next[sku], note }; set({ order: next }); },
       addItem: (sku, baseQty, note)=>{
@@ -65,7 +69,7 @@ export const usePackingStore = create<State>()(
         if(next[sku]){ next[sku].qty-=qty; if(next[sku].qty<=0) delete next[sku]; }
         set({ order: next });
       },
-      clearOrder: ()=> set({ order:{}, boxes:[] }),
+      clearOrder: ()=> set({ order:{}, boxes:[], sourceDocs: [] }),
     }),
     { name: "plgen-packing-store" }
   )

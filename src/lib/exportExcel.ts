@@ -7,8 +7,8 @@ import { Box, Order, getNextDeliveryNumber, getDeliveryDateWIB, buildDisplayRows
 const ARIA = "Arial";
 const ARIA_BLACK = "Arial Black";
 
-// Packing List export — polished professional layout
-export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string, preparedBy?: string) {
+// Packing List export — polished professional layout — now PL/ + REF (DO/IT) per Dashboard request
+export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string, preparedBy?: string, sourceRef?: string) {
   const deliveryDate = getDeliveryDateWIB(1, master.HOLIDAYS||[]);
   const deliveryNo = getNextDeliveryNumber(master.companyCode||"BBB");
   const totalWeight = Object.entries(order).reduce((acc,[sku,data])=>{
@@ -218,50 +218,74 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
 
-  // Row 9: (spacer under ship-to) + TOTAL KOLI
+  // Row 9: REF (DO/IT from scan) + TOTAL KOLI — flagship: shows DO.2026.06.00806 / IT.2026.06.00279 when dual scanned
+  const refText = sourceRef && sourceRef.trim() ? sourceRef.trim() : "—";
   ws.mergeCells("A9:C9");
   setAll(ws.getCell("A9"), {
-    value: "",
+    value: refText,
+    font: { name: "Arial", size: 7.5, color: { argb: MID_GRAY } },
+    fill: WARM_LIGHT,
+    align: { horizontal: "left", vertical: "middle", wrapText: true, indent: 1 },
     border: { top: thin, left: medium, bottom: thin, right: medium },
   });
   ws.getRow(9).height = 18;
-
+  // label above REF
+  ws.getCell("A9").value = ""; // keep A9 empty, show label in A9 header? Instead use D9 as REF label + E9 as value — revert to keep layout: A9 is address spacer, so move REF to D9/E9
+  // Re-apply: A9 stays empty spacer, D9=REF label, E9=REF value, then shift TOTAL KOLI/WEIGHT down
   setAll(ws.getCell("D9"), {
-    value: "TOTAL KOLI",
+    value: "REF (SJ)",
     font: { name: "Arial", size: 8, bold: true, color: { argb: MID_GRAY } },
     align: { horizontal: "right", vertical: "middle" },
     border: { top: thin, left: medium, bottom: thin, right: thin },
   });
   setAll(ws.getCell("E9"), {
+    value: refText,
+    font: { name: "Arial", size: 7.5, color: { argb: NAVY } },
+    align: { horizontal: "left", vertical: "middle", wrapText: true },
+    border: { top: thin, left: thin, bottom: thin, right: medium },
+  });
+
+  // Row 10: spacer + TOTAL KOLI (shifted)
+  ws.mergeCells("A10:C10");
+  setAll(ws.getCell("A10"), { value: "" });
+  ws.getRow(10).height = 6;
+
+  setAll(ws.getCell("D10"), {
+    value: "TOTAL KOLI",
+    font: { name: "Arial", size: 8, bold: true, color: { argb: MID_GRAY } },
+    align: { horizontal: "right", vertical: "middle" },
+    border: { top: thin, left: medium, bottom: thin, right: thin },
+  });
+  setAll(ws.getCell("E10"), {
     value: String(totalKoli),
     font: { name: "Arial", size: 10, bold: true, color: { argb: NAVY } },
     align: { horizontal: "left", vertical: "middle" },
     border: { top: thin, left: thin, bottom: thin, right: medium },
   });
 
-  // Row 10: spacer + TOTAL WEIGHT
-  ws.mergeCells("A10:C10");
-  setAll(ws.getCell("A10"), { value: "" });
-  ws.getRow(10).height = 6;
+  // Row 11: spacer + TOTAL WEIGHT (shifted)
+  ws.mergeCells("A11:C11");
+  setAll(ws.getCell("A11"), { value: "" });
+  ws.getRow(11).height = 6;
 
-  setAll(ws.getCell("D10"), {
+  setAll(ws.getCell("D11"), {
     value: "WEIGHT (KG)",
     font: { name: "Arial", size: 8, bold: true, color: { argb: MID_GRAY } },
     align: { horizontal: "right", vertical: "middle" },
     border: { top: thin, left: medium, bottom: thin, right: thin },
   });
-  setAll(ws.getCell("E10"), {
+  setAll(ws.getCell("E11"), {
     value: totalWeight.toFixed(2),
     font: { name: "Arial", size: 10, bold: true, color: { argb: "FFE67E22" } },
     align: { horizontal: "left", vertical: "middle" },
     border: { top: thin, left: thin, bottom: medium, right: medium },
   });
-  ws.getRow(10).height = 18;
+  ws.getRow(11).height = 18;
 
   // ════════════════════════════════════════════════════════════════
-  //  SECTION 3 — TABLE HEADER (row 12)
+  //  SECTION 3 — TABLE HEADER (row 13, shifted +1 for REF)
   // ════════════════════════════════════════════════════════════════
-  const HEADER_ROW = 12;
+  const HEADER_ROW = 13;
   ws.getRow(HEADER_ROW).height = 22;
   const headers = ["No.", "Description", "Qty", "Item Unit", "Notes"];
   const headerStyles: { align: string }[] = [

@@ -35,6 +35,21 @@ function detectCompanyCode(allTextUpper: string): "BBB" | "BBT" | null {
   return null;
 }
 
+export function extractDocRefs(allTextUpper: string): string[] {
+  // Captures DO No / Nomor like DO.2026.06.00806 and IT.2026.06.00279 (see Surat Jalan images)
+  // Upper + normalized, supports DO / IT prefix, dot-separated
+  const re = /\b(DO|IT)\.\d{4}\.\d{2}\.\d{5}\b/gi;
+  const matches = allTextUpper.match(re) || [];
+  // dedup preserve order, upper
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for(const m of matches){
+    const u = m.toUpperCase();
+    if(!seen.has(u)){ seen.add(u); out.push(u); }
+  }
+  return out;
+}
+
 // Group pdfjs text items into rows by y-coordinate (approximate pdfplumber table row)
 function groupItemsIntoRows(items: any[], yTolerance = 3): string[][] {
   // items: {str, transform: [a,b,c,d,x,y]}
@@ -56,7 +71,7 @@ function groupItemsIntoRows(items: any[], yTolerance = 3): string[][] {
   });
 }
 
-export async function smartScanPdf(file: File, master: MasterDB): Promise<{ results: ScanResult, company: "BBB"|"BBT" } | null> {
+export async function smartScanPdf(file: File, master: MasterDB): Promise<{ results: ScanResult, company: "BBB"|"BBT", refs: string[] } | null> {
   const { kodeMap, skuMap } = getDualLookupMaps(master);
   const sortedKodes = Object.keys(kodeMap).sort((a,b)=> b.length - a.length);
   const sortedSkus = Object.keys(skuMap).sort((a,b)=> b.length - a.length);
@@ -83,6 +98,7 @@ export async function smartScanPdf(file: File, master: MasterDB): Promise<{ resu
   if (!company) {
     throw new Error("Document does not belong to PT BANGOR BERKEMBANG BERSAMA or PT BANGOR BERANI TERUKUR.");
   }
+  const refs = extractDocRefs(allTextUpper);
 
   const scannedResults: ScanResult = {};
 
@@ -150,10 +166,10 @@ export async function smartScanPdf(file: File, master: MasterDB): Promise<{ resu
     }
   }
 
-  return { results: scannedResults, company };
+  return { results: scannedResults, company, refs };
 }
 
-export async function smartScanExcel(file: File, master: MasterDB): Promise<{ results: ScanResult, company: "BBB"|"BBT" } | null> {
+export async function smartScanExcel(file: File, master: MasterDB): Promise<{ results: ScanResult, company: "BBB"|"BBT", refs: string[] } | null> {
   const { kodeMap, skuMap } = getDualLookupMaps(master);
   const sortedKodes = Object.keys(kodeMap).sort((a,b)=> b.length - a.length);
   const sortedSkus = Object.keys(skuMap).sort((a,b)=> b.length - a.length);
@@ -173,6 +189,7 @@ export async function smartScanExcel(file: File, master: MasterDB): Promise<{ re
   if (!company) {
     throw new Error("Document does not belong to PT BANGOR BERKEMBANG BERSAMA or PT BANGOR BERANI TERUKUR.");
   }
+  const refs = extractDocRefs(allText);
 
   const scannedResults: ScanResult = {};
   for (const row of rows) {
@@ -206,5 +223,5 @@ export async function smartScanExcel(file: File, master: MasterDB): Promise<{ re
     }
   }
 
-  return { results: scannedResults, company };
+  return { results: scannedResults, company, refs };
 }

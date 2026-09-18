@@ -791,7 +791,7 @@ export function fromPackedQty(sku: string, packedQty: number): number {
   return packedQty;
 }
 
-// Delivery number like core.py get_next_delivery_number
+// Delivery number like core.py get_next_delivery_number — now PL/ per user request (follows selected Company Code BBB/BBT)
 export function getNextDeliveryNumber(companyCode="BBB"): string {
   const key=`delivery_counter_${companyCode}`;
   const today=new Date();
@@ -808,7 +808,7 @@ export function getNextDeliveryNumber(companyCode="BBB"): string {
   if(lastDate!==todayStr) lastNumber=0;
   const newNumber=lastNumber+1;
   localStorage.setItem(key, `${todayStr}|${newNumber}`);
-  return `DO/${companyCode}/${todayStr}/${String(newNumber).padStart(3,"0")}`;
+  return `PL/${companyCode}/${todayStr}/${String(newNumber).padStart(3,"0")}`;
 }
 
 export function getDeliveryDateWIB(leadTimeDays=1, holidays: string[]=[]): string {
