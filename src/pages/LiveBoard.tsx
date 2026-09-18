@@ -37,6 +37,9 @@ export default function LiveBoard(){
   const [dateTo, setDateTo]=useState<string>("");
   const [activePie, setActivePie]=useState<number>(0);
   const [showLive, setShowLive]=useState(false);
+  const [livePage, setLivePage]=useState(1);
+  const [livePageSize, setLivePageSize]=useState<25|50|100>(50);
+  const [liveStatus, setLiveStatus]=useState<"ALL"|"PENDING"|"READY"|"CANCELLED">("ALL");
   const [archive, setArchive]=useState<any[]>([]);
   const [archiveFilter, setArchiveFilter]=useState("");
   const [checkers, setCheckers]=useState<string[]>([]);
@@ -181,6 +184,8 @@ export default function LiveBoard(){
   useEffect(()=>{ fetchAll(); const id=setInterval(fetchAll, 30000); return ()=>clearInterval(id); },[]);
   // Re-fetch summary when calendar range changes (packing_status poll stays 30s, summary re-fetches on apply)
   useEffect(()=>{ if(dateFrom || dateTo) fetchAll(); else if(!dateFrom && !dateTo) fetchAll(); },[dateFrom, dateTo]);
+  // Reset page when filters change
+  useEffect(()=>{ setLivePage(1); },[filter, liveStatus, livePageSize, dateFrom, dateTo]);
 
   const inCalendarRange = (ts:string)=>{
     if(!dateFrom && !dateTo) return true;
@@ -194,8 +199,12 @@ export default function LiveBoard(){
 
   const filtered = data.filter(e=>{
     const hit = !filter || e.outlet?.toLowerCase().includes(filter.toLowerCase()) || e.delivery_no?.toLowerCase().includes(filter.toLowerCase());
-    return hit && inCalendarRange(String(e.created_at||""));
+    const statusHit = liveStatus==="ALL" || String(e.status||"").toUpperCase()===liveStatus;
+    return hit && statusHit && inCalendarRange(String(e.created_at||""));
   });
+  const liveTotal = filtered.length;
+  const liveTotalPages = Math.max(1, Math.ceil(liveTotal / livePageSize));
+  const livePaginated = filtered.slice((livePage-1)*livePageSize, livePage*livePageSize);
   const filteredArchive = archive.filter((a:any)=>{
     const hit = !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase());
     return hit && inCalendarRange(String(a.created_at||""));
@@ -807,29 +816,37 @@ export default function LiveBoard(){
         {/* ── Live Stream ── */}
         <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
           <button onClick={()=> setShowLive(!showLive)} className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50/80 transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-md shadow-red-500/20">
-                  <span className="text-sm">🔴</span>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-md shadow-red-500/20">
+                    <span className="text-sm">🔴</span>
+                  </div>
+                  {showLive && <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full lb-pulse-live border-2 border-white" />}
                 </div>
-                {showLive && <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-400 rounded-full lb-pulse-live border-2 border-white" />}
-              </div>
-              <div>
-                <h3 className="font-extrabold text-sm text-[#1a252f]">Live Stream — Packing Status</h3>
-                <p className="text-[11px] text-slate-400 font-medium">{filtered.length}/{data.length} active records</p>
-              </div>
-            </div>
-            <span className={`text-xs font-bold px-4 py-2 rounded-xl transition-all ${showLive?"bg-[#1a252f] text-white shadow-sm":"bg-slate-100 text-slate-500 border border-slate-200"}`}>{showLive?"Hide":"Show"}</span>
-          </button>
-          {showLive && (
-            <div className="px-6 pb-5 border-t border-slate-100">
-              <div className="flex items-center justify-between mb-4 pt-4">
-                <h4 className="font-bold text-sm text-[#1a252f]">{t("live.title")}</h4>
-                <div className="flex gap-2">
-                  <input value={filter} onChange={e=> setFilter(e.target.value)} placeholder={t("live.filter")} className="border border-slate-200 rounded-xl px-4 py-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all placeholder:text-slate-300" />
-                  <button onClick={fetchAll} className="px-4 py-2 bg-[#3498db] hover:bg-[#2980b9] text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95">↻ {t("live.refresh")}</button>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#1a252f]">Live Stream — Packing Status</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">{liveTotal} filtered • {data.length} total • Page {Math.min(livePage,liveTotalPages)}/{liveTotalPages} • 50/page server-paged ready</p>
                 </div>
               </div>
+              <span className={`text-xs font-bold px-4 py-2 rounded-xl transition-all ${showLive?"bg-[#1a252f] text-white shadow-sm":"bg-slate-100 text-slate-500 border border-slate-200"}`}>{showLive?"Hide":"Show"}</span>
+            </button>
+            {showLive && (
+              <div className="px-6 pb-5 border-t border-slate-100">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4 pt-4">
+                  <h4 className="font-bold text-sm text-[#1a252f]">{t("live.title")}</h4>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
+                      {(["ALL","PENDING","READY","CANCELLED"] as const).map(s=> (
+                        <button key={s} onClick={()=> setLiveStatus(s)} className={`px-3 py-1 text-xs font-extrabold rounded-lg transition ${liveStatus===s?"bg-[#1a252f] text-white shadow":"text-slate-500 hover:bg-white"}`}>{s}</button>
+                      ))}
+                    </div>
+                    <input value={filter} onChange={e=> setFilter(e.target.value)} placeholder={t("live.filter")} className="border border-slate-200 rounded-xl px-4 py-2 text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all placeholder:text-slate-300 w-44" />
+                    <select value={livePageSize} onChange={e=> setLivePageSize(Number(e.target.value) as any)} className="border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold bg-white">
+                      <option value={25}>25/page</option><option value={50}>50/page</option><option value={100}>100/page</option>
+                    </select>
+                    <button onClick={fetchAll} className="px-4 py-2 bg-[#3498db] hover:bg-[#2980b9] text-white rounded-xl text-sm font-bold shadow-sm transition-all active:scale-95">↻ {t("live.refresh")}</button>
+                  </div>
+                </div>
               <div className="overflow-auto rounded-xl border border-slate-100">
                 <table className="w-full text-sm">
                   <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
@@ -845,33 +862,42 @@ export default function LiveBoard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.length===0 && <tr><td colSpan={8} className="text-center py-12 text-slate-300"><div className="text-2xl mb-2">📭</div><div className="text-sm font-medium">{t("live.noData")}</div></td></tr>}
-                    {filtered.map((e:any)=>(
-                      <tr key={e.delivery_no} className="border-t border-slate-50 lb-row-hover">
-                        <td className="px-3 py-2.5 font-mono text-xs font-bold text-[#1a252f]">{e.delivery_no}</td>
-                        <td className="px-3 py-2.5 font-medium text-slate-600">{e.outlet}</td>
-                        <td className="px-3 py-2.5 font-medium text-slate-600">{e.checker}</td>
-                        <td className="px-3 py-2.5">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${e.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":e.status==="CANCELLED"?"bg-red-100 text-red-700 border border-red-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{e.status==="READY"?t("live.ready"): e.status==="CANCELLED"?t("live.cancelled"):t("live.packing")}</span>
-                        </td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{e.scanned_at||"--:--:--"}</td>
-                        <td className="px-3 py-2.5 text-xs text-slate-400 font-medium">{e.created_at}</td>
-                        <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{e.total_weight_kg||0} kg</td>
-                        <td className="px-3 py-2.5 text-center">
-                          {e.status!=="READY" && <button onClick={async()=>{ await apiPut(`/api/packing_status/${encodeURIComponent(e.delivery_no)}`,{status:"READY"}); fetchAll(); }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95">{t("live.markReady")}</button>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      {livePaginated.length===0 && <tr><td colSpan={8} className="text-center py-12 text-slate-300"><div className="text-2xl mb-2">📭</div><div className="text-sm font-medium">{t("live.noData")}</div></td></tr>}
+                      {livePaginated.map((e:any)=>(
+                        <tr key={e.delivery_no} className="border-t border-slate-50 lb-row-hover">
+                          <td className="px-3 py-2.5 font-mono text-xs font-bold text-[#1a252f]">{e.delivery_no}</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-600">{e.outlet}</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-600">{e.checker}</td>
+                          <td className="px-3 py-2.5">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${e.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":e.status==="CANCELLED"?"bg-red-100 text-red-700 border border-red-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{e.status==="READY"?t("live.ready"): e.status==="CANCELLED"?t("live.cancelled"):t("live.packing")}</span>
+                          </td>
+                          <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{e.scanned_at||"--:--:--"}</td>
+                          <td className="px-3 py-2.5 text-xs text-slate-400 font-medium">{e.created_at}</td>
+                          <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{e.total_weight_kg||0} kg</td>
+                          <td className="px-3 py-2.5 text-center">
+                            {e.status!=="READY" && <button onClick={async()=>{ await apiPut(`/api/packing_status/${encodeURIComponent(e.delivery_no)}`,{status:"READY"}); fetchAll(); }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95">{t("live.markReady")}</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Flagship paginator — fixes long-af page at 10k */}
+                <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+                  <div className="text-slate-400 font-medium">Showing {(livePage-1)*livePageSize+1}-{Math.min(livePage*livePageSize, liveTotal)} of {liveTotal} • {liveTotalPages} pages • {livePageSize}/page</div>
+                  <div className="flex items-center gap-1.5">
+                    <button disabled={livePage<=1} onClick={()=> setLivePage(p=> Math.max(1,p-1))} className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-40 hover:bg-slate-50">‹ Prev</button>
+                    <span className="px-3 py-1.5 rounded-xl bg-[#1a252f] text-white font-black">{livePage} / {liveTotalPages}</span>
+                    <button disabled={livePage>=liveTotalPages} onClick={()=> setLivePage(p=> Math.min(liveTotalPages,p+1))} className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-40 hover:bg-slate-50">Next ›</button>
+                  </div>
+                </div>
+                <div className="mt-4 p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-xl border border-slate-100">
+                  <h4 className="font-bold text-sm mb-1 text-[#1a252f]">{t("live.override")}</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">{t("live.overrideDesc")}</p>
+                </div>
               </div>
-              <div className="mt-4 p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-xl border border-slate-100">
-                <h4 className="font-bold text-sm mb-1 text-[#1a252f]">{t("live.override")}</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">{t("live.overrideDesc")}</p>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
       </div>
     </div>

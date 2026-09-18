@@ -1206,20 +1206,55 @@ app.post("/api/checkers", async (req, res) => {
   res.json({ status: "success" });
 });
 
-// ===== Packing Status (Live Board) — now persistent on Supabase ====
+// ===== Packing Status (Live Board) — now persistent on Supabase + server-paged 50/page flagship =====
 app.get("/api/packing_status", async (req, res) => {
+  let all: any[] = [];
   const supa = await fetchSupabasePackingStatus();
   if (supa && supa.length) {
     try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0 }))); } catch {}
-    return res.json(supa);
+    all = supa;
+  } else {
+    const data = jsonRead<any[]>("packing_status.json", []);
+    if (data.length && (!supa || supa.length===0)) {
+      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0 }); })().catch(()=>{});
+    }
+    all = data;
   }
-  // Fallback + also try to backfill from file if supabase empty
-  const data = jsonRead<any[]>("packing_status.json", []);
-  // If supabase empty but file has data, backfill to Supabase asynchronously
-  if (data.length && (!supa || supa.length===0)) {
-    (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0 }); })().catch(()=>{});
+  // Server-paged query: ?limit=50&offset=0&search=PL/BBB&status=READY&from=2026-09-01&to=2026-09-30 (non-breaking, additive)
+  const q = req.query as any;
+  const limit = Math.min(Math.max(parseInt(String(q.limit||"0"))||0, 0), 500);
+  const offset = Math.max(parseInt(String(q.offset||"0"))||0, 0);
+  const search = String(q.search||q.q||"").trim().toLowerCase();
+  const statusF = String(q.status||"").trim().toUpperCase();
+  const fromStr = String(q.from||"").trim();
+  const toStr = String(q.to||"").trim();
+  const parseDate = (s:string)=> /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s+"T00:00:00") : null;
+  const fromD = parseDate(fromStr);
+  const toD = parseDate(toStr);
+  const toEnd = toD ? new Date(toD.getTime()+24*60*60*1000-1) : null;
+  let filtered = all;
+  if(search) filtered = filtered.filter((r:any)=> String(r.delivery_no||"").toLowerCase().includes(search) || String(r.outlet||"").toLowerCase().includes(search) || String(r.checker||"").toLowerCase().includes(search));
+  if(statusF && statusF!=="ALL") filtered = filtered.filter((r:any)=> String(r.status||"").toUpperCase()===statusF);
+  if(fromD || toEnd) filtered = filtered.filter((r:any)=>{
+    const m = String(r.created_at||"").match(/^(\d{4}-\d{2}-\d{2})/);
+    if(!m) return false;
+    const d = new Date(m[1]+"T00:00:00");
+    if(isNaN(d.getTime())) return false;
+    if(fromD && d < fromD) return false;
+    if(toEnd && d > toEnd) return false;
+    return true;
+  });
+  // Sort newest first for live stream flagship
+  filtered = [...filtered].sort((a:any,b:any)=> String(b.created_at||"").localeCompare(String(a.created_at||"")));
+  const total = filtered.length;
+  if(limit>0){
+    filtered = filtered.slice(offset, offset+limit);
+    res.setHeader("X-Total-Count", String(total));
+    // also return meta for clients that parse JSON with total
+    // Keep backward compat: if client expects array, they still get array; also support ?meta=1 to get object
+    if(String(q.meta)==="1") return res.json({ data: filtered, total, limit, offset });
   }
-  res.json(data);
+  res.json(filtered);
 });
 app.post("/api/packing_status", async (req, res) => {
   const { delivery_no, outlet, checker, status, total_weight_kg } = req.body;
