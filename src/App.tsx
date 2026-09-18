@@ -14,6 +14,7 @@ import AccessGate from "./components/AccessGate";
 import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import FeedbackModal from "./components/FeedbackModal";
+import BootstrapSplash from "./components/BootstrapSplash";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 import { useState, useRef, useEffect } from "react";
 
@@ -263,6 +264,7 @@ export default function App(){
           <AntiCheatProvider>
             <AccessGate>
               <DesktopGate>
+                <BootstrapSplash />
                 <AppRoutes />
               </DesktopGate>
             </AccessGate>
