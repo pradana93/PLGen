@@ -413,6 +413,11 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     if(!r1.ok) console.warn("packing_status persist", await r1.text().catch(()=>r1.statusText));
     const r2 = await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
     if(!r2.ok) console.warn("track_item_usage persist", await r2.text().catch(()=>r2.statusText));
+    // Digital PL snapshot — additive only: persists the exact exported boxes array so the Digital PL koli list is identical to this file. Never blocks download.
+    try {
+      const r3 = await fetch(`${_base}/api/digital_pl/${encodeURIComponent(deliveryNo)}/snapshot`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({boxes})});
+      if(!r3.ok) console.warn("digital_pl snapshot", await r3.text().catch(()=>r3.statusText));
+    } catch(e){ console.warn("digital_pl snapshot failed", e); }
   } catch(e){ console.warn("live board sync failed", e); }
   // Archive upload — await as well (small xlsx <100KB, fast) so packing_lists shows file
   try {

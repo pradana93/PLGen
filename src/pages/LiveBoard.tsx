@@ -26,6 +26,8 @@ export default function LiveBoard(){
   const { t } = useLanguage();
   const { profile } = useAuth();
   const isSuperAdmin = profile?.role === "SuperAdmin";
+  const isBoardAdmin = profile?.role === "SuperAdmin" || profile?.role === "Admin";
+  const [plView, setPlView] = useState<any|null>(null);
   const [data, setData]=useState<any[]>([]);
   const [filter, setFilter]=useState("");
   const [summary, setSummary]=useState<Summary|null>(null);
@@ -875,7 +877,10 @@ export default function LiveBoard(){
                           <td className="px-3 py-2.5 text-xs text-slate-400 font-medium">{e.created_at}</td>
                           <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{e.total_weight_kg||0} kg</td>
                           <td className="px-3 py-2.5 text-center">
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {isBoardAdmin && <button title="Packed results (Digital PL)" onClick={async()=>{ try{ const d = await apiGet(`/api/digital_pl/${encodeURIComponent(e.delivery_no)}`); setPlView(d); }catch(err:any){ setPlView({ delivery_no: e.delivery_no, header: e, boxes: [], checks: [], error: err?.message }); } }} className="px-2.5 py-1.5 bg-[#1a252f] hover:bg-black text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95">👁️</button>}
                             {e.status!=="READY" && <button onClick={async()=>{ await apiPut(`/api/packing_status/${encodeURIComponent(e.delivery_no)}`,{status:"READY"}); fetchAll(); }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95">{t("live.markReady")}</button>}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -900,6 +905,33 @@ export default function LiveBoard(){
           </div>
 
       </div>
+      {/* Packed Digital PL results — Admin/SuperAdmin only, read-only, additive */}
+      {plView && (
+        <div className="fixed inset-0 bg-[#0f1e2e]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={()=> setPlView(null)}>
+          <div className="bg-white rounded-[20px] shadow-[0_24px_64px_rgba(0,0,0,0.35)] border border-white/40 w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden" onClick={e=> e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] text-white px-5 py-4 flex items-center justify-between">
+              <div><div className="font-black text-sm">📱 Packed Results — {plView.delivery_no}</div><div className="text-[11px] text-white/60">{(plView.checks||[]).filter((c:any)=>c?.checked).length}/{(plView.boxes||[]).length||"—"} koli packed • Dus Besar {plView.dus_besar??"—"} / L {plView.dus_l??"—"} / S {plView.dus_s??"—"}{plView.packed_by?` • by ${plView.packed_by}`:""}</div></div>
+              <button onClick={()=> setPlView(null)} className="text-white/70 hover:text-white text-lg">✖</button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {plView.error && !(plView.boxes||[]).length && <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3">No Digital PL snapshot yet ({plView.error}). Outlet: {plView.header?.outlet||"—"} • Status: {plView.header?.status||"—"}</div>}
+              {(plView.boxes||[]).length>0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {plView.boxes.map((box:any,i:number)=>{
+                    const c = (plView.checks||[])[i];
+                    return (
+                      <div key={i} className={`rounded-xl border p-3 text-xs ${c?.checked?"bg-emerald-50 border-emerald-200":"bg-slate-50 border-slate-200"}`}>
+                        <div className="flex items-center gap-2 font-black text-[#0f1e2e]"><span>{c?.checked?"✅":"⬜"} Koli {i+1}</span>{c?.by && <span className="ml-auto font-bold text-emerald-600 truncate max-w-[140px]">{c.by}</span>}</div>
+                        <div className="mt-1.5 space-y-0.5">{Object.entries(box||{}).map(([sku,qty]:any)=>(<div key={sku} className="flex justify-between"><span className="text-slate-600 truncate mr-2">{sku}</span><span className="font-mono font-bold">×{String(qty)}</span></div>))}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
+import DigitalPl from "./pages/DigitalPl";
 import LiveBoard from "./pages/LiveBoard";
 import Admin from "./pages/Admin";
 import Manifests from "./pages/Manifests";
@@ -56,12 +57,14 @@ function Nav(){
         {/* Nav pills — centered */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 bg-black/10 border border-white/10 rounded-full p-1">
           {link("/", t("nav.dashboard"))}
+          {link("/digital-pl", t("nav.digitalPl"))}
           {link("/live", t("nav.live"))}
           {link("/admin", t("nav.admin"))}
         </div>
         {/* mobile nav */}
         <div className="flex md:hidden items-center gap-1 ml-2">
           {link("/", "Dash")}
+          {link("/digital-pl", "DigiPL")}
           {link("/live", "Report")}
           {link("/admin", "Admin")}
         </div>
@@ -174,6 +177,7 @@ function AppRoutes(){
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Dashboard /></Protected>} />
+        <Route path="/digital-pl" element={<Protected><DigitalPl /></Protected>} />
         <Route path="/live" element={<Protected><LiveBoard /></Protected>} />
         <Route path="/manifests" element={<Protected><Manifests /></Protected>} />
         <Route path="/inbound" element={<Protected><Inbound /></Protected>} />

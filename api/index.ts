@@ -1326,14 +1326,18 @@ app.get("/scan/*", async (req, res) => {
 });
 
 // ===== Packing Board update via PUT for status override =====
+// Additive: also accepts dus_l/dus_s/dus_besar (Digital PL Done Packed) — backward compatible, old callers unaffected
 app.put("/api/packing_status/:delivery_no", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);
-  const { status, checker } = req.body;
+  const { status, checker, dus_l, dus_s, dus_besar } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
   const entry = statuses.find(s=>s.delivery_no===dn);
   if (!entry) return res.status(404).json({ error: "Not found" });
   if (status) entry.status = status;
   if (checker) entry.checker = checker;
+  if (dus_l!==undefined) entry.dus_l = Number(dus_l)||0;
+  if (dus_s!==undefined) entry.dus_s = Number(dus_s)||0;
+  if (dus_besar!==undefined) entry.dus_besar = Number(dus_besar)||0;
   if (status==="READY") entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
   jsonWrite("packing_status.json", statuses);
   // Supabase mirror
@@ -1343,11 +1347,121 @@ app.put("/api/packing_status/:delivery_no", async (req, res) => {
       const upd:any={};
       if (status) upd.status=status;
       if (checker) upd.checker=checker;
+      if (dus_l!==undefined) upd.dus_l = Number(dus_l)||0;
+      if (dus_s!==undefined) upd.dus_s = Number(dus_s)||0;
+      if (dus_besar!==undefined) upd.dus_besar = Number(dus_besar)||0;
       if (status==="READY") upd.scanned_at=entry.scanned_at;
       if (Object.keys(upd).length) await sb.from("packing_status").update(upd).eq("delivery_no", dn);
     }
   } catch {}
   res.json({ status: "success" });
+});
+
+// ===== Digital PL — server-synced Koli checklist (additive, never touches packing math) =====
+// Snapshot boxes at export time so Digital PL koli list is byte-identical to the Exported PL.
+// File fallback digital_pl.json mirrors the pattern of packing_status.json; Supabase table
+// digital_pl_checks (see supabase/migrations/20250919010000_digital_pl_checks.sql) is best-effort.
+type DigitalPlStore = Record<string, { boxes: any[]; checks: { checked: boolean; by: string; at: string }[]; dus_besar: number; dus_l: number; dus_s: number; packed_by: string; packed_at: string; updated_at: string }>;
+function readDigitalPl(): DigitalPlStore {
+  return jsonRead<DigitalPlStore>("digital_pl.json", {});
+}
+function writeDigitalPl(store: DigitalPlStore) {
+  jsonWrite("digital_pl.json", store);
+}
+async function fetchSupabaseDigitalPl(deliveryNo: string): Promise<any | null> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.from("digital_pl_checks").select("*").eq("delivery_no", deliveryNo).single();
+    if (!error && data) return data;
+  } catch {}
+  return null;
+}
+async function saveSupabaseDigitalPl(row: any): Promise<void> {
+  try {
+    const sb = await getSupabase();
+    if (!sb) return;
+    await sb.from("digital_pl_checks").upsert(row, { onConflict: "delivery_no" });
+  } catch {}
+}
+// POST snapshot — called additively from exportPackingList after existing persists (fire-and-forget safe)
+app.post("/api/digital_pl/:delivery_no/snapshot", async (req, res) => {
+  const dn = decodeURIComponent(req.params.delivery_no);
+  const { boxes } = req.body as { boxes?: any[] };
+  if (!dn) return res.status(400).json({ error: "Missing delivery_no" });
+  if (!Array.isArray(boxes) || !boxes.length) return res.status(400).json({ error: "Missing boxes snapshot" });
+  const store = readDigitalPl();
+  const prev = store[dn];
+  const n = boxes.length;
+  const checks = prev && Array.isArray(prev.checks) && prev.checks.length===n ? prev.checks : Array.from({length:n},()=>({checked:false,by:"",at:""}));
+  store[dn] = { boxes, checks, dus_besar: prev?.dus_besar||0, dus_l: prev?.dus_l||0, dus_s: prev?.dus_s||0, packed_by: prev?.packed_by||"", packed_at: prev?.packed_at||"", updated_at: new Date().toISOString() };
+  writeDigitalPl(store);
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes, checks, dus_besar: store[dn].dus_besar, dus_l: store[dn].dus_l, dus_s: store[dn].dus_s, packed_by: store[dn].packed_by||null, packed_at: store[dn].packed_at||null, updated_at: store[dn].updated_at }).catch(()=>{});
+  res.json({ status: "success", koli: n });
+});
+// GET single Digital PL (boxes snapshot + checks + packing header)
+app.get("/api/digital_pl/:delivery_no", async (req, res) => {
+  const dn = decodeURIComponent(req.params.delivery_no);
+  const store = readDigitalPl();
+  let rec = store[dn];
+  const supa = await fetchSupabaseDigitalPl(dn);
+  if (supa) {
+    const boxes = Array.isArray(supa.boxes) ? supa.boxes : (rec?.boxes||[]);
+    const checks = Array.isArray(supa.checks) ? supa.checks : (rec?.checks||[]);
+    rec = { boxes, checks, dus_besar: supa.dus_besar||rec?.dus_besar||0, dus_l: supa.dus_l||rec?.dus_l||0, dus_s: supa.dus_s||rec?.dus_s||0, packed_by: supa.packed_by||rec?.packed_by||"", packed_at: supa.packed_at||rec?.packed_at||"", updated_at: supa.updated_at||rec?.updated_at||"" };
+  }
+  if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn + " — export the PL first" });
+  const header = jsonRead<any[]>("packing_status.json", []).find((s:any)=>s.delivery_no===dn) || null;
+  const done = rec.checks.filter((c:any)=>c?.checked).length;
+  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by, packed_at: rec.packed_at, header });
+});
+// PUT single koli check — server sync (one koli at a time so concurrent packers never overwrite each other)
+app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
+  const dn = decodeURIComponent(req.params.delivery_no);
+  const { koli_index, checked } = req.body as { koli_index?: number; checked?: boolean };
+  const by = String((req.body as any)?.by || (req.headers["x-user-email"] as string) || "").slice(0,120);
+  if (typeof koli_index!=="number" || koli_index<0) return res.status(400).json({ error: "Missing koli_index" });
+  const store = readDigitalPl();
+  const rec = store[dn];
+  if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn });
+  if (koli_index>=rec.boxes.length) return res.status(400).json({ error: "koli_index out of range" });
+  rec.checks[koli_index] = { checked: !!checked, by: !!checked ? by : "", at: !!checked ? new Date().toISOString() : "" };
+  rec.updated_at = new Date().toISOString();
+  writeDigitalPl(store);
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+  const done = rec.checks.filter((c:any)=>c?.checked).length;
+  res.json({ status: "success", done, total: rec.boxes.length });
+});
+// POST done — validates all koli checked + dus required, then flips packing_status READY via the same path as Live Board
+app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
+  const dn = decodeURIComponent(req.params.delivery_no);
+  const { dus_besar, dus_l, dus_s } = req.body as { dus_besar?: number; dus_l?: number; dus_s?: number };
+  const by = String((req.body as any)?.by || (req.headers["x-user-email"] as string) || "").slice(0,120);
+  for (const [k,v] of [["dus_besar",dus_besar],["dus_l",dus_l],["dus_s",dus_s]] as const) {
+    if (v===undefined || v===null || !Number.isInteger(Number(v)) || Number(v)<0) return res.status(400).json({ error: `${k} is required (0 or more)` });
+  }
+  const store = readDigitalPl();
+  const rec = store[dn];
+  if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn });
+  const pending = rec.checks.map((c:any,i:number)=>c?.checked?null:i).filter((x:any)=>x!==null);
+  if (pending.length) return res.status(400).json({ error: `Koli not all packed: ${pending.length} remaining`, pending });
+  rec.dus_besar = Number(dus_besar); rec.dus_l = Number(dus_l); rec.dus_s = Number(dus_s);
+  rec.packed_by = by; rec.packed_at = new Date().toISOString(); rec.updated_at = rec.packed_at;
+  writeDigitalPl(store);
+  // Flip packing_status READY (file + Supabase mirror — same fields the scan flow writes)
+  const statuses = jsonRead<any[]>("packing_status.json", []);
+  const entry = statuses.find((s:any)=>s.delivery_no===dn);
+  if (!entry) { return res.status(404).json({ error: "Packing status not found for " + dn }); }
+  entry.status = "READY";
+  entry.dus_l = rec.dus_l; entry.dus_s = rec.dus_s; entry.dus_besar = rec.dus_besar;
+  entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
+  jsonWrite("packing_status.json", statuses);
+  try {
+    const sb = await getSupabase();
+    if (sb) await sb.from("packing_status").update({ status:"READY", dus_l: rec.dus_l, dus_s: rec.dus_s, dus_besar: rec.dus_besar, scanned_at: entry.scanned_at }).eq("delivery_no", dn);
+  } catch {}
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+  res.json({ status: "success", delivery_no: dn });
 });
 
 // ===== Upload packing list — now persisted to Supabase Storage (packing-lists bucket) =====
