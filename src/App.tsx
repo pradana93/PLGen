@@ -148,12 +148,12 @@ function Nav(){
 function Protected({ children, roles }: { children: React.ReactNode, roles?: string[] }){
   const { user, profile, loading } = useAuth();
   const { t } = useLanguage();
-  if (loading) return <div className="p-8 text-center text-sm">{t("auth.loading")}</div>;
+  if (loading) return <div className="p-8 max-w-[1400px] mx-auto space-y-3"><div className="h-8 w-40 skeleton rounded-xl" /><div className="h-32 skeleton rounded-2xl" /><div className="h-64 skeleton rounded-2xl" /></div>;
   if (!user) return <Navigate to="/login" replace />;
   if (roles && profile && !roles.includes(profile.role)) {
     return <div className="p-8 text-center"><div className="text-lg font-bold">{t("auth.accessDenied")}</div><div className="text-sm text-gray-500">{t("auth.accessDeniedMsg", { role: profile.role, required: roles.join(", ") })}</div></div>;
   }
-  return <>{children}</>;
+  return <div className="page-enter">{children}</div>;
 }
 
 function AppRoutes(){
@@ -166,6 +166,7 @@ function AppRoutes(){
     others: CHANGELOGS.filter(c=> !["feat","fix","perf"].some(p=> c.message.startsWith(p))),
   };
   const clean = (m:string)=> m.replace(/^(feat|fix|perf|chore|chore\(.*\)|docs|style|refactor|test)(\(\w+\))?:\s*/i,"");
+  const loc = useLocation();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   useEffect(()=>{ (window as any).__openFeedback = ()=> setFeedbackOpen(true); return ()=> { delete (window as any).__openFeedback; }; },[]);
   return (
@@ -174,8 +175,8 @@ function AppRoutes(){
       <Copilot />
       <FeedbackModal open={feedbackOpen} onClose={()=> setFeedbackOpen(false)} />
       {/* Flagship floating Feedback pill */}
-      <button onClick={()=> setFeedbackOpen(true)} className="fixed bottom-5 left-5 z-40 hidden md:flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0f1e2e] text-white text-xs font-black shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-white/10 hover:bg-black transition">💬 Feedback</button>
-      <Routes>
+      <button onClick={()=> setFeedbackOpen(true)} className="fixed bottom-5 left-5 z-40 hidden md:flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0f1e2e] text-white text-xs font-black shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-white/10 hover:bg-black transition btn-press">💬 Feedback</button>
+      <Routes location={loc} key={loc.pathname}>
         <Route path="/login" element={<Login />} />
         {/* Admin: Dashboard + Digital PL + Live Board; Checker: Digital PL only; Super Admin: all */}
         <Route path="/" element={<Protected roles={["Super Admin","Admin"]}><Dashboard /></Protected>} />
