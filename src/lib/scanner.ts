@@ -24,11 +24,13 @@ export function getDualLookupMaps(master: MasterDB): { kodeMap: Record<string,st
   return { kodeMap, skuMap };
 }
 
-function silentFilter(text: string): string {
+// NOTE: silentFilter/detectCompanyCode/groupItemsIntoRows are exported for the
+// Remastered Dashboard section scanner (remasteredScan.ts) — export-only, zero behavior change.
+export function silentFilter(text: string): string {
   return text.replace(/(?:@\s*)?\d+(?:[,.]\d+)?\s*(?:gr|gram|kg|ml|ltr|liter|liters|l|oz)\b/gi, "");
 }
 
-function detectCompanyCode(allTextUpper: string): "BBB" | "BBT" | null {
+export function detectCompanyCode(allTextUpper: string): "BBB" | "BBT" | null {
   const clean = allTextUpper.replace(/\s+/g, "");
   if (clean.includes("BANGORBERANITERUKUR")) return "BBT";
   if (clean.includes("BANGORBERKEMBANGBERSAMA")) return "BBB";
@@ -51,7 +53,7 @@ export function extractDocRefs(allTextUpper: string): string[] {
 }
 
 // Group pdfjs text items into rows by y-coordinate (approximate pdfplumber table row)
-function groupItemsIntoRows(items: any[], yTolerance = 3): string[][] {
+export function groupItemsIntoRows(items: any[], yTolerance = 3): string[][] {
   // items: {str, transform: [a,b,c,d,x,y]}
   const rows: { y: number, items: {x:number, str:string}[] }[] = [];
   for (const it of items) {

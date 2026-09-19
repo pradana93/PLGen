@@ -7,6 +7,7 @@ type Dict = Record<string, string>;
 const en: Dict = {
   // App shell / Nav / Footer
   "nav.dashboard": "Dashboard",
+  "nav.remastered": "Remastered",
   "nav.digitalPl": "Digital PL",
   "nav.live": "Live Board",
   "nav.manifests": "Manifests",
@@ -346,6 +347,7 @@ const en: Dict = {
 const id: Dict = {
   // App shell / Nav / Footer
   "nav.dashboard": "Dasbor",
+  "nav.remastered": "Remastered",
   "nav.digitalPl": "PL Digital",
   "nav.live": "Papan Live",
   "nav.manifests": "Manifest",
