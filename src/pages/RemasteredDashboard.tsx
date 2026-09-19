@@ -73,7 +73,7 @@ export default function RemasteredDashboard(){
     const boxes = calculateBoxes(order, md);
     // merge key scoped per file so same outlet across pesanan/pemindahan files stays separate
     const key = `${fileIdx}::${sec.key || sec.ref}`;
-    const ref = sec.ref || sec.outletRaw || key;
+    const ref = sec.ref || sec.outletRaw || "Unknown outlet";
     return { key, ref, outletRaw: sec.outletRaw, canonical, matchKind: m.kind as any, company, order, boxes, reviewed: false, excluded: false, deliveryNo: null, unpaired: sec.unpaired || 0 };
   };
 

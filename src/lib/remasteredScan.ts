@@ -120,6 +120,17 @@ function resolveKode(lineLower: string, kodeMap: Record<string, string>, sortedK
   return null;
 }
 
+// Quantity fused with a unit ("36 PCK", "5 Dus", "3 Jrg") — unambiguous: starts with
+// digits, ends with a unit word. Name lines ("BOLOGNESE SAUCE 500GR") start with
+// letters and never match; date lines are consumed before this runs.
+const UNIT_QTY_RE = /^(\d[\d.,]*)\s*(pck|pack|packs|dus|jrg|jerigen|pcs|pc|kg|g|gr|gram|rim|lusin|btl|botol|kaleng|sachet|bungkus|box|karton|drum|zak|bal|ikat|ekor|lembar|roll)\b/i;
+function unitQty(t: string): number | null {
+  const m = t.trim().match(UNIT_QTY_RE);
+  if (!m) return null;
+  const n = parseInt(m[1].replace(/[. ,]/g, ""), 10);
+  return isNaN(n) || n <= 0 ? null : n;
+}
+
 // Pure standalone qty ("36", "1.000") — anything with other chars (DUS-20, (20), 500GR, dates) is rejected.
 function pureQty(t: string): number | null {
   if (NON_QTY_CHARS_RE.test(t)) return null;
@@ -189,7 +200,7 @@ function sectionByDateLines(
     if (pendingDate) {
       if (!HAS_LETTER_RE.test(t)) {
         // stray number right after a date — pool it if a section is open, else drop
-        const q = pureQty(t);
+        const q = pureQty(t) ?? unitQty(t);
         if (q !== null && cur) cur.pool.push(q);
         continue;
       }
@@ -249,7 +260,7 @@ function sectionByDateLines(
       cur.slots.push({ sku: "", qty: null, note: "", ignored: true });
       continue;
     }
-    const q = pureQty(t);
+    const q = pureQty(t) ?? unitQty(t);
     if (q !== null) { cur.pool.push(q); continue; }
     // else: name/unit/box-name/preface row — ignored by design
   }
