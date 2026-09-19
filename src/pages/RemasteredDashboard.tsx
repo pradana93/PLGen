@@ -77,9 +77,11 @@ export default function RemasteredDashboard(){
     setScanning(true);
     try {
       const merged = new Map<string, V2Outlet>();
+      const debugs: string[] = [];
       for (const file of files) {
         const isXlsx = /\.xlsx?$/i.test(file.name);
         const data = isXlsx ? await smartScanExcelSections(file, master) : await smartScanPdfSections(file, master);
+        if (data.debug) debugs.push(`${file.name}: ${data.debug.pages}p/${data.debug.textChars}ch/${data.debug.rowsTotal}rows/${data.debug.refsSeen}refs`);
         for (const sec of data.sections) {
           const built = buildOutlet(sec, master);
           if (!built) continue;
@@ -98,7 +100,7 @@ export default function RemasteredDashboard(){
         }
       }
       const list = [...merged.values()];
-      if (!list.length) showToast("No scannable outlet sections found");
+      if (!list.length) showToast(`No scannable outlet sections found (${debugs.join(" • ") || "no text extracted — scanned-image PDF? try Excel export"})`);
       else showToast(`Scanned ${list.length} outlets`);
       setOutlets(prev => {
         const map = new Map(prev.map(o => [o.key, o]));

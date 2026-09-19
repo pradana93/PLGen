@@ -22,7 +22,17 @@ export type OutletSection = {
 };
 
 const REF_RE = /\b(DO|IT)\.\d{4}\.\d{2}\.\d{5}\b/i;
+const REF_RE_NOSPACE = /(DO|IT)\.\d{4}\.\d{2}\.\d{5}/i;
 const DATE_RE = /\d{1,2}\s+[A-Za-z]+\s+\d{4}/;
+
+export type ScanDebug = { pages: number; textChars: number; rowsTotal: number; refsSeen: number };
+
+// pdfjs often tokenizes punctuation ("DO . 2026 . 09 . 02687") — collapse
+// whitespace before REF matching (detection only; outlet parsing keeps spacing).
+export function findRef(s: string): string | null {
+  const m = s.match(REF_RE) || s.replace(/\s+/g, "").match(REF_RE_NOSPACE);
+  return m ? m[0].toUpperCase() : null;
+}
 
 // Outlet = text after the date on a DO/IT header line; "Gudang Vittoria X" kept raw
 // (outletResolver.normalizeOutlet strips the prefix at resolve time).
@@ -97,7 +107,7 @@ function newSection(ref: string, outletRaw: string, company: "BBB" | "BBT"): Out
 
 export async function smartScanPdfSections(
   file: File, master: MasterDB
-): Promise<{ sections: OutletSection[]; company: "BBB" | "BBT"; refs: string[] }> {
+): Promise<{ sections: OutletSection[]; company: "BBB" | "BBT"; refs: string[]; debug: ScanDebug }> {
   const { kodeMap, skuMap } = getDualLookupMaps(master);
   const sortedKodes = Object.keys(kodeMap).sort((a, b) => b.length - a.length);
   const sortedSkus = Object.keys(skuMap).sort((a, b) => b.length - a.length);
@@ -123,21 +133,28 @@ export async function smartScanPdfSections(
   }
 
   // Cut sections at DO/IT header rows (row-tier), tracking outlet per section.
+  // Header detect is whitespace-tolerant (findRef); item matching mirrors scanner.ts.
   const sections: OutletSection[] = [];
   let cur: OutletSection | null = null;
+  let refsSeen = 0;
+  const rowsTotal = pageRows.reduce((a, r) => a + r.length, 0);
   for (const rows of pageRows) {
     for (const row of rows) {
       const joined = row.join(" ");
-      const m = joined.match(REF_RE);
-      if (m) {
-        cur = newSection(m[0], outletFromHeaderLine(joined) || cur?.outletRaw || "", company);
+      const ref = findRef(joined);
+      if (ref) {
+        refsSeen++;
+        cur = newSection(ref, outletFromHeaderLine(joined) || cur?.outletRaw || "", company);
         sections.push(cur);
         // Header row may itself carry an item (e.g. single-line DO + Poster row) — still try matching.
         if (matchRowInto(row, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
+        else if (matchLineInto(joined, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
         continue;
       }
       if (!cur) continue; // ignore preface rows before first DO/IT
       if (matchRowInto(row, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
+      // Same-row line fallback: single-cell rows (row.slice(1) empty) get line-tier treatment.
+      else if (matchLineInto(joined, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
     }
   }
   // Fallback: if a section got zero rows (image PDFs), run line-tier within its page span.
@@ -148,9 +165,10 @@ export async function smartScanPdfSections(
     cur = null;
     for (const lines of pageLines) {
       for (const line of lines) {
-        const m = line.match(REF_RE);
-        if (m) {
-          cur = newSection(m[0], outletFromHeaderLine(line) || cur?.outletRaw || "", company);
+        const ref = findRef(line);
+        if (ref) {
+          refsSeen++;
+          cur = newSection(ref, outletFromHeaderLine(line) || cur?.outletRaw || "", company);
           sections.push(cur);
           if (matchLineInto(line, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
           continue;
@@ -162,12 +180,12 @@ export async function smartScanPdfSections(
   }
 
   const refs = sections.map(s => s.ref);
-  return { sections, company, refs };
+  return { sections, company, refs, debug: { pages: pageRows.length, textChars: allTextUpper.length, rowsTotal, refsSeen } };
 }
 
 export async function smartScanExcelSections(
   file: File, master: MasterDB
-): Promise<{ sections: OutletSection[]; company: "BBB" | "BBT"; refs: string[] }> {
+): Promise<{ sections: OutletSection[]; company: "BBB" | "BBT"; refs: string[]; debug: ScanDebug }> {
   const { kodeMap, skuMap } = getDualLookupMaps(master);
   const sortedKodes = Object.keys(kodeMap).sort((a, b) => b.length - a.length);
   const sortedSkus = Object.keys(skuMap).sort((a, b) => b.length - a.length);
@@ -187,13 +205,15 @@ export async function smartScanExcelSections(
 
   const sections: OutletSection[] = [];
   let cur: OutletSection | null = null;
+  let refsSeen = 0;
   for (const row of rows) {
     const cells = (row as any[]).filter(c => c !== null && c !== undefined && String(c).trim() !== "" && String(c).toLowerCase() !== "nan");
     if (cells.length === 0) continue;
     const joined = cells.map(c => String(c)).join(" ");
-    const m = joined.match(REF_RE);
-    if (m) {
-      cur = newSection(m[0], outletFromHeaderLine(joined) || cur?.outletRaw || "", company);
+    const ref = findRef(joined);
+    if (ref) {
+      refsSeen++;
+      cur = newSection(ref, outletFromHeaderLine(joined) || cur?.outletRaw || "", company);
       sections.push(cur);
     }
     if (!cur) continue;
@@ -225,5 +245,5 @@ export async function smartScanExcelSections(
       }
     }
   }
-  return { sections, company, refs: sections.map(s => s.ref) };
+  return { sections, company, refs: sections.map(s => s.ref), debug: { pages: 1, textChars: allText.length, rowsTotal: rows.length, refsSeen } };
 }
