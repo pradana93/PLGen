@@ -14,7 +14,7 @@ import { useAuth } from "../context/AuthContext";
 import KoliReviewer from "../components/KoliReviewer";
 
 type V2Outlet = {
-  key: string; // ref
+  key: string; // merge key (REF or outlet-derived)
   ref: string;
   outletRaw: string;
   canonical: string | null;
@@ -25,6 +25,7 @@ type V2Outlet = {
   reviewed: boolean;
   excluded: boolean;
   deliveryNo: string | null;
+  unpaired: number; // item lines with no qty found — warned, never silently exported
 };
 
 const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -58,8 +59,8 @@ export default function RemasteredDashboard(){
 
   const showToast = (msg:string)=>{ setToast(msg); setTimeout(()=> setToast(null), 3000); };
 
-  const buildOutlet = (sec: OutletSection, md: any): V2Outlet | null => {
-    if (Object.keys(sec.results).length === 0) return null;
+  const buildOutlet = (sec: OutletSection, md: any, fileIdx: number): V2Outlet | null => {
+    if (Object.keys(sec.results).length === 0 && (sec.unpaired || 0) === 0) return null;
     const m = resolveOutlet(sec.outletRaw, md);
     const canonical = m.canonical;
     const company = companyForOutlet(canonical, sec.outletRaw);
@@ -70,7 +71,10 @@ export default function RemasteredDashboard(){
       order[sku] = { qty, note: (r as any).note || "" };
     }
     const boxes = calculateBoxes(order, md);
-    return { key: sec.ref, ref: sec.ref, outletRaw: sec.outletRaw, canonical, matchKind: m.kind as any, company, order, boxes, reviewed: false, excluded: false, deliveryNo: null };
+    // merge key scoped per file so same outlet across pesanan/pemindahan files stays separate
+    const key = `${fileIdx}::${sec.key || sec.ref}`;
+    const ref = sec.ref || sec.outletRaw || key;
+    return { key, ref, outletRaw: sec.outletRaw, canonical, matchKind: m.kind as any, company, order, boxes, reviewed: false, excluded: false, deliveryNo: null, unpaired: sec.unpaired || 0 };
   };
 
   const handleFiles = async (files: File[])=>{
@@ -80,7 +84,10 @@ export default function RemasteredDashboard(){
       const merged = new Map<string, V2Outlet>();
       const debugs: string[] = [];
       const dbgRows: {file:string;pages:number;textChars:number;rowsTotal:number;refsSeen:number;textSample:string;rowSample:string[]}[] = [];
+      let unpairedTotal = 0;
+      let fi = 0;
       for (const file of files) {
+        const myFi = fi++;
         const isXlsx = /\.xlsx?$/i.test(file.name);
         const data = isXlsx ? await smartScanExcelSections(file, master) : await smartScanPdfSections(file, master);
         if (data.debug) {
@@ -88,8 +95,9 @@ export default function RemasteredDashboard(){
           dbgRows.push({ file: file.name, ...data.debug });
         }
         for (const sec of data.sections) {
-          const built = buildOutlet(sec, master);
+          const built = buildOutlet(sec, master, myFi);
           if (!built) continue;
+          unpairedTotal += built.unpaired;
           const prev = merged.get(built.key);
           if (prev) {
             // same ref twice → merge quantities (packed), recalc koli
@@ -107,7 +115,10 @@ export default function RemasteredDashboard(){
       const list = [...merged.values()];
       setDebugInfo(dbgRows);
       if (!list.length) showToast(`No scannable outlet sections found (${debugs.join(" • ") || "no text extracted — scanned-image PDF? try Excel export"})`);
-      else { setDebugInfo([]); showToast(`Scanned ${list.length} outlets`); }
+      else {
+        setDebugInfo([]);
+        showToast(unpairedTotal > 0 ? `Scanned ${list.length} outlets — ⚠ ${unpairedTotal} lines missing qty (see cards)` : `Scanned ${list.length} outlets`);
+      }
       setOutlets(prev => {
         const map = new Map(prev.map(o => [o.key, o]));
         for (const o of list) if (!map.has(o.key)) map.set(o.key, o);
@@ -270,7 +281,7 @@ export default function RemasteredDashboard(){
                     {masterKeys.map(k=><option key={k} value={k}>{k}</option>)}
                   </select>
                 )}
-                <div className="text-[11px] text-slate-500 mt-1">{Object.keys(o.order).length} SKUs • {o.boxes.length} koli {o.reviewed && <span className="text-emerald-600 font-bold">• reviewed ✓</span>}</div>
+                <div className="text-[11px] text-slate-500 mt-1">{Object.keys(o.order).length} SKUs • {o.boxes.length} koli {o.reviewed && <span className="text-emerald-600 font-bold">• reviewed ✓</span>} {o.unpaired>0 && <span className="text-amber-600 font-bold">• ⚠ {o.unpaired} lines missing qty</span>}</div>
                 <div className="flex gap-1.5 mt-2">
                   <button onClick={()=>setReviewKey(o.key)} className="flex-1 px-3 py-1.5 rounded-lg bg-[#0f1e2e] text-white text-xs font-black hover:bg-black">Koli review</button>
                   <button onClick={()=>setOutlets(prev=>prev.map(x=>x.key===o.key?{...x,excluded:!x.excluded}:x))} className="px-3 py-1.5 rounded-lg border text-xs font-bold hover:bg-slate-50">{o.excluded?"Include":"Skip"}</button>

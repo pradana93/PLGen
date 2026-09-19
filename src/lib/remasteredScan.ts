@@ -14,11 +14,13 @@ import type { MasterDB } from "./packing";
 import type { ScanResult } from "./scanner";
 
 export type OutletSection = {
-  ref: string;            // DO.2026.09.xxxxx / IT.2026.09.xxxxx
-  outletRaw: string;      // scanned outlet text ("Bangor - Sitanala", "Gudang Vittoria Kalisari")
+  key: string;            // merge key: REF, or outlet-derived for DATExOUTLET sections
+  ref: string;            // DO./IT. ref, or "" when the file carries none
+  outletRaw: string;      // scanned outlet text ("Bangor - Sitanala", "Kalisari")
   company: "BBB" | "BBT"; // file-level company (per-outlet vote happens in outletResolver)
   results: ScanResult;    // kode-harvested lines for THIS section only
   lines: number;          // matched item rows (for company vote weighting)
+  unpaired: number;       // item slots with no qty found (surfaced as warnings, never exported silently)
 };
 
 const REF_RE = /\b(DO|IT)\.\d{4}\.\d{2}\.\d{5}\b/i;
@@ -101,8 +103,174 @@ function matchLineInto(
   return false;
 }
 
-function newSection(ref: string, outletRaw: string, company: "BBB" | "BBT"): OutletSection {
-  return { ref: ref.toUpperCase(), outletRaw, company, results: {}, lines: 0 };
+function newSection(ref: string, outletRaw: string, company: "BBB" | "BBT", key?: string): OutletSection {
+  return { key: key || ref.toUpperCase(), ref: ref.toUpperCase(), outletRaw, company, results: {}, lines: 0, unpaired: 0 };
+}
+
+const DATE_ONLY_RE = /^\d{1,2}\s+[A-Za-z]+\s+\d{4}\s*$/;
+const HAS_LETTER_RE = /[a-z]/i;
+const NON_QTY_CHARS_RE = /[^0-9.,\s]/;
+
+// KODE-tier resolve only (DATE path): box-SKU and name rows must never open slots,
+// otherwise "BOLOGNESE SAUCE 500GR"-style name lines double-slot against their kode line.
+function resolveKode(lineLower: string, kodeMap: Record<string, string>, sortedKodes: string[]): { sku: string; key: string } | null {
+  for (const k of sortedKodes) {
+    if (lineLower.includes(k)) return { sku: kodeMap[k], key: k };
+  }
+  return null;
+}
+
+// Pure standalone qty ("36", "1.000") — anything with other chars (DUS-20, (20), 500GR, dates) is rejected.
+function pureQty(t: string): number | null {
+  if (NON_QTY_CHARS_RE.test(t)) return null;
+  const digits = t.replace(/[. ,]/g, "");
+  if (!/^\d+$/.test(digits)) return null;
+  const n = parseInt(digits, 10);
+  return isNaN(n) || n <= 0 ? null : n;
+}
+
+type Slot = { sku: string; qty: number | null; note: string; ignored?: boolean };
+type OpenSec = { sec: OutletSection; slots: Slot[]; pool: number[] };
+
+// Unmapped KODE-format lines (box SKUs: BBPCK00009/09F/10/10F/41/41F …) open
+// placeholder slots: they still consume exactly one pool qty (their own row's),
+// keeping every later pairing aligned. Placeholders never reach results.
+// Proven by simulation: without this, one ignored box line shifts all following qtys.
+const KODE_FORMAT_RE = /^[A-Z]{2,}[0-9]{4,}[A-Z]?$/;
+
+// DATE+OUTLET line-tier: for report PDFs whose headers are "19 SEP 2026 / OUTLET"
+// with no DO/IT tokens, and whose quantities extract as standalone number rows.
+// Order of checks per line: REF → date-only → outlet states → inline kode+qty →
+// kode slot → pure-number pool → ignore (names, units, box SKUs, preface).
+function sectionByDateLines(
+  lines: string[], company: "BBB" | "BBT",
+  kodeMap: Record<string, string>, sortedKodes: string[]
+): OutletSection[] {
+  const sections: OutletSection[] = [];
+  const byKey = new Map<string, OpenSec>();
+  let n = 0;
+  const open = (outletRaw: string): OpenSec => {
+    const norm = outletRaw.toUpperCase().replace(/\s+/g, " ").trim();
+    const key = norm || `UNKNOWN-${++n}`;
+    let o = byKey.get(key);
+    if (!o) {
+      o = { sec: newSection("", outletRaw, company, key), slots: [], pool: [] };
+      byKey.set(key, o);
+      sections.push(o.sec);
+    }
+    return o;
+  };
+  let cur: OpenSec | null = null;
+  let pendingDate = false;
+  let pendingDest = false;
+  const isWarehouse = (t: string) => /gudang/i.test(t);
+
+  for (const rawLine of lines) {
+    const t = rawLine.trim();
+    if (!t) continue;
+    const ref = findRef(t);
+    if (ref) {
+      cur = open(outletFromHeaderLine(t));
+      cur.sec.ref = ref;
+      cur.sec.key = ref;
+      pendingDate = false;
+      pendingDest = false;
+      // Header may carry an inline item — harvest it filled.
+      const tmp: ScanResult = {};
+      if (matchLineInto(t, kodeMap, {}, sortedKodes, [], tmp)) {
+        for (const [sku, r] of Object.entries(tmp)) {
+          cur.slots.push({ sku, qty: (r as any).qty, note: "" });
+        }
+      }
+      continue;
+    }
+    if (DATE_ONLY_RE.test(t)) { pendingDate = true; pendingDest = false; continue; }
+    const lower = t.toLowerCase();
+    if (pendingDate) {
+      if (!HAS_LETTER_RE.test(t)) {
+        // stray number right after a date — pool it if a section is open, else drop
+        const q = pureQty(t);
+        if (q !== null && cur) cur.pool.push(q);
+        continue;
+      }
+      if (isWarehouse(t) && !resolveKode(lower, kodeMap, sortedKodes)) { pendingDest = true; continue; }
+      const hit = resolveKode(lower, kodeMap, sortedKodes);
+      if (hit) {
+        // item line directly after date (outlet unknown) — never lose items
+        cur = open("");
+        const tmp: ScanResult = {};
+        if (matchLineInto(t, kodeMap, {}, sortedKodes, [], tmp) && Object.keys(tmp).length) {
+          for (const [sku, r] of Object.entries(tmp)) cur.slots.push({ sku, qty: (r as any).qty, note: "" });
+        } else {
+          cur.slots.push({ sku: hit.sku, qty: null, note: "" });
+        }
+        pendingDate = false;
+        continue;
+      }
+      if (KODE_FORMAT_RE.test(t.toUpperCase().replace(/\s+/g, ""))) {
+        // unmapped kode-format line (box SKU) where outlet was expected — keep as
+        // placeholder under an unknown outlet so pool alignment survives
+        cur = open("");
+        cur.slots.push({ sku: "", qty: null, note: "", ignored: true });
+        pendingDate = false;
+        continue;
+      }
+      cur = open(t);
+      pendingDate = false;
+      continue;
+    }
+    if (pendingDest) {
+      const hit = resolveKode(lower, kodeMap, sortedKodes);
+      if (hit) {
+        cur = open("");
+        cur.slots.push({ sku: hit.sku, qty: null, note: "" });
+        pendingDest = false;
+        continue;
+      }
+      if (KODE_FORMAT_RE.test(t.toUpperCase().replace(/\s+/g, ""))) {
+        cur = open("");
+        cur.slots.push({ sku: "", qty: null, note: "", ignored: true });
+        pendingDest = false;
+        continue;
+      }
+      if (HAS_LETTER_RE.test(t)) { cur = open(t); pendingDest = false; continue; }
+      continue;
+    }
+    if (!cur) continue;
+    // inline kode+qty on one line (filled slot, consumes no pool)
+    const tmp: ScanResult = {};
+    if (matchLineInto(t, kodeMap, {}, sortedKodes, [], tmp) && Object.keys(tmp).length) {
+      for (const [sku, r] of Object.entries(tmp)) cur.slots.push({ sku, qty: (r as any).qty, note: "" });
+      continue;
+    }
+    const hit = resolveKode(lower, kodeMap, sortedKodes);
+    if (hit) { cur.slots.push({ sku: hit.sku, qty: null, note: "" }); continue; }
+    if (KODE_FORMAT_RE.test(t.toUpperCase().replace(/\s+/g, ""))) {
+      cur.slots.push({ sku: "", qty: null, note: "", ignored: true });
+      continue;
+    }
+    const q = pureQty(t);
+    if (q !== null) { cur.pool.push(q); continue; }
+    // else: name/unit/box-name/preface row — ignored by design
+  }
+
+  // positional zip: pending slots consume pool in order; leftovers counted, never guessed
+  for (const o of byKey.values()) {
+    let pi = 0;
+    for (const s of o.slots) {
+      if (s.qty !== null) continue;
+      if (pi < o.pool.length) { s.qty = o.pool[pi++]; }
+    }
+    const filled = o.slots.filter(s => s.qty !== null && (s.qty as number) > 0 && !s.ignored);
+    o.sec.unpaired = o.slots.filter(s => s.qty === null && !s.ignored).length;
+    for (const s of filled) {
+      const q = s.qty as number;
+      if (o.sec.results[s.sku]) o.sec.results[s.sku].qty += q;
+      else o.sec.results[s.sku] = { qty: q, note: s.note };
+    }
+    o.sec.lines = filled.length;
+  }
+  return sections;
 }
 
 export async function smartScanPdfSections(
@@ -157,29 +325,17 @@ export async function smartScanPdfSections(
       else if (matchLineInto(joined, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
     }
   }
-  // Fallback: if a section got zero rows (image PDFs), run line-tier within its page span.
-  // Simplest robust fallback — if NO section matched anything, run legacy-style line scan
-  // split by header lines across the whole text.
+  // Fallback: DATE+OUTLET line-tier. Covers report PDFs whose headers carry no
+  // DO/IT tokens and whose quantities extract as standalone number rows.
   if (!sections.some(s => Object.keys(s.results).length > 0)) {
+    const flatLines: string[] = [];
+    for (const lines of pageLines) for (const ln of lines) flatLines.push(ln);
+    const dated = sectionByDateLines(flatLines, company, kodeMap, sortedKodes);
     sections.length = 0;
-    cur = null;
-    for (const lines of pageLines) {
-      for (const line of lines) {
-        const ref = findRef(line);
-        if (ref) {
-          refsSeen++;
-          cur = newSection(ref, outletFromHeaderLine(line) || cur?.outletRaw || "", company);
-          sections.push(cur);
-          if (matchLineInto(line, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
-          continue;
-        }
-        if (!cur) continue;
-        if (matchLineInto(line, kodeMap, skuMap, sortedKodes, sortedSkus, cur.results)) cur.lines++;
-      }
-    }
+    for (const s of dated) sections.push(s);
   }
 
-  const refs = sections.map(s => s.ref);
+  const refs = sections.map(s => s.ref).filter(Boolean);
   const flatRows = pageRows.flat();
   return {
     sections, company, refs,
