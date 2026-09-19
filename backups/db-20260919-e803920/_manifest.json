@@ -1,0 +1,27 @@
+{
+  "at": "2026-09-19T12:52:11.961Z",
+  "url": "https://yapfgtmcykstdtprijvp.supabase.co",
+  "tables": {
+    "master_data": {
+      "rows": 1
+    },
+    "current_stock": {
+      "rows": 1
+    },
+    "checkers": {
+      "rows": 1
+    },
+    "packing_status": {
+      "rows": 97
+    },
+    "item_usage": {
+      "rows": 108
+    },
+    "digital_pl_checks": {
+      "rows": 17
+    },
+    "profiles": {
+      "rows": 0
+    }
+  }
+}
