@@ -21,6 +21,7 @@ export type OutletSection = {
   results: ScanResult;    // kode-harvested lines for THIS section only
   lines: number;          // matched item rows (for company vote weighting)
   unpaired: number;       // item slots with no qty found (surfaced as warnings, never exported silently)
+  skuList: string[];      // ordered unique slot SKUs (drives manual qty assist when pool is dry)
 };
 
 const REF_RE = /\b(DO|IT)\.\d{4}\.\d{2}\.\d{5}\b/i;
@@ -104,7 +105,7 @@ function matchLineInto(
 }
 
 function newSection(ref: string, outletRaw: string, company: "BBB" | "BBT", key?: string): OutletSection {
-  return { key: key || ref.toUpperCase(), ref: ref.toUpperCase(), outletRaw, company, results: {}, lines: 0, unpaired: 0 };
+  return { key: key || ref.toUpperCase(), ref: ref.toUpperCase(), outletRaw, company, results: {}, lines: 0, unpaired: 0, skuList: [] };
 }
 
 const DATE_ONLY_RE = /^\d{1,2}\s+[A-Za-z]+\s+\d{4}\s*$/;
@@ -272,6 +273,13 @@ function sectionByDateLines(
       if (s.qty !== null) continue;
       if (pi < o.pool.length) { s.qty = o.pool[pi++]; }
     }
+    // ordered SKU list for manual qty assist (real slots only, first-seen order)
+    const seen = new Set<string>();
+    for (const s of o.slots) {
+      if (s.ignored || !s.sku || seen.has(s.sku)) continue;
+      seen.add(s.sku);
+      o.sec.skuList.push(s.sku);
+    }
     const filled = o.slots.filter(s => s.qty !== null && (s.qty as number) > 0 && !s.ignored);
     o.sec.unpaired = o.slots.filter(s => s.qty === null && !s.ignored).length;
     for (const s of filled) {
@@ -347,6 +355,9 @@ export async function smartScanPdfSections(
   }
 
   const refs = sections.map(s => s.ref).filter(Boolean);
+  for (const s of sections) {
+    if (!s.skuList.length) s.skuList = Object.keys(s.results);
+  }
   const flatRows = pageRows.flat();
   return {
     sections, company, refs,
@@ -420,6 +431,9 @@ export async function smartScanExcelSections(
         }
       }
     }
+  }
+  for (const s of sections) {
+    if (!s.skuList.length) s.skuList = Object.keys(s.results);
   }
   return {
     sections, company, refs: sections.map(s => s.ref),

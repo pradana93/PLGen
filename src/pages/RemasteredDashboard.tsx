@@ -26,6 +26,9 @@ type V2Outlet = {
   excluded: boolean;
   deliveryNo: string | null;
   unpaired: number; // item lines with no qty found — warned, never silently exported
+  skuList: string[]; // ordered slot SKUs — drives manual qty assist when the PDF text has no numbers
+  manual: Record<string, string>; // manual base-qty inputs (PDF numbers), applied via toPackedQty like scan path
+  useManual: boolean; // true when scan found SKUs but no quantities — user fills them once
 };
 
 const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -60,7 +63,8 @@ export default function RemasteredDashboard(){
   const showToast = (msg:string)=>{ setToast(msg); setTimeout(()=> setToast(null), 3000); };
 
   const buildOutlet = (sec: OutletSection, md: any, fileIdx: number): V2Outlet | null => {
-    if (Object.keys(sec.results).length === 0 && (sec.unpaired || 0) === 0) return null;
+    const skuList = Array.isArray(sec.skuList) ? sec.skuList : Object.keys(sec.results);
+    if (Object.keys(sec.results).length === 0 && (sec.unpaired || 0) === 0 && skuList.length === 0) return null;
     const m = resolveOutlet(sec.outletRaw, md);
     const canonical = m.canonical;
     const company = companyForOutlet(canonical, sec.outletRaw);
@@ -74,7 +78,36 @@ export default function RemasteredDashboard(){
     // merge key scoped per file so same outlet across pesanan/pemindahan files stays separate
     const key = `${fileIdx}::${sec.key || sec.ref}`;
     const ref = sec.ref || sec.outletRaw || "Unknown outlet";
-    return { key, ref, outletRaw: sec.outletRaw, canonical, matchKind: m.kind as any, company, order, boxes, reviewed: false, excluded: false, deliveryNo: null, unpaired: sec.unpaired || 0 };
+    // manual prefill from auto-paired base qty (same numbers the pool found, if any)
+    const manual: Record<string, string> = {};
+    for (const sku of skuList) {
+      const hit = (sec.results as any)[sku];
+      if (hit && Number((hit as any).qty) > 0) manual[sku] = String((hit as any).qty);
+    }
+    const useManual = Object.keys(sec.results).length === 0 && skuList.length > 0;
+    return { key, ref, outletRaw: sec.outletRaw, canonical, matchKind: m.kind as any, company, order, boxes, reviewed: false, excluded: false, deliveryNo: null, unpaired: sec.unpaired || 0, skuList, manual, useManual };
+  };
+
+  const setManualQty = (key: string, sku: string, val: string)=>{
+    setOutlets(prev => prev.map(o => o.key===key ? { ...o, manual: { ...o.manual, [sku]: val } } : o));
+  };
+
+  const applyManual = (key: string)=>{
+    const o = outlets.find(x=>x.key===key);
+    if(!o || !master) return;
+    const missing = o.skuList.filter(sku=>{
+      const v = String(o.manual[sku] ?? "").trim();
+      return !/^\d+$/.test(v) || parseInt(v,10) <= 0;
+    });
+    if(missing.length) return showToast(`Fill qty ≥ 1 for: ${missing.slice(0,4).join(", ")}${missing.length>4 ? ` +${missing.length-4} more` : ""}`);
+    const order: Order = {};
+    for (const sku of o.skuList) {
+      const base = parseInt(String(o.manual[sku]).trim(),10);
+      order[sku] = { qty: toPackedQty(sku, base), note: "" };
+    }
+    const boxes = calculateBoxes(order, master);
+    setOutlets(prev => prev.map(x=>x.key===key ? { ...x, order, boxes, reviewed: false, unpaired: 0, useManual: false, deliveryNo: null } : x));
+    showToast(`${o.ref} quantities applied (${o.skuList.length} SKUs)`);
   };
 
   const handleFiles = async (files: File[])=>{
@@ -142,6 +175,8 @@ export default function RemasteredDashboard(){
   const handleExportAll = async ()=>{
     if(!included.length) return showToast("Nothing to export");
     if(!checker || checker==="Select Checker") return showToast("Pick a checker first");
+    const needQty = included.filter(o=>o.useManual);
+    if(needQty.length) return showToast(`Set quantities first: ${needQty.slice(0,3).map(o=>o.ref).join(", ")}${needQty.length>3 ? ` +${needQty.length-3} more` : ""}`);
     const unreviewed = included.filter(o=>!o.reviewed);
     if(unreviewed.length && !confirm(`${unreviewed.length} outlet(s) not koli-reviewed. Export anyway?`)) return;
     const bad = included.filter(o=>!o.canonical);
@@ -282,6 +317,20 @@ export default function RemasteredDashboard(){
                   </select>
                 )}
                 <div className="text-[11px] text-slate-500 mt-1">{Object.keys(o.order).length} SKUs • {o.boxes.length} koli {o.reviewed && <span className="text-emerald-600 font-bold">• reviewed ✓</span>} {o.unpaired>0 && <span className="text-amber-600 font-bold">• ⚠ {o.unpaired} lines missing qty</span>}</div>
+                {o.useManual && (
+                  <div className="mt-2 rounded-xl bg-amber-50 border border-amber-200 p-2.5">
+                    <div className="text-[11px] font-bold text-amber-700 mb-1.5">PDF has no readable quantities — enter from the file once ({o.skuList.length} SKUs)</div>
+                    <div className="max-h-44 overflow-auto space-y-1">
+                      {o.skuList.map(sku=>(
+                        <div key={sku} className="flex items-center gap-2">
+                          <span className="flex-1 text-[11px] text-slate-600 truncate" title={sku}>{sku}</span>
+                          <input value={o.manual[sku] ?? ""} onChange={e=>setManualQty(o.key, sku, e.target.value)} inputMode="numeric" placeholder="0" className="w-16 border border-slate-200 rounded-lg px-2 py-1 text-xs font-mono text-center bg-white" />
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={()=>applyManual(o.key)} className="mt-2 w-full px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-xs font-black">Apply quantities</button>
+                  </div>
+                )}
                 <div className="flex gap-1.5 mt-2">
                   <button onClick={()=>setReviewKey(o.key)} className="flex-1 px-3 py-1.5 rounded-lg bg-[#0f1e2e] text-white text-xs font-black hover:bg-black">Koli review</button>
                   <button onClick={()=>setOutlets(prev=>prev.map(x=>x.key===o.key?{...x,excluded:!x.excluded}:x))} className="px-3 py-1.5 rounded-lg border text-xs font-bold hover:bg-slate-50">{o.excluded?"Include":"Skip"}</button>
