@@ -1,52 +1,39 @@
--- Profiles + RLS + SuperAdmin auto-assign for majestap93@gmail.com
--- Run after schema.sql
--- FIXED: replaced recursive EXISTS subqueries with SECURITY DEFINER get_user_role()
+-- Migrate to 3 roles only: Super Admin (immortal), Admin (Dashboard/Digital PL/Live Board), Checker (Digital PL only)
+-- Preserve packing logic — only role names change
 
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text not null unique,
-  role text not null check (role in ('Super Admin','Admin','Checker')),
-  alias text,
-  created_at timestamptz default now(),
-  created_by uuid references public.profiles(id)
-);
+-- 1. Drop old check
+alter table public.profiles drop constraint if exists profiles_role_check;
+-- 2. Migrate existing roles to new names (idempotent)
+update public.profiles set role='Super Admin' where role='SuperAdmin';
+update public.profiles set role='Checker' where role in ('LogisticVittoria','JendralVittoria','InventoryVittoria','TSAVittoria','Checker');
+-- Ensure specified users have correct roles
+update public.profiles set role='Super Admin' where lower(email)='majestap93@gmail.com';
+update public.profiles set role='Admin' where lower(email) in ('arikaadmwarehouse@gmail.com','suhendra.a.d@gmail.com');
+-- 3. New check
+alter table public.profiles add constraint profiles_role_check check (role in ('Super Admin','Admin','Checker'));
 
-alter table public.profiles enable row level security;
-
--- SECURITY DEFINER helper: avoids RLS recursion when checking a user's role
-create or replace function public.get_user_role(uid UUID)
-RETURNS TEXT
-LANGUAGE SQL
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT role FROM public.profiles WHERE id = uid;
-$$;
-
+-- 4. Refresh policies for new role names
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles for select using (
   auth.uid() = id OR public.get_user_role(auth.uid()) IN ('Super Admin', 'Admin')
 );
-
 drop policy if exists "profiles_insert_admin" on public.profiles;
 create policy "profiles_insert_admin" on public.profiles for insert with check (
   public.get_user_role(auth.uid()) IN ('Super Admin', 'Admin')
-  OR auth.jwt() IS NULL -- allow service_role via backend
+  OR auth.jwt() IS NULL
 );
-
 drop policy if exists "profiles_update_admin" on public.profiles;
 create policy "profiles_update_admin" on public.profiles for update using (
   public.get_user_role(auth.uid()) IN ('Super Admin', 'Admin')
 ) with check (
   public.get_user_role(auth.uid()) IN ('Super Admin', 'Admin')
 );
-
 drop policy if exists "profiles_delete_admin" on public.profiles;
 create policy "profiles_delete_admin" on public.profiles for delete using (
   public.get_user_role(auth.uid()) IN ('Super Admin', 'Admin')
 );
 
--- Super Admin (immortal) auto-assign for majestap93@gmail.com — 3 roles only: Super Admin, Admin, Checker
+-- 5. Update trigger for 3 roles
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -68,11 +55,3 @@ begin
   return new;
 end;
 $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-
--- Ensure majestap93@gmail.com if already exists gets SuperAdmin (idempotent)
--- This will be handled by trigger on next insert, and we also upsert via backend on login

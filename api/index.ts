@@ -867,7 +867,7 @@ async function requireAdmin(req: any, res: any, next: any) {
   if (key === ADMIN_SECRET) return next();
   try {
     const user = await getUserFromReq(req);
-    if (user && ["SuperAdmin","Admin"].includes(user.role)) return next();
+    if (user && ["Super Admin","Admin"].includes(user.role)) return next();
   } catch {}
   return res.status(401).send("Unauthorized");
 }
@@ -897,10 +897,10 @@ async function getUserFromReq(req: any): Promise<{ id: string, email: string, ro
         const uid = data.user.id;
         const email = (data.user.email || "").toLowerCase();
         const { data: prof } = await sb.from("profiles").select("role,email").eq("id", uid).single();
-        const role = prof?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
-        if (email === "majestap93@gmail.com" && role !== "SuperAdmin") {
-          await sb.from("profiles").upsert({ id: uid, email, role: "SuperAdmin" }, { onConflict: "id" });
-          return { id: uid, email, role: "SuperAdmin" };
+        const role = prof?.role || (email === "majestap93@gmail.com" ? "Super Admin" : "Checker");
+        if (email === "majestap93@gmail.com" && role !== "Super Admin") {
+          await sb.from("profiles").upsert({ id: uid, email, role: "Super Admin" }, { onConflict: "id" });
+          return { id: uid, email, role: "Super Admin" };
         }
         return { id: uid, email, role };
       }
@@ -911,13 +911,13 @@ async function getUserFromReq(req: any): Promise<{ id: string, email: string, ro
     const email = decoded.email;
     const users = jsonRead<any[]>("users.json", []);
     const found = users.find((u:any)=> String(u.email||"").toLowerCase()===email);
-    const role = found?.role || (email === "majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria");
+    const role = found?.role || (email === "majestap93@gmail.com" ? "Super Admin" : "Checker");
     return { id: decoded.id || found?.id || "file", email, role };
   } catch { return null; }
 }
 async function requireSupabaseAdmin(req: any, res: any, next: any) {
   const user = await getUserFromReq(req);
-  if (!user || !["SuperAdmin","Admin"].includes(user.role)) return res.status(403).json({ error: "Admin only" });
+  if (!user || !["Super Admin","Admin"].includes(user.role)) return res.status(403).json({ error: "Admin only" });
   (req as any).supaUser = user;
   next();
 }
@@ -954,9 +954,9 @@ app.get("/api/users", requireSupabaseAdmin, async (_req, res) => {
   }
   // File fallback when Supabase not configured on Vercel
   const users = jsonRead<any[]>("users.json", []);
-  // Ensure majestap93@gmail.com SuperAdmin exists in file fallback
+  // Ensure majestap93@gmail.com Super Admin exists in file fallback
   if (!users.find((u:any)=> String(u.email||"").toLowerCase()==="majestap93@gmail.com")) {
-    users.unshift({ id: "superadmin", email: "majestap93@gmail.com", role: "SuperAdmin", alias: "Majesta", created_at: new Date().toISOString() });
+    users.unshift({ id: "superadmin", email: "majestap93@gmail.com", role: "Super Admin", alias: "Majesta", created_at: new Date().toISOString() });
   }
   // Never expose passwords
   const safe = users.map((u:any)=> ({ id: u.id, email: u.email, role: u.role, alias: u.alias, created_at: u.created_at, last_seen_at: (u as any).last_seen_at || null, last_login_at: (u as any).last_login_at || null, last_sign_in_at: (u as any).last_sign_in_at || null }));
@@ -979,10 +979,10 @@ app.post("/api/users/heartbeat", async (req, res) => {
 app.post("/api/users", requireSupabaseAdmin, async (req, res) => {
   const { email, password, role, alias } = req.body;
   if (!email || !password || !role) return res.status(400).json({ error: "Missing email/password/role" });
-  const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+  const allowed = ["Super Admin","Admin","Checker"];
   if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
   const requester = (req as any).supaUser;
-  if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can create SuperAdmin" });
+  if (role === "Super Admin" && requester.role !== "Super Admin") return res.status(403).json({ error: "Only Super Admin can create Super Admin" });
   const sb = await getSupabase();
   if (sb) {
     const { data, error } = await sb.auth.admin.createUser({ email: String(email).toLowerCase().trim(), password, email_confirm: true, user_metadata: { alias: alias || email.split("@")[0], role } });
@@ -1015,10 +1015,10 @@ app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
     }
     const updates: any = {};
     if (role) {
-      const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+      const allowed = ["Super Admin","Admin","Checker"];
       if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
       const requester = (req as any).supaUser;
-      if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can assign SuperAdmin" });
+      if (role === "Super Admin" && requester.role !== "Super Admin") return res.status(403).json({ error: "Only Super Admin can assign Super Admin" });
       updates.role = role;
     }
     if (alias !== undefined) updates.alias = alias;
@@ -1040,10 +1040,10 @@ app.patch("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
     users[idx].password = String(password);
   }
   if (role) {
-    const allowed = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"];
+    const allowed = ["Super Admin","Admin","Checker"];
     if (!allowed.includes(role)) return res.status(400).json({ error: "Invalid role" });
     const requester = (req as any).supaUser;
-    if (role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can assign SuperAdmin" });
+    if (role === "Super Admin" && requester.role !== "Super Admin") return res.status(403).json({ error: "Only Super Admin can assign Super Admin" });
     users[idx].role = role;
   }
   if (alias !== undefined) users[idx].alias = alias;
@@ -1059,7 +1059,7 @@ app.delete("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
   const sb = await getSupabase();
   if (sb) {
     const { data: target } = await sb.from("profiles").select("role").eq("id", id).single();
-    if (target?.role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
+    if (target?.role === "Super Admin" && requester.role !== "Super Admin") return res.status(403).json({ error: "Only Super Admin can delete Super Admin" });
     const { error } = await sb.auth.admin.deleteUser(id);
     if (error) return res.status(400).json({ error: error.message });
     await sb.from("profiles").delete().eq("id", id);
@@ -1069,7 +1069,7 @@ app.delete("/api/users/:id", requireSupabaseAdmin, async (req, res) => {
   const users = jsonRead<any[]>("users.json", []);
   const idx = users.findIndex((u:any)=> String(u.id)===String(id));
   if (idx===-1) return res.status(404).json({ error: "User not found" });
-  if (users[idx].role === "SuperAdmin" && requester.role !== "SuperAdmin") return res.status(403).json({ error: "Only SuperAdmin can delete SuperAdmin" });
+  if (users[idx].role === "Super Admin" && requester.role !== "Super Admin") return res.status(403).json({ error: "Only Super Admin can delete Super Admin" });
   users.splice(idx,1);
   jsonWrite("users.json", users);
   res.json({ status: "success" });
@@ -1780,7 +1780,7 @@ app.get("/api/packing_lists/:delivery_no/download", async (req, res) => {
     return res.status(500).json({ error: e?.message || "Download error" });
   }
 });
-// SuperAdmin-only cascade delete — removes PL from packing_status, item_usage, and Storage (archive)
+// Super Admin-only cascade delete — removes PL from packing_status, item_usage, and Storage (archive)
 // Rest of Data Report (Top SKU, Tonnage, Monthly) automatically reflects deletion because they read from those tables — non-breaking additive
 app.delete("/api/packing_lists/:delivery_no", requireSupabaseAdmin, async (req, res) => {
   const delivery = decodeURIComponent(req.params.delivery_no);
@@ -1823,7 +1823,7 @@ app.delete("/api/packing_lists/:delivery_no", requireSupabaseAdmin, async (req, 
   try {
     const user = (req as any).supaUser;
     const logs = jsonRead<any[]>("audit_logs.json", []);
-    logs.push({ timestamp: wibNowStr(), user: user?.email||"SuperAdmin", role: user?.role||"SuperAdmin", action_type: "DELETE_PL", details: `Deleted ${delivery} — packing:${deletedPacking} usage:${deletedUsage} files:${deletedFiles}` });
+    logs.push({ timestamp: wibNowStr(), user: user?.email||"Super Admin", role: user?.role||"Super Admin", action_type: "DELETE_PL", details: `Deleted ${delivery} — packing:${deletedPacking} usage:${deletedUsage} files:${deletedFiles}` });
     if (logs.length>5000) logs.splice(0, logs.length-5000);
     jsonWrite("audit_logs.json", logs);
   } catch {}
@@ -2312,12 +2312,12 @@ app.post("/api/anticheat/detect", async (req, res) => {
     const sb = await getSupabase();
     if (!sb) return res.json({ ok: false, error: "no supabase" });
 
-    // IMMORTAL: SuperAdmin (owner) is exempt from auto-ban — violation logged but never enforced
+    // IMMORTAL: Super Admin (owner) is exempt from auto-ban — violation logged but never enforced
     if (email?.toLowerCase() === "majestap93@gmail.com" || user_id === "superadmin") {
       try {
-        await sb.from("audit_logs").insert({ user: email || "superadmin", role: "SuperAdmin", action_type: "ANTICHEAT_EXEMPT", details: `SuperAdmin exempt from auto-ban: ${reason} ${detail || ""}` });
+        await sb.from("audit_logs").insert({ user: email || "superadmin", role: "Super Admin", action_type: "ANTICHEAT_EXEMPT", details: `Super Admin exempt from auto-ban: ${reason} ${detail || ""}` });
       } catch {}
-      return res.json({ ok: true, banned: false, exempt: true, reason: "SuperAdmin immortal" });
+      return res.json({ ok: true, banned: false, exempt: true, reason: "Super Admin immortal" });
     }
 
     // Count violations for this user in last 30 days
@@ -2387,10 +2387,10 @@ app.post("/api/users/:id/ban", requireSupabaseAdmin, async (req, res) => {
   if (!sb) return res.status(500).json({ error: "no supabase" });
 
   const adminUser = (req as any).supaUser;
-  // IMMORTAL: SuperAdmin accounts can never be banned — hard immunity, no exceptions
+  // IMMORTAL: Super Admin accounts can never be banned — hard immunity, no exceptions
   const { data: target } = await sb.from("profiles").select("role,email").eq("id", id).single();
-  if (target?.role === "SuperAdmin" || target?.email?.toLowerCase() === "majestap93@gmail.com") {
-    return res.status(403).json({ error: "SuperAdmin accounts are immortal — cannot be banned" });
+  if (target?.role === "Super Admin" || target?.email?.toLowerCase() === "majestap93@gmail.com") {
+    return res.status(403).json({ error: "Super Admin accounts are immortal — cannot be banned" });
   }
   // Prevent self-ban
   if (adminUser?.id === id) {
@@ -2440,7 +2440,7 @@ app.post("/api/users/:id/approve", requireSupabaseAdmin, async (req, res) => {
   res.json({ ok: true, approved: approved !== false });
 });
 
-// Get anticheat violations (SuperAdmin only)
+// Get anticheat violations (Super Admin only)
 app.get("/api/anticheat/violations", requireSupabaseAdmin, async (req, res) => {
   const sb = await getSupabase();
   if (!sb) return res.status(500).json({ error: "no supabase" });

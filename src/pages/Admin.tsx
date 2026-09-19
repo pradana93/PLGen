@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { useLanguage } from "../i18n";
 
-const ROLES = ["SuperAdmin","Admin","JendralVittoria","InventoryVittoria","TSAVittoria","LogisticVittoria"] as const;
+const ROLES = ["Super Admin","Admin","Checker"] as const;
 
 const KNOWN_TERMINALS: Record<string,string> = {
   "Majesta (Lead Developer)": "8DB7CE3731E42814",
@@ -61,7 +61,7 @@ export default function Admin(){
   const [newChecker,setNewChecker]=useState("");
   // User Management
   const [users,setUsers]=useState<any[]>([]);
-  const [newUser,setNewUser]=useState({ email:"", password:"", role:"LogisticVittoria" as typeof ROLES[number], alias:"" });
+  const [newUser,setNewUser]=useState({ email:"", password:"", role:"Checker" as typeof ROLES[number], alias:"" });
   const [editing,setEditing]=useState<Record<string, {role:string, alias:string}>>({});
   // Master Data detailed
   const [masterTab, setMasterTab]=useState<"overview"|"skus"|"kodes"|"outlets"|"holidays">("overview");
@@ -91,8 +91,8 @@ export default function Admin(){
   const [violations,setViolations]=useState<any[]>([]);
   const [showViolations,setShowViolations]=useState(false);
 
-  const isSuperAdmin = profile?.role==="SuperAdmin";
-  const isAdmin = profile?.role==="SuperAdmin" || profile?.role==="Admin";
+  const isSuperAdmin = profile?.role==="Super Admin";
+  const isAdmin = profile?.role==="Super Admin" || profile?.role==="Admin";
 
   // Helpers for Online Status / Last Seen (WIB) — non-breaking additive
   const isOnline = (iso: string|null|undefined) => {
@@ -411,7 +411,7 @@ export default function Admin(){
     });
     const j = await res.json();
     if(!res.ok) return alert(`❌ ${j.error}`);
-    setNewUser({ email:"", password:"", role:"LogisticVittoria", alias:"" });
+    setNewUser({ email:"", password:"", role:"Checker", alias:"" });
     fetchUsers();
   };
 
@@ -491,7 +491,7 @@ export default function Admin(){
           <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">{t("admin.userMgmt")}</h3>
           <span className="ml-auto text-[10px] font-bold tracking-widest bg-slate-100 border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full">SECURE</span>
         </div>
-        <p className="text-xs text-gray-500 mb-3">{t("admin.userMgmtDesc1")} <b>SuperAdmin</b> ({profile?.role==="SuperAdmin"?t("admin.you"): "majestap93@gmail.com"}) {t("admin.userMgmtDesc2")} <b>Admin</b> {t("admin.userMgmtDesc3")}</p>
+        <p className="text-xs text-gray-500 mb-3">{t("admin.userMgmtDesc1")} <b>SuperAdmin</b> ({profile?.role==="Super Admin"?t("admin.you"): "majestap93@gmail.com"}) {t("admin.userMgmtDesc2")} <b>Admin</b> {t("admin.userMgmtDesc3")}</p>
         {!isAdmin ? (
           <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{t("admin.needAdmin", { role: profile?.role })}</div>
         ) : (
@@ -501,7 +501,7 @@ export default function Admin(){
               <input value={newUser.password} onChange={e=> setNewUser({...newUser, password:e.target.value})} placeholder={t("admin.passwordMin")} type="password" className="border rounded-lg px-3 py-2 text-sm" />
               <input value={newUser.alias} onChange={e=> setNewUser({...newUser, alias:e.target.value})} placeholder={t("admin.aliasOptional")} className="border rounded-lg px-3 py-2 text-sm" />
               <select value={newUser.role} onChange={e=> setNewUser({...newUser, role:e.target.value as any})} className="border rounded-lg px-3 py-2 text-sm">
-                {ROLES.filter(r=> isSuperAdmin || r!=="SuperAdmin").map(r=> <option key={r} value={r}>{r}</option>)}
+                {ROLES.filter(r=> isSuperAdmin || r!=="Super Admin").map(r=> <option key={r} value={r}>{r}</option>)}
               </select>
               <button onClick={handleAddUser} className="bg-[#27ae60] text-white rounded-lg px-4 py-2 font-bold text-sm">{t("admin.addAccount")}</button>
             </div>
@@ -545,10 +545,10 @@ export default function Admin(){
                       <td className="p-2.5 text-center">
                         {editing[u.id] ? (
                           <select value={editing[u.id].role} onChange={e=> setEditing({...editing,[u.id]:{...editing[u.id],role:e.target.value}})} className="border rounded px-2 py-1 text-xs">
-                            {ROLES.filter(r=> isSuperAdmin || r!=="SuperAdmin").map(r=> <option key={r} value={r}>{r}</option>)}
+                            {ROLES.filter(r=> isSuperAdmin || r!=="Super Admin").map(r=> <option key={r} value={r}>{r}</option>)}
                           </select>
                         ) : (
-                          <><span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="SuperAdmin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>{u.role==="SuperAdmin" && <span className="ml-1 text-[9px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">🛡️ IMMORTAL</span>}</>
+                          <><span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="Super Admin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>{u.role==="Super Admin" && <span className="ml-1 text-[9px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">🛡️ IMMORTAL</span>}</>
                         )}
                       </td>
                       <td className="p-2.5 text-center">
@@ -571,7 +571,7 @@ export default function Admin(){
                             {u.banned ? (
                               <button onClick={()=> handleUnban(u.id)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">🔓 Unban</button>
                             ) : (
-                              <button onClick={()=> setBanTarget({id: u.id, email: u.email})} className="text-[11px] bg-red-500 text-white px-2 py-1 rounded font-bold" disabled={u.id===profile?.id || u.role==="SuperAdmin"} title={u.role==="SuperAdmin" ? "🛡️ Immortal — SuperAdmin cannot be banned" : ""}>🔨</button>
+                              <button onClick={()=> setBanTarget({id: u.id, email: u.email})} className="text-[11px] bg-red-500 text-white px-2 py-1 rounded font-bold" disabled={u.id===profile?.id || u.role==="Super Admin"} title={u.role==="Super Admin" ? "🛡️ Immortal — SuperAdmin cannot be banned" : ""}>🔨</button>
                             )}
                             {u.approved === false ? (
                               <button onClick={()=> handleApprove(u.id, true)} className="text-[11px] bg-emerald-500 text-white px-2 py-1 rounded font-bold">✅ Approve</button>

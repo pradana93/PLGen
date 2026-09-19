@@ -22,7 +22,7 @@ export default function AntiCheatProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     // IMMORTAL: SuperAdmin never runs anti-cheat engine at all — no traps, no reports, no risk
-    if (!user || isBanned || profile?.role === "SuperAdmin") {
+    if (!user || isBanned || profile?.role === "Super Admin") {
       stopAntiCheat();
       return;
     }

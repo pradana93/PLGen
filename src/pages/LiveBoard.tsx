@@ -25,8 +25,8 @@ function formatKg(v:number){ return `${v.toLocaleString()} kg`; }
 export default function LiveBoard(){
   const { t } = useLanguage();
   const { profile } = useAuth();
-  const isSuperAdmin = profile?.role === "SuperAdmin";
-  const isBoardAdmin = profile?.role === "SuperAdmin" || profile?.role === "Admin";
+  const isSuperAdmin = profile?.role === "Super Admin";
+  const isBoardAdmin = profile?.role === "Super Admin" || profile?.role === "Admin";
   const [plView, setPlView] = useState<any|null>(null);
   const [data, setData]=useState<any[]>([]);
   const [filter, setFilter]=useState("");

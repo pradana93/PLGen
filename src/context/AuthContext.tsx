@@ -31,16 +31,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await supabase.from("profiles").select("id,email,role,alias,last_seen_at,last_login_at,created_at,banned,banned_reason,banned_until,approved,approved_at").eq("id", uid).single();
     if (data) {
       // Auto-fix SuperAdmin for majestap93@gmail.com if needed (in case trigger missed)
-      if (email.toLowerCase()==="majestap93@gmail.com" && (data as any).role!=="SuperAdmin") {
-        await supabase.from("profiles").update({ role: "SuperAdmin" }).eq("id", uid);
-        (data as any).role = "SuperAdmin";
+      if (email.toLowerCase()==="majestap93@gmail.com" && (data as any).role!=="Super Admin") {
+        await supabase.from("profiles").update({ role: "Super Admin" }).eq("id", uid);
+        (data as any).role = "Super Admin";
       }
       // opportunistic last_seen refresh (non-blocking)
       touchLastSeen(uid);
       return data as Profile;
     }
     // Fallback: create profile via API if not exists (should be created by trigger, but handle)
-    return { id: uid, email, role: email.toLowerCase()==="majestap93@gmail.com" ? "SuperAdmin" : "LogisticVittoria" } as Profile;
+    return { id: uid, email, role: email.toLowerCase()==="majestap93@gmail.com" ? "Super Admin" : "Checker" } as Profile;
   };
 
   useEffect(()=>{

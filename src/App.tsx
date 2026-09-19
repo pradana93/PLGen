@@ -54,19 +54,20 @@ function Nav(){
           </div>
         </Link>
 
-        {/* Nav pills — centered */}
+        {/* Nav pills — centered — role-gated flagship (Super Admin immortal full, Admin Dashboard/Digital PL/Live Board, Checker Digital PL only) */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 bg-black/10 border border-white/10 rounded-full p-1">
-          {link("/", t("nav.dashboard"))}
-          {link("/digital-pl", t("nav.digitalPl"))}
-          {link("/live", t("nav.live"))}
-          {link("/admin", t("nav.admin"))}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/", t("nav.dashboard"))}
+          {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", t("nav.digitalPl"))}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", t("nav.live"))}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/admin", t("nav.admin"))}
+          {!profile && <span className="text-white/40 text-xs px-2">Login to view</span>}
         </div>
         {/* mobile nav */}
         <div className="flex md:hidden items-center gap-1 ml-2">
-          {link("/", "Dash")}
-          {link("/digital-pl", "DigiPL")}
-          {link("/live", "Report")}
-          {link("/admin", "Admin")}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/", "Dash")}
+          {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", "DigiPL")}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", "Report")}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/admin", "Admin")}
         </div>
 
         {/* Right */}
@@ -176,12 +177,13 @@ function AppRoutes(){
       <button onClick={()=> setFeedbackOpen(true)} className="fixed bottom-5 left-5 z-40 hidden md:flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0f1e2e] text-white text-xs font-black shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-white/10 hover:bg-black transition">💬 Feedback</button>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Protected><Dashboard /></Protected>} />
-        <Route path="/digital-pl" element={<Protected><DigitalPl /></Protected>} />
-        <Route path="/live" element={<Protected><LiveBoard /></Protected>} />
-        <Route path="/manifests" element={<Protected><Manifests /></Protected>} />
-        <Route path="/inbound" element={<Protected><Inbound /></Protected>} />
-        <Route path="/admin" element={<Protected roles={["SuperAdmin","Admin"]}><Admin /></Protected>} />
+        {/* Admin: Dashboard + Digital PL + Live Board; Checker: Digital PL only; Super Admin: all */}
+        <Route path="/" element={<Protected roles={["Super Admin","Admin"]}><Dashboard /></Protected>} />
+        <Route path="/digital-pl" element={<Protected roles={["Super Admin","Admin","Checker"]}><DigitalPl /></Protected>} />
+        <Route path="/live" element={<Protected roles={["Super Admin","Admin"]}><LiveBoard /></Protected>} />
+        <Route path="/manifests" element={<Protected roles={["Super Admin"]}><Manifests /></Protected>} />
+        <Route path="/inbound" element={<Protected roles={["Super Admin"]}><Inbound /></Protected>} />
+        <Route path="/admin" element={<Protected roles={["Super Admin","Admin"]}><Admin /></Protected>} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
       </Routes>
       <footer className="mt-10 border-t border-white/10 bg-[#0f1e2e] text-slate-300">
