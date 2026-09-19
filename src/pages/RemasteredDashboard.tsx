@@ -42,6 +42,7 @@ export default function RemasteredDashboard(){
   const [exporting, setExporting] = useState(false);
   const [reviewKey, setReviewKey] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{file:string;pages:number;textChars:number;rowsTotal:number;refsSeen:number;textSample:string;rowSample:string[]}[]>([]);
 
   useEffect(()=>{
     (async()=>{
@@ -78,10 +79,14 @@ export default function RemasteredDashboard(){
     try {
       const merged = new Map<string, V2Outlet>();
       const debugs: string[] = [];
+      const dbgRows: {file:string;pages:number;textChars:number;rowsTotal:number;refsSeen:number;textSample:string;rowSample:string[]}[] = [];
       for (const file of files) {
         const isXlsx = /\.xlsx?$/i.test(file.name);
         const data = isXlsx ? await smartScanExcelSections(file, master) : await smartScanPdfSections(file, master);
-        if (data.debug) debugs.push(`${file.name}: ${data.debug.pages}p/${data.debug.textChars}ch/${data.debug.rowsTotal}rows/${data.debug.refsSeen}refs`);
+        if (data.debug) {
+          debugs.push(`${file.name}: ${data.debug.pages}p/${data.debug.textChars}ch/${data.debug.rowsTotal}rows/${data.debug.refsSeen}refs`);
+          dbgRows.push({ file: file.name, ...data.debug });
+        }
         for (const sec of data.sections) {
           const built = buildOutlet(sec, master);
           if (!built) continue;
@@ -100,8 +105,9 @@ export default function RemasteredDashboard(){
         }
       }
       const list = [...merged.values()];
+      setDebugInfo(dbgRows);
       if (!list.length) showToast(`No scannable outlet sections found (${debugs.join(" • ") || "no text extracted — scanned-image PDF? try Excel export"})`);
-      else showToast(`Scanned ${list.length} outlets`);
+      else { setDebugInfo([]); showToast(`Scanned ${list.length} outlets`); }
       setOutlets(prev => {
         const map = new Map(prev.map(o => [o.key, o]));
         for (const o of list) if (!map.has(o.key)) map.set(o.key, o);
@@ -195,6 +201,25 @@ export default function RemasteredDashboard(){
       </div>
 
       {toast && <div className="text-xs font-semibold p-3 rounded-2xl border bg-[#0f1e2e] text-white border-white/10">{toast}</div>}
+
+      {outlets.length===0 && debugInfo.length>0 && (
+        <details className="bg-white/95 rounded-[20px] border border-amber-300 shadow p-5 text-xs">
+          <summary className="cursor-pointer font-black text-[#0f1e2e]">🔍 Scan diagnostics — expand and send me this text</summary>
+          {debugInfo.map((d,i)=>(
+            <div key={i} className="mt-3 space-y-2">
+              <div className="font-mono font-bold">{d.file} — {d.pages}p/{d.textChars}ch/{d.rowsTotal}rows/{d.refsSeen}refs</div>
+              <div>
+                <div className="font-bold text-slate-500">TEXT SAMPLE (first 2000 chars):</div>
+                <pre className="mt-1 max-h-48 overflow-auto bg-slate-900 text-emerald-200 rounded-xl p-3 whitespace-pre-wrap break-all font-mono text-[11px]">{d.textSample || "(empty)"}</pre>
+              </div>
+              <div>
+                <div className="font-bold text-slate-500">FIRST {Math.min(30,d.rowSample.length)} ROWS:</div>
+                <pre className="mt-1 max-h-48 overflow-auto bg-slate-50 border rounded-xl p-3 whitespace-pre-wrap break-all font-mono text-[11px]">{d.rowSample.map((r,j)=>`${j+1}. ${r}`).join("\n") || "(none)"}</pre>
+              </div>
+            </div>
+          ))}
+        </details>
+      )}
 
       <div
         onDragOver={e=>{e.preventDefault();setDragOver(true);}}

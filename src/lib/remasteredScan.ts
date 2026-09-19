@@ -25,7 +25,7 @@ const REF_RE = /\b(DO|IT)\.\d{4}\.\d{2}\.\d{5}\b/i;
 const REF_RE_NOSPACE = /(DO|IT)\.\d{4}\.\d{2}\.\d{5}/i;
 const DATE_RE = /\d{1,2}\s+[A-Za-z]+\s+\d{4}/;
 
-export type ScanDebug = { pages: number; textChars: number; rowsTotal: number; refsSeen: number };
+export type ScanDebug = { pages: number; textChars: number; rowsTotal: number; refsSeen: number; textSample: string; rowSample: string[] };
 
 // pdfjs often tokenizes punctuation ("DO . 2026 . 09 . 02687") — collapse
 // whitespace before REF matching (detection only; outlet parsing keeps spacing).
@@ -180,7 +180,16 @@ export async function smartScanPdfSections(
   }
 
   const refs = sections.map(s => s.ref);
-  return { sections, company, refs, debug: { pages: pageRows.length, textChars: allTextUpper.length, rowsTotal, refsSeen } };
+  const flatRows = pageRows.flat();
+  return {
+    sections, company, refs,
+    debug: {
+      pages: pageRows.length, textChars: allTextUpper.length, rowsTotal,
+      refsSeen,
+      textSample: allTextUpper.slice(0, 2000),
+      rowSample: flatRows.slice(0, 30).map(r => r.join(" | ")),
+    },
+  };
 }
 
 export async function smartScanExcelSections(
@@ -245,5 +254,12 @@ export async function smartScanExcelSections(
       }
     }
   }
-  return { sections, company, refs: sections.map(s => s.ref), debug: { pages: 1, textChars: allText.length, rowsTotal: rows.length, refsSeen } };
+  return {
+    sections, company, refs: sections.map(s => s.ref),
+    debug: {
+      pages: 1, textChars: allText.length, rowsTotal: rows.length, refsSeen,
+      textSample: allText.slice(0, 2000),
+      rowSample: rows.slice(0, 30).map(r => (r as any[]).map(c => String(c ?? "")).join(" | ")),
+    },
+  };
 }
