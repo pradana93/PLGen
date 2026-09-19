@@ -1432,6 +1432,44 @@ app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
   const done = rec.checks.filter((c:any)=>c?.checked).length;
   res.json({ status: "success", done, total: rec.boxes.length });
 });
+// PUT revise single SKU in a Koli — shortage flow, note mandatory, additive overlay on snapshot only (never touches calculateBoxes)
+app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
+  const dn = decodeURIComponent(req.params.delivery_no);
+  const { koli_index, sku, qty, note } = req.body as { koli_index?: number; sku?: string; qty?: number; note?: string };
+  const by = String((req.body as any)?.by || (req.headers["x-user-email"] as string) || "").slice(0,120);
+  if(typeof koli_index!=="number" || koli_index<0) return res.status(400).json({ error: "koli_index required" });
+  if(!sku || typeof sku!=="string") return res.status(400).json({ error: "sku required" });
+  if(qty===undefined || qty===null || !Number.isInteger(Number(qty)) || Number(qty)<0) return res.status(400).json({ error: "qty must be integer >=0" });
+  if(!note || String(note).trim().length < 5) return res.status(400).json({ error: "note is mandatory (min 5 chars) — why shortage/revision" });
+  const cleanNote = String(note).trim().slice(0,500).replace(/[\r\n]+/g," ").replace(/\s{2,}/g," ");
+  const store = readDigitalPl();
+  const rec = store[dn];
+  if(!rec) return res.status(404).json({ error: "No Digital PL snapshot for "+dn });
+  if(koli_index>=rec.boxes.length) return res.status(400).json({ error: "koli_index out of range" });
+  const box = rec.boxes[koli_index] as Record<string,number>;
+  if(!(sku in box)) return res.status(404).json({ error: `SKU ${sku} not in Koli ${koli_index+1}` });
+  const prevQty = Number(box[sku]||0);
+  if(Number(qty)===prevQty) return res.status(400).json({ error: "No change" });
+  // apply revision — keep box clean (0 removes line)
+  if(Number(qty)===0) delete box[sku];
+  else box[sku]=Number(qty);
+  // store revision note alongside — additive field revision_notes: Record<koli_index, Record<sku,string>>
+  const notesKey = "revision_notes" as any;
+  if(!(rec as any)[notesKey]) (rec as any)[notesKey]={};
+  if(!(rec as any)[notesKey][koli_index]) (rec as any)[notesKey][koli_index]={};
+  (rec as any)[notesKey][koli_index][sku]=`${prevQty}→${qty} by ${by||"unknown"}: ${cleanNote}`;
+  // keep note history for audit
+  const histKey = "revision_history" as any;
+  if(!(rec as any)[histKey]) (rec as any)[histKey]=[];
+  (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString() });
+  rec.updated_at = new Date().toISOString();
+  writeDigitalPl(store);
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at, ...( { revision_notes: (rec as any)[notesKey], revision_history: (rec as any)[histKey] } as any) }).catch(()=>{});
+  // audit
+  try { const logs=jsonRead<any[]>("audit_logs.json",[]); logs.push({ timestamp: wibNowStr(), user: by||"unknown", role:"DigitalPL", action_type:"REVISE_KOLI", details:`${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} note:${cleanNote}`}); if(logs.length>5000) logs.splice(0,logs.length-5000); jsonWrite("audit_logs.json",logs);} catch {}
+  res.json({ status:"success", koli_index, sku, qty: Number(qty), note: cleanNote });
+});
+
 // POST done — validates all koli checked + dus required, then flips packing_status READY via the same path as Live Board
 app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);

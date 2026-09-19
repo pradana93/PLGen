@@ -16,6 +16,7 @@ export default function DigitalPl(){
   const [boxes, setBoxes] = useState<KoliBox[]>([]);
   const [checks, setChecks] = useState<Check[]>([]);
   const [header, setHeader] = useState<any>(null);
+  const [revisionNotes, setRevisionNotes] = useState<Record<string, Record<string,string>>>({});
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{type:"ok"|"err",text:string}|null>(null);
   const [noSnap, setNoSnap] = useState("");
@@ -23,6 +24,10 @@ export default function DigitalPl(){
   const [dusL, setDusL] = useState("0");
   const [dusS, setDusS] = useState("0");
   const [saving, setSaving] = useState(false);
+  const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
+  const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
+  const [revQty, setRevQty] = useState("");
+  const [revNote, setRevNote] = useState("");
 
   const flash = (type:"ok"|"err", text:string)=>{ setMsg({type,text}); setTimeout(()=> setMsg(null), 3500); };
 
@@ -37,6 +42,7 @@ export default function DigitalPl(){
     } catch { setPending([]); }
   };
   useEffect(()=>{ fetchPending(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const md=await apiGet("/api/master_data"); setMaster(md);}catch{} })(); },[]);
 
   const loadPl = async (deliveryNo: string)=>{
     if(!deliveryNo) return;
@@ -45,10 +51,12 @@ export default function DigitalPl(){
       const d = await apiGet(`/api/digital_pl/${encodeURIComponent(deliveryNo)}`);
       setBoxes(Array.isArray(d.boxes)?d.boxes:[]);
       setChecks(Array.isArray(d.checks)?d.checks:[]);
+      setRevisionNotes((d.revision_notes||{}) as any);
       setHeader(d.header||null);
       setDusBesar(String(d.dus_besar??0)); setDusL(String(d.dus_l??0)); setDusS(String(d.dus_s??0));
     } catch(e:any){
       setBoxes([]); setChecks([]);
+      setRevisionNotes({});
       setNoSnap(e?.message || "No Digital PL snapshot — export the PL first");
     }
     setLoading(false);
@@ -61,16 +69,47 @@ export default function DigitalPl(){
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
-    // optimistic
     setChecks(prev=> prev.map((c,j)=> j===i ? {checked:next, by: next?email:"", at: next?new Date().toISOString():""} : c));
     try {
-      const r = await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/check`, { koli_index: i, checked: next, by: email });
-      if(r?.done!==undefined){ /* server is source of truth on next load */ }
+      await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/check`, { koli_index: i, checked: next, by: email });
     } catch(e:any){
-      // rollback
       setChecks(prev=> prev.map((c,j)=> j===i ? {checked:!next, by:"", at:""} : c));
       flash("err", e?.message||"Sync failed");
     }
+  };
+
+  const openRevise = (koli:number, sku:string, qty:number)=>{
+    setRevise({ koli, sku, qty });
+    setRevQty(String(qty));
+    setRevNote("");
+  };
+  const submitRevise = async ()=>{
+    if(!revise) return;
+    const q = parseInt(revQty,10);
+    if(isNaN(q) || q<0) return flash("err","Qty must be 0 or more");
+    if(!revNote.trim() || revNote.trim().length<5) return flash("err","Note is mandatory (min 5 chars) — explain shortage");
+    try{
+      const r:any = await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/revise`, { koli_index: revise.koli, sku: revise.sku, qty: q, note: revNote.trim(), by: email });
+      // apply locally
+      setBoxes(prev=> {
+        const next=[...prev];
+        const box={...next[revise.koli]};
+        if(q===0) delete box[revise.sku];
+        else box[revise.sku]=q;
+        next[revise.koli]=box;
+        return next.filter(b=> Object.keys(b).length>0);
+      });
+      // also update revisionNotes locally for immediate high-visibility
+      setRevisionNotes(prev=>{
+        const next={...prev} as any;
+        if(!next[revise.koli]) next[revise.koli]={};
+        next[revise.koli][revise.sku]=`${revise.qty}→${q} by ${email}: ${revNote.trim()}`;
+        return next;
+      });
+      flash("ok",`Updated ${revise.sku} ${revise.qty}→${q}`);
+      setRevise(null);
+      await loadPl(dn);
+    }catch(e:any){ flash("err", e?.message||"Revise failed"); }
   };
 
   const parseDus = (v:string)=> /^\d+$/.test(v.trim()) ? parseInt(v.trim(),10) : NaN;
@@ -102,7 +141,7 @@ export default function DigitalPl(){
                 <span className="font-black text-[18px] tracking-tight">Digital PL</span>
                 <span className="text-[10px] font-bold tracking-widest bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full">FIELD CHECKLIST</span>
               </div>
-              <div className="text-xs text-white/60 mt-1">Pending PL only • check each Koli as packed • server-synced</div>
+              <div className="text-xs text-white/60 mt-1">Pending PL only • check each Koli as packed • server-synced • click SKU to revise for shortage</div>
             </div>
             <div className="ml-auto text-right">
               <div className="text-[11px] tracking-widest font-semibold text-white/50">PROGRESS</div>
@@ -135,29 +174,61 @@ export default function DigitalPl(){
         {noSnap && dn && !loading && <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-2xl p-4">{noSnap}. This PL was exported before Digital PL snapshots — re-export or check Live Board.</div>}
 
         {boxes.length>0 && (
-          <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
-            <div className="font-black text-[15px] text-[#0f1e2e] mb-3">Koli Checklist — identical to Exported PL ({done}/{total})</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {boxes.map((box,i)=>{
-                const on = !!checks[i]?.checked;
-                return (
-                  <button key={i} onClick={()=> toggle(i)} className={`text-left rounded-2xl border-2 p-3.5 transition active:scale-[0.99] ${on?"bg-emerald-50 border-emerald-400 shadow-sm":"bg-white border-slate-200 hover:border-slate-300"}`}>
-                    <div className="flex items-center gap-2.5">
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-black shrink-0 ${on?"bg-emerald-500 text-white":"bg-slate-100 text-slate-400 border border-slate-200"}`}>{on?"✓":i+1}</span>
-                      <span className="font-black text-sm text-[#0f1e2e]">Koli {i+1}</span>
-                      {on && checks[i]?.by && <span className="ml-auto text-[10px] text-emerald-600 font-bold truncate max-w-[140px]">{checks[i].by}</span>}
-                    </div>
-                    <div className="mt-2 space-y-0.5">
-                      {Object.entries(box).map(([sku,qty])=>(
-                        <div key={sku} className="flex justify-between text-xs"><span className="text-slate-600 truncate mr-2">{sku}</span><span className="font-mono font-bold text-slate-800">×{qty}</span></div>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
+          <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_16px_40px_rgba(0,0,0,0.18)] overflow-hidden">
+            <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white flex items-center justify-between">
+              <div className="font-black text-[15px]">Koli Checklist — identical to Exported PL ({done}/{total}) • High-visibility table</div>
+              <div className="text-xs bg-white text-[#0f1e2e] px-3 py-1 rounded-full font-black">Click SKU to revise qty + mandatory note for shortage</div>
             </div>
+            <div className="overflow-auto max-h-[66vh]">
+              <table className="w-full text-sm">
+                <thead className="bg-[#0f1e2e] text-white sticky top-0 z-10">
+                  <tr className="text-[11px] tracking-widest">
+                    <th className="px-3 py-3 text-left w-14">Koli</th>
+                    <th className="px-3 py-3 text-left">SKU — click to revise</th>
+                    <th className="px-3 py-3 text-center w-20">Qty</th>
+                    <th className="px-3 py-3 text-center w-20">UOM</th>
+                    <th className="px-3 py-3 text-left">Note / Revision</th>
+                    <th className="px-3 py-3 text-center w-20">Pack</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {boxes.map((box,koliIdx)=>{
+                    const on = !!checks[koliIdx]?.checked;
+                    const entries = Object.entries(box) as [string,number][];
+                    return entries.map(([sku,qty], rowIdx)=>(
+                      <tr key={`${koliIdx}-${sku}`} className={`${on?"bg-emerald-50/60":"bg-white"} border-t border-slate-100 hover:bg-slate-50`}>
+                        {rowIdx===0 && (
+                          <td rowSpan={entries.length} className="px-3 py-3 align-middle border-r border-slate-100 bg-slate-50">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${on?"bg-emerald-500 text-white":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":koliIdx+1}</span>
+                              <span className="text-xs font-black text-[#0f1e2e]">Koli {koliIdx+1}</span>
+                            </div>
+                          </td>
+                        )}
+                        <td className="px-3 py-3">
+                          <button onClick={()=> openRevise(koliIdx, sku, qty)} className="text-left group">
+                            <div className="font-black text-[15px] leading-tight text-[#0f1e2e] group-hover:text-sky-700 group-hover:underline">{sku}</div>
+                            {revisionNotes[String(koliIdx)]?.[sku] && <div className="text-[11px] text-amber-700 font-bold bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 inline-block">{revisionNotes[String(koliIdx)][sku]}</div>}
+                          </button>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <span className="font-mono font-black text-[16px] text-[#0f1e2e]">×{qty}</span>
+                          <button onClick={()=> openRevise(koliIdx, sku, qty)} className="ml-1 text-[11px] text-sky-600 underline font-bold">edit</button>
+                        </td>
+                        <td className="px-3 py-3 text-center"><span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-xs font-mono font-bold">{master?.ITEM_UOM?.[sku] || "Pack"}</span></td>
+                        <td className="px-3 py-3 text-xs text-slate-600"><span onClick={()=> openRevise(koliIdx, sku, qty)} className="cursor-pointer hover:text-slate-900">{revisionNotes[String(koliIdx)]?.[sku] ? "— revised —" : "—"}</span></td>
+                        <td className="px-3 py-3 text-center">
+                          {rowIdx===0 && <button onClick={()=> toggle(koliIdx)} className={`w-full px-3 py-2 rounded-xl text-xs font-black ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400"}`}>{on?"✓ Packed":"Pack"}</button>}
+                        </td>
+                      </tr>
+                    ));
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 md:px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">High-visibility • Koli grouped • SKU 15px black • Qty 16px mono • Tap SKU/edit to revise shortage (note required)</div>
 
-            <div className="mt-5 rounded-2xl bg-slate-50 border border-slate-200 p-4">
+            <div className="mx-5 md:mx-6 my-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <div className="font-black text-sm text-[#0f1e2e]">Dus used <span className="text-red-500">*</span> <span className="font-normal text-slate-400 text-xs">(required — 0 if none)</span></div>
               <div className="grid grid-cols-3 gap-2 mt-2">
                 {[["Dus Besar",dusBesar,setDusBesar],["Dus L",dusL,setDusL],["Dus S",dusS,setDusS]].map(([label,val,set]:any)=>(
@@ -170,6 +241,26 @@ export default function DigitalPl(){
               <button onClick={handleDone} disabled={saving || !allChecked} className="mt-3 w-full bg-[#0f1e2e] hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3.5 font-black text-sm shadow-[0_8px_20px_rgba(15,30,46,0.22)] transition active:scale-[0.99]">
                 {saving ? "Marking READY…" : allChecked ? `✅ Done Packed — Mark READY (${done}/${total})` : `Pack all Koli to finish (${done}/${total})`}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Revise modal */}
+        {revise && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5">
+              <h3 className="font-black text-[#0f1e2e]">Revise {revise.sku} — Koli {revise.koli+1}</h3>
+              <p className="text-xs text-slate-500">Current qty <b>{revise.qty}</b> • This is for stock shortage — note is mandatory</p>
+              <label className="block mt-3 text-xs font-bold">New Qty (0 removes line)
+                <input type="number" min={0} value={revQty} onChange={e=> setRevQty(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 font-mono text-center" />
+              </label>
+              <label className="block mt-3 text-xs font-bold">Note — mandatory, min 5 chars <span className="text-red-500">*</span>
+                <textarea value={revNote} onChange={e=> setRevNote(e.target.value)} rows={3} placeholder="Reason: shortage, substitution, recount…" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+              </label>
+              <div className="flex gap-2 mt-4">
+                <button onClick={()=> setRevise(null)} className="flex-1 bg-slate-100 border border-slate-200 rounded-xl py-2.5 font-bold">Cancel</button>
+                <button onClick={submitRevise} className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl py-2.5 font-black">Save Revision</button>
+              </div>
             </div>
           </div>
         )}
