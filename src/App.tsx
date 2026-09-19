@@ -16,6 +16,7 @@ import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import FeedbackModal from "./components/FeedbackModal";
 import BootstrapSplash from "./components/BootstrapSplash";
+import UpdateBanner from "./components/UpdateBanner";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 import { useState, useRef, useEffect } from "react";
 
@@ -172,6 +173,7 @@ function AppRoutes(){
   return (
     <>
       <Nav />
+      <UpdateBanner />
       <Copilot />
       <FeedbackModal open={feedbackOpen} onClose={()=> setFeedbackOpen(false)} />
       {/* Flagship floating Feedback pill */}
