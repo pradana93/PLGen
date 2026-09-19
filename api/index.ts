@@ -1432,8 +1432,15 @@ app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
   const { koli_index, checked } = req.body as { koli_index?: number; checked?: boolean };
   const by = String((req.body as any)?.by || (req.headers["x-user-email"] as string) || "").slice(0,120);
   if (typeof koli_index!=="number" || koli_index<0) return res.status(400).json({ error: "Missing koli_index" });
-  const store = readDigitalPl();
-  const rec = store[dn];
+  let store = readDigitalPl();
+  let rec = store[dn];
+  if(!rec){
+    const supa = await fetchSupabaseDigitalPl(dn);
+    if(supa){
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      store[dn]=rec; writeDigitalPl(store);
+    }
+  }
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn });
   if (koli_index>=rec.boxes.length) return res.status(400).json({ error: "koli_index out of range" });
   rec.checks[koli_index] = { checked: !!checked, by: !!checked ? by : "", at: !!checked ? new Date().toISOString() : "" };
@@ -1453,8 +1460,15 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   if(qty===undefined || qty===null || !Number.isInteger(Number(qty)) || Number(qty)<0) return res.status(400).json({ error: "qty must be integer >=0" });
   if(!note || String(note).trim().length < 5) return res.status(400).json({ error: "note is mandatory (min 5 chars) — why shortage/revision" });
   const cleanNote = String(note).trim().slice(0,500).replace(/[\r\n]+/g," ").replace(/\s{2,}/g," ");
-  const store = readDigitalPl();
-  const rec = store[dn];
+  let store = readDigitalPl();
+  let rec = store[dn];
+  if(!rec){
+    const supa = await fetchSupabaseDigitalPl(dn);
+    if(supa){
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      store[dn]=rec; writeDigitalPl(store);
+    }
+  }
   if(!rec) return res.status(404).json({ error: "No Digital PL snapshot for "+dn });
   if(koli_index>=rec.boxes.length) return res.status(400).json({ error: "koli_index out of range" });
   const box = rec.boxes[koli_index] as Record<string,number>;
@@ -1498,8 +1512,15 @@ app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   for (const [k,v] of [["dus_besar",dus_besar],["dus_l",dus_l],["dus_s",dus_s]] as const) {
     if (v===undefined || v===null || !Number.isInteger(Number(v)) || Number(v)<0) return res.status(400).json({ error: `${k} is required (0 or more)` });
   }
-  const store = readDigitalPl();
-  const rec = store[dn];
+  let store = readDigitalPl();
+  let rec = store[dn];
+  if(!rec){
+    const supa = await fetchSupabaseDigitalPl(dn);
+    if(supa){
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      store[dn]=rec; writeDigitalPl(store);
+    }
+  }
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn });
   const pending = rec.checks.map((c:any,i:number)=>c?.checked?null:i).filter((x:any)=>x!==null);
   if (pending.length) return res.status(400).json({ error: `Koli not all packed: ${pending.length} remaining`, pending });
