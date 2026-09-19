@@ -1405,15 +1405,26 @@ app.get("/api/digital_pl/:delivery_no", async (req, res) => {
   const store = readDigitalPl();
   let rec = store[dn];
   const supa = await fetchSupabaseDigitalPl(dn);
+  // Merge strategy: file is authoritative for revision_notes/history and any newer updated_at (file fallback survives Supabase missing columns)
   if (supa) {
-    const boxes = Array.isArray(supa.boxes) ? supa.boxes : (rec?.boxes||[]);
-    const checks = Array.isArray(supa.checks) ? supa.checks : (rec?.checks||[]);
-    rec = { boxes, checks, dus_besar: supa.dus_besar||rec?.dus_besar||0, dus_l: supa.dus_l||rec?.dus_l||0, dus_s: supa.dus_s||rec?.dus_s||0, packed_by: supa.packed_by||rec?.packed_by||"", packed_at: supa.packed_at||rec?.packed_at||"", updated_at: supa.updated_at||rec?.updated_at||"" };
+    const supaTime = supa.updated_at ? new Date(supa.updated_at).getTime() : 0;
+    const fileTime = rec?.updated_at ? new Date(rec.updated_at).getTime() : 0;
+    // Prefer newer updated_at for boxes/checks; always merge revision_notes from file if present
+    const useFileBoxes = fileTime > supaTime && Array.isArray(rec?.boxes);
+    const boxes = useFileBoxes ? rec!.boxes : (Array.isArray(supa.boxes) ? supa.boxes : (rec?.boxes||[]));
+    const checks = useFileBoxes ? rec!.checks : (Array.isArray(supa.checks) ? supa.checks : (rec?.checks||[]));
+    const revNotes = (rec as any)?.revision_notes || (supa as any).revision_notes || {};
+    const revHist = (rec as any)?.revision_history || (supa as any).revision_history || [];
+    rec = { boxes, checks, dus_besar: supa.dus_besar ?? rec?.dus_besar ?? 0, dus_l: supa.dus_l ?? rec?.dus_l ?? 0, dus_s: supa.dus_s ?? rec?.dus_s ?? 0, packed_by: supa.packed_by || rec?.packed_by || "", packed_at: supa.packed_at || rec?.packed_at || "", updated_at: supa.updated_at || rec?.updated_at || "", ...(Object.keys(revNotes).length ? { revision_notes: revNotes } : {}), ...(revHist.length ? { revision_history: revHist } : {}) } as any;
+    // Back-merge file revision_notes if supa lacks them but file has them
+    if((rec as any).revision_notes && !(supa as any).revision_notes) {
+      // keep file version already merged
+    }
   }
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn + " — export the PL first" });
   const header = jsonRead<any[]>("packing_status.json", []).find((s:any)=>s.delivery_no===dn) || null;
   const done = rec.checks.filter((c:any)=>c?.checked).length;
-  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by, packed_at: rec.packed_at, header });
+  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by, packed_at: rec.packed_at, header, revision_notes: (rec as any).revision_notes || {}, revision_history: (rec as any).revision_history || [] });
 });
 // PUT single koli check — server sync (one koli at a time so concurrent packers never overwrite each other)
 app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
@@ -1464,7 +1475,16 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString() });
   rec.updated_at = new Date().toISOString();
   writeDigitalPl(store);
-  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at, ...( { revision_notes: (rec as any)[notesKey], revision_history: (rec as any)[histKey] } as any) }).catch(()=>{});
+  // Best-effort Supabase mirror — tolerate missing revision columns (file is source of truth, so live still works)
+  const supaPayload:any = { delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at };
+  // Include revision cols only if table supports them — caller catches error
+  (supaPayload as any).revision_notes = (rec as any)[notesKey];
+  (supaPayload as any).revision_history = (rec as any)[histKey];
+  saveSupabaseDigitalPl(supaPayload).catch(async ()=>{
+    // Retry without revision cols if table lacks them
+    try { const { createClient } = await import("@supabase/supabase-js"); const sb = (await import("@supabase/supabase-js").then(()=>null)); } catch {}
+    saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+  });
   // audit
   try { const logs=jsonRead<any[]>("audit_logs.json",[]); logs.push({ timestamp: wibNowStr(), user: by||"unknown", role:"DigitalPL", action_type:"REVISE_KOLI", details:`${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} note:${cleanNote}`}); if(logs.length>5000) logs.splice(0,logs.length-5000); jsonWrite("audit_logs.json",logs);} catch {}
   res.json({ status:"success", koli_index, sku, qty: Number(qty), note: cleanNote });
