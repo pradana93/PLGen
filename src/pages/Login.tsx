@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../i18n";
+import { chromeGap, isSizeSuspect } from "../lib/anticheat";
 
 export default function Login(){
   const { signIn } = useAuth();
@@ -12,9 +13,17 @@ export default function Login(){
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  // Soft warning: size gap alone (bookmarks bars, OS scaling, zoom) — dismissible, never blocks.
+  const [devtoolsWarn, setDevtoolsWarn] = useState(false);
+  const [warnDismissed, setWarnDismissed] = useState(false);
+  const strikesRef = useRef(0);
 
   // Flagship login shield — block Inspect / DevTools even before auth (AntiCheat runs only after login)
+  // Two levels: size-gap suspicion alone only warns (dismissible); a slow debugger
+  // probe — or a long-persistent gap — confirms and locks the form. Bookmarks bars,
+  // display scaling and zoom can never hard-block on their own.
   useEffect(()=>{
+    let cancelled = false;
     const blockCtx = (e: MouseEvent)=> { e.preventDefault(); return false as any; };
     const blockKeys = (e: KeyboardEvent)=>{
       if(e.key==="F12") { e.preventDefault(); e.stopPropagation(); return false as any; }
@@ -24,23 +33,39 @@ export default function Login(){
     };
     document.addEventListener("contextmenu", blockCtx as any, true);
     document.addEventListener("keydown", blockKeys as any, true);
-    // DevTools dock detection via window chrome gap + debugger timing (no auth needed)
+    // DevTools dock detection via window chrome gap (DPR-aware, shared with anticheat engine).
+    // Probe runs rarely when idle, often while suspicious — low jank, low false positives.
     let dbgTimer: ReturnType<typeof setTimeout> | null = null;
     const runDbg = ()=>{
+      if (cancelled) return;
       const start = performance.now();
       try { eval("debugger"); } catch {}
       const elapsed = performance.now() - start;
-      if(elapsed > 100) setDevtoolsOpen(true);
-      dbgTimer = setTimeout(runDbg, 3000);
+      if (elapsed > 100 && !cancelled) setDevtoolsOpen(true);
+      dbgTimer = setTimeout(runDbg, isSizeSuspect() ? 2500 : 10000);
     };
     dbgTimer = setTimeout(runDbg, 2500);
     const sizeCheck = setInterval(()=>{
-      const dw = window.outerWidth - window.innerWidth;
-      const dh = window.outerHeight - window.innerHeight;
-      if(dw > 180 || dh > 180) setDevtoolsOpen(true);
-      else if(dw < 100 && dh < 100) setDevtoolsOpen(false);
+      if (cancelled) return;
+      if (isSizeSuspect()) {
+        strikesRef.current++;
+        if (strikesRef.current === 1) setDevtoolsWarn(true);
+        // 6 consecutive strikes (~9s) with a huge gap confirms even without the probe
+        if (strikesRef.current >= 6) setDevtoolsOpen(true);
+      } else {
+        const { dw, dh } = chromeGap();
+        if (dw < 100 && dh < 100) {
+          strikesRef.current = 0;
+          setDevtoolsOpen(false);
+          setDevtoolsWarn(false);
+          setWarnDismissed(false);
+        } else {
+          strikesRef.current = 0;
+        }
+      }
     }, 1500);
     return ()=>{
+      cancelled = true;
       document.removeEventListener("contextmenu", blockCtx as any, true);
       document.removeEventListener("keydown", blockKeys as any, true);
       if(dbgTimer) clearTimeout(dbgTimer);
@@ -105,6 +130,13 @@ export default function Login(){
             <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 flex items-start gap-2">
               <span className="text-amber-600 mt-0.5">⚠️</span>
               <div className="text-xs leading-relaxed text-amber-800"><b>Inspection blocked.</b> Close Developer Tools to continue — this login is anti-cheat protected.</div>
+            </div>
+          )}
+          {!devtoolsOpen && devtoolsWarn && !warnDismissed && (
+            <div className="mb-4 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 flex items-start gap-2">
+              <span className="text-slate-400 mt-0.5">🛡️</span>
+              <div className="text-xs leading-relaxed text-slate-600 flex-1">Unusual window size detected (bookmarks bar, display scaling or zoom can trigger this). <b>Your login still works.</b></div>
+              <button type="button" onClick={()=> setWarnDismissed(true)} className="shrink-0 text-[11px] font-black px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-100">Continue anyway</button>
             </div>
           )}
           <div className="mb-6">

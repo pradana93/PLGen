@@ -21,34 +21,65 @@ let _active = false;
 let _debugTimer: ReturnType<typeof setTimeout> | null = null;
 let _resizeObserver: ReturnType<typeof setInterval> | null = null;
 let _devtoolsOpen = false;
+// Dual-signal state: size gap alone only arms suspicion; a violation fires after
+// persistence (2 consecutive strikes) so bookmarks bars / OS scaling / zoom spikes
+// can never false-positive on their own.
+let _sizeStrikes = 0;
+let _lastSlowProbeAt = 0;
+
+// ── Shared detection helpers (also used pre-auth by Login) ──
+// Docked DevTools adds ~300-600px of chrome gap; bookmarks bars / extensions /
+// OS display scaling / browser zoom stay far below. Threshold scales with DPR
+// because outer/inner units diverge on scaled displays (the classic false positive).
+export const DEVTOOLS_GAP_PX = 320;
+export function chromeGap(): { dw: number; dh: number } {
+  return { dw: window.outerWidth - window.innerWidth, dh: window.outerHeight - window.innerHeight };
+}
+export function gapThreshold(): number {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.round(DEVTOOLS_GAP_PX * Math.max(1, dpr));
+}
+export function isSizeSuspect(): boolean {
+  const { dw, dh } = chromeGap();
+  const t = gapThreshold();
+  return dw > t || dh > t;
+}
 
 // ── Debugger Timing Trap ──
 // If DevTools is open, `debugger` statement pauses execution.
 // We measure execution time: if >100ms, DevTools was paused on our trap.
+// Probe runs rarely when idle (10s) and often when the size gap is suspicious (2.5s)
+// to cut both false positives and background jank.
 function runDebuggerTrap(onDetect: () => void) {
   if (!_active) return;
   const start = performance.now();
   // This triggers a breakpoint if DevTools is open
   try { eval("debugger"); } catch {}
   const elapsed = performance.now() - start;
+  const idleMs = isSizeSuspect() ? 2500 : 10000;
   if (elapsed > 100) {
+    _lastSlowProbeAt = Date.now();
     onDetect();
   }
-  _debugTimer = setTimeout(() => runDebuggerTrap(onDetect), 3000);
+  _debugTimer = setTimeout(() => runDebuggerTrap(onDetect), idleMs);
 }
 
 // ── Window Size Discrepancy ──
-// Docked DevTools causes outerWidth - innerWidth to jump by ~200-600px
+// Docked DevTools causes outerWidth - innerWidth to jump by ~300-600px.
+// Requires 2 consecutive strikes (4s window) so transient resizes never report.
 function runResizeCheck(onDetect: () => void) {
   if (!_active) return;
-  const diff = window.outerWidth - window.innerWidth;
-  const diffH = window.outerHeight - window.innerHeight;
-  // Threshold: 150px accounts for scrollbar; real DevTools dock is 200+
-  if ((diff > 200 || diffH > 200) && !_devtoolsOpen) {
-    _devtoolsOpen = true;
-    onDetect();
-  } else if (diff < 100 && diffH < 100) {
+  if (isSizeSuspect()) {
+    _sizeStrikes++;
+    if (_sizeStrikes >= 2 && !_devtoolsOpen) {
+      _devtoolsOpen = true;
+      onDetect();
+    }
+  } else if (chromeGap().dw < 100 && chromeGap().dh < 100) {
+    _sizeStrikes = 0;
     _devtoolsOpen = false;
+  } else {
+    _sizeStrikes = 0;
   }
 }
 
@@ -166,6 +197,8 @@ export function stopAntiCheat() {
   if (_debugTimer) { clearTimeout(_debugTimer); _debugTimer = null; }
   if (_resizeObserver) { clearInterval(_resizeObserver); _resizeObserver = null; }
   _devtoolsOpen = false;
+  _sizeStrikes = 0;
+  _lastSlowProbeAt = 0;
 }
 
 export function onViolation(cb: (v: ViolationPayload) => void) {
