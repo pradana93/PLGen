@@ -1521,6 +1521,65 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   res.json({ status:"success", koli_index, sku, qty: Number(qty), note: cleanNote });
 });
 
+// GET revision history aggregated for Live Board — read-only, additive (supabase + file fallback, newest first)
+app.get("/api/digital_pl_history", async (req, res) => {
+  try {
+    const store = readDigitalPl();
+    const fileRows: any[] = [];
+    for(const [dn, rec] of Object.entries(store as any)){
+      const hist = (rec as any).revision_history || [];
+      const notes = (rec as any).revision_notes || {};
+      if(hist.length===0 && Object.keys(notes).length===0) continue;
+      // expand history + notes fallback
+      if(hist.length){
+        for(const h of hist) fileRows.push({ delivery_no: dn, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||(rec as any).updated_at||"", source: "history" });
+      } else {
+        for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
+          for(const [sku, noteStr] of Object.entries(skuMap as any)){
+            const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
+            fileRows.push({ delivery_no: dn, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: (rec as any).updated_at||"", source: "notes" });
+          }
+        }
+      }
+    }
+    // Supabase mirror
+    let supaRows: any[] = [];
+    try {
+      const sb = await getSupabase();
+      if(sb){
+        const { data } = await sb.from("digital_pl_checks").select("delivery_no, revision_history, revision_notes, updated_at").limit(500);
+        for(const row of (data||[]) as any[]){
+          const hist = row.revision_history || [];
+          const notes = row.revision_notes || {};
+          if(hist.length){
+            for(const h of hist) supaRows.push({ delivery_no: row.delivery_no, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||row.updated_at||"", source: "supa_history" });
+          } else {
+            for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
+              for(const [sku, noteStr] of Object.entries(skuMap as any)){
+                const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
+                supaRows.push({ delivery_no: row.delivery_no, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: row.updated_at||"", source: "supa_notes" });
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+    const merged = [...fileRows, ...supaRows];
+    // dedup by delivery_no|kori|sku|at
+    const seen=new Set<string>();
+    const uniq:any[]=[];
+    for(const r of merged){
+      const key=`${r.delivery_no}|${r.koli_index}|${r.sku}|${r.at}`;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      uniq.push(r);
+    }
+    uniq.sort((a,b)=> String(b.at||"").localeCompare(String(a.at||"")));
+    const limit = Math.min(parseInt(String((req.query as any).limit||"200")), 500);
+    res.json(uniq.slice(0, limit));
+  } catch(e:any){ res.status(500).json({ error: e?.message||"failed" }); }
+});
+
 // POST done — validates all koli checked + dus required, then flips packing_status READY via the same path as Live Board
 app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);

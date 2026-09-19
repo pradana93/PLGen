@@ -44,6 +44,8 @@ export default function LiveBoard(){
   const [liveStatus, setLiveStatus]=useState<"ALL"|"PENDING"|"READY"|"CANCELLED">("ALL");
   const [archive, setArchive]=useState<any[]>([]);
   const [archiveFilter, setArchiveFilter]=useState("");
+  const [revHist, setRevHist]=useState<any[]>([]);
+  const [revFilter, setRevFilter]=useState("");
   const [checkers, setCheckers]=useState<string[]>([]);
   const [editingChecker, setEditingChecker]=useState<string|null>(null);
   const [editCheckerVal, setEditCheckerVal]=useState<string>("");
@@ -61,16 +63,18 @@ export default function LiveBoard(){
   const fetchAll=async()=>{
     setLoading(true);
     try{
-      const [ps, sum, arch, ch] = await Promise.all([
+      const [ps, sum, arch, ch, rev] = await Promise.all([
         apiGet("/api/packing_status").catch(()=>[]),
         apiGet(buildSummaryQs()).catch(()=>null),
         apiGet("/api/packing_lists").catch(()=>[]),
         apiGet("/api/checkers").catch(()=>({ checkers: [] })),
+        apiGet("/api/digital_pl_history?limit=200").catch(()=>[]),
       ]);
       setData(Array.isArray(ps)?ps:[]);
       if(sum) setSummary(sum);
       if(Array.isArray(arch)) setArchive(arch);
       if(ch?.checkers) setCheckers(ch.checkers);
+      if(Array.isArray(rev)) setRevHist(rev);
     }catch{}
     setLoading(false);
   };
@@ -902,6 +906,54 @@ export default function LiveBoard(){
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Revision History — flagship high-visibility, shortage edits */}
+          <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-md shadow-amber-500/20">✏️</div>
+                <div>
+                  <h3 className="font-black text-sm text-[#0f1e2e]">Revision History — Shortage / Qty Edits</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">{revHist.length} edits • Digital PL • mandatory note</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input value={revFilter} onChange={e=> setRevFilter(e.target.value)} placeholder="Filter PL / SKU / note..." className="border border-slate-200 rounded-xl px-3 py-2 text-xs w-56 bg-slate-50 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <button onClick={fetchAll} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">↻</button>
+              </div>
+            </div>
+            {revHist.length===0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs">No revisions yet — edit qty on Digital PL for shortage will appear here.</div>
+            ) : (
+              <div className="overflow-auto max-h-[320px]">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0f1e2e] text-white sticky top-0">
+                    <tr className="text-[10px] tracking-widest">
+                      <th className="px-3 py-2.5 text-left">WHEN (WIB)</th>
+                      <th className="px-3 py-2.5 text-left">PL / Koli</th>
+                      <th className="px-3 py-2.5 text-left">SKU</th>
+                      <th className="px-3 py-2.5 text-center">Qty</th>
+                      <th className="px-3 py-2.5 text-left">Note (mandatory)</th>
+                      <th className="px-3 py-2.5 text-left">By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {revHist.filter(r=> !revFilter || String(r.delivery_no).toLowerCase().includes(revFilter.toLowerCase()) || String(r.sku).toLowerCase().includes(revFilter.toLowerCase()) || String(r.note).toLowerCase().includes(revFilter.toLowerCase())).slice(0,100).map((r,i)=>(
+                      <tr key={i} className="border-t border-slate-100 hover:bg-amber-50/40">
+                        <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{r.at ? new Date(r.at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-[#0f1e2e]">{r.delivery_no}<span className="text-slate-400 font-normal"> / Koli {r.koli_index+1}</span></td>
+                        <td className="px-3 py-2 font-black text-[13px] text-[#0f1e2e]">{r.sku}</td>
+                        <td className="px-3 py-2 text-center font-mono font-black text-amber-700">{r.prevQty}→{r.qty}</td>
+                        <td className="px-3 py-2 text-slate-700 max-w-[320px] break-words">{r.note}</td>
+                        <td className="px-3 py-2 text-[11px] text-slate-500 truncate max-w-[120px]">{r.by||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="px-6 py-2 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-400">Shows all qty revisions from Digital PL (qty 0 removes Koli) — audit + Live Board visibility, additive, never touches packing math.</div>
           </div>
 
       </div>
