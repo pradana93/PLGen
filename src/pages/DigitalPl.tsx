@@ -89,25 +89,46 @@ export default function DigitalPl(){
     if(isNaN(q) || q<0) return flash("err","Qty must be 0 or more");
     if(!revNote.trim() || revNote.trim().length<5) return flash("err","Note is mandatory (min 5 chars) — explain shortage");
     try{
-      const r:any = await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/revise`, { koli_index: revise.koli, sku: revise.sku, qty: q, note: revNote.trim(), by: email });
-      // apply locally
-      setBoxes(prev=> {
-        const next=[...prev];
-        const box={...next[revise.koli]};
-        if(q===0) delete box[revise.sku];
-        else box[revise.sku]=q;
-        next[revise.koli]=box;
-        return next.filter(b=> Object.keys(b).length>0);
-      });
-      // also update revisionNotes locally for immediate high-visibility
-      setRevisionNotes(prev=>{
-        const next={...prev} as any;
-        if(!next[revise.koli]) next[revise.koli]={};
-        next[revise.koli][revise.sku]=`${revise.qty}→${q} by ${email}: ${revNote.trim()}`;
-        return next;
-      });
+      await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/revise`, { koli_index: revise.koli, sku: revise.sku, qty: q, note: revNote.trim(), by: email });
+      // optimistic local — mirror server splice logic for empty Koli so Pack button updates live before reload
+      const willEmpty = (()=>{
+        const b={...boxes[revise.koli]} as any;
+        if(q===0) delete b[revise.sku]; else b[revise.sku]=q;
+        return Object.keys(b).length===0;
+      })();
+      if(willEmpty){
+        setBoxes(prev=> { const n=[...prev]; n.splice(revise.koli,1); return n; });
+        setChecks(prev=> { const n=[...prev]; n.splice(revise.koli,1); return n; });
+        setRevisionNotes(prev=>{
+          const nxt={} as any;
+          for(const k of Object.keys(prev)){
+            const ki=parseInt(k,10);
+            if(ki===revise.koli) continue;
+            const nk = ki>revise.koli ? String(ki-1) : k;
+            nxt[nk]=prev[k];
+          }
+          // keep history note for audit even though koli gone — not needed for display
+          return nxt;
+        });
+      } else {
+        setBoxes(prev=> {
+          const next=[...prev];
+          const box={...next[revise.koli]} as any;
+          if(q===0) delete box[revise.sku];
+          else box[revise.sku]=q;
+          next[revise.koli]=box;
+          return next;
+        });
+        setRevisionNotes(prev=>{
+          const next={...prev} as any;
+          if(!next[revise.koli]) next[revise.koli]={};
+          next[revise.koli][revise.sku]=`${revise.qty}→${q} by ${email}: ${revNote.trim()}`;
+          return next;
+        });
+      }
       flash("ok",`Updated ${revise.sku} ${revise.qty}→${q}`);
       setRevise(null);
+      // reload authoritative from server (file + Supabase) — ensures total/done in sync
       await loadPl(dn);
     }catch(e:any){ flash("err", e?.message||"Revise failed"); }
   };

@@ -1475,9 +1475,10 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   if(!(sku in box)) return res.status(404).json({ error: `SKU ${sku} not in Koli ${koli_index+1}` });
   const prevQty = Number(box[sku]||0);
   if(Number(qty)===prevQty) return res.status(400).json({ error: "No change" });
-  // apply revision — keep box clean (0 removes line)
+  // apply revision — keep box clean (0 removes line), remove empty Koli entirely so Pack can finish
   if(Number(qty)===0) delete box[sku];
   else box[sku]=Number(qty);
+  const isEmpty = Object.keys(box).length===0;
   // store revision note alongside — additive field revision_notes: Record<koli_index, Record<sku,string>>
   const notesKey = "revision_notes" as any;
   if(!(rec as any)[notesKey]) (rec as any)[notesKey]={};
@@ -1487,6 +1488,22 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   const histKey = "revision_history" as any;
   if(!(rec as any)[histKey]) (rec as any)[histKey]=[];
   (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString() });
+  // If Koli became empty (qty 0 on sole SKU), remove Koli + its check + reindex revision_notes
+  if(isEmpty){
+    rec.boxes.splice(koli_index,1);
+    rec.checks.splice(koli_index,1);
+    // reindex revision_notes keys > koli_index
+    const oldNotes = (rec as any)[notesKey] as Record<string,any>;
+    const newNotes: Record<string,any> = {};
+    for(const k of Object.keys(oldNotes)){
+      const ki = parseInt(k,10);
+      if(ki===koli_index) continue; // drop notes for removed Koli
+      const newK = ki > koli_index ? String(ki-1) : k;
+      newNotes[newK]=oldNotes[k];
+    }
+    (rec as any)[notesKey]=newNotes;
+    // also shift revision_history koli_index for audit consistency (keep original but not needed)
+  }
   rec.updated_at = new Date().toISOString();
   writeDigitalPl(store);
   // Best-effort Supabase mirror — tolerate missing revision columns (file is source of truth, so live still works)
