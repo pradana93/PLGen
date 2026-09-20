@@ -116,7 +116,7 @@ function Nav(){
                 <div className={`relative w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shadow-sm shrink-0 ${profileOpen ? "bg-gradient-to-br from-[#3498db] to-[#2c3e50] text-white" : "bg-gradient-to-br from-[#3498db] to-[#2c3e50] border border-white/15 text-white"}`}>{initials}
                   {expMe && (
                     <span className="absolute -bottom-1 -right-1" title={`Lv ${expMe.level} • ${expMe.title}`}>
-                      <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={15} />
+                      <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={15} gm={profile?.role === "Super Admin"} />
                     </span>
                   )}
                 </div>
@@ -146,7 +146,7 @@ function Nav(){
                       <div className="rounded-xl bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] border border-white/10 px-3 py-2.5 text-white relative overflow-hidden">
                         <div className="absolute -right-6 -top-6 w-20 h-20 bg-white/[0.06] rounded-full blur-xl pointer-events-none" />
                         <div className="relative flex items-center gap-2.5">
-                          <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={40} />
+                          <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={40} gm={profile?.role === "Super Admin"} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline gap-1.5">
                               <span className="font-black text-sm">Lv {expMe.level}</span>

@@ -883,7 +883,7 @@ export default function LiveBoard(){
                           <td className="px-3 py-2.5 font-medium text-slate-600">{e.outlet}</td>
                           <td className="px-3 py-2.5 font-medium text-slate-600">
                             <span className="inline-flex items-center gap-1">
-                              {(()=>{ const m = expMatch(expBoard, e.checker); return m ? (<><RankBadge badge={badgeForLevel(m.level)} level={m.level} title={m.title} size={14} /><span className="text-[10px] font-black text-amber-600">Lv{m.level}</span></>) : null; })()}
+                              {(()=>{ const m = expMatch(expBoard, e.checker); return m ? (<><RankBadge badge={badgeForLevel(m.level)} level={m.level} title={m.title} size={14} gm={m.role === "Super Admin"} /><span className="text-[10px] font-black text-amber-600">Lv{m.level}</span></>) : null; })()}
                               {e.checker}
                             </span>
                           </td>

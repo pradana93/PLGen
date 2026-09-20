@@ -1,9 +1,10 @@
 // PB-style rank badge — code-drawn SVG (no image assets, no copyrighted sprites).
 // Tiers echo the classic ladder: skull → stripes → chevrons → blue diamonds →
 // green commander badges → red stars → prestige (red + gold trim + pips past 51).
+// Plus the GM crest: Super Admin only (gm prop) — crimson/gold "GM" monogram.
 // Props: badge index (see badgeForLevel) + level/title for tooltip. Purely cosmetic.
-export default function RankBadge({ badge, level, title, size = 18 }: {
-  badge: number; level: number; title: string; size?: number;
+export default function RankBadge({ badge, level, title, size = 18, gm = false }: {
+  badge: number; level: number; title: string; size?: number; gm?: boolean;
 }) {
   const b = Math.max(1, Math.min(99, badge || 1));
   const bg = b >= 47 ? "#7b1f14" : b >= 31 ? "#0e4d3c" : b >= 18 ? "#12395f" : "#1a2f4a";
@@ -82,16 +83,25 @@ export default function RankBadge({ badge, level, title, size = 18 }: {
 
   return (
     <span
-      title={`Lv ${level} • ${title}`}
+      title={gm ? `GM • ${title}` : `Lv ${level} • ${title}`}
       style={{
         display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: size, height: size, borderRadius: size * 0.28, flexShrink: 0,
-        background: `linear-gradient(135deg, ${bg}, #0f1e2e)`,
-        border: b > 51 ? "1px solid #ffd766" : "1px solid rgba(255,255,255,0.25)",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+        background: gm
+          ? "linear-gradient(135deg, #a41212 0%, #5c0a0a 55%, #2b0505 100%)"
+          : `linear-gradient(135deg, ${bg}, #0f1e2e)`,
+        border: gm ? "1px solid #ffd766" : b > 51 ? "1px solid #ffd766" : "1px solid rgba(255,255,255,0.25)",
+        boxShadow: gm ? "0 0 6px rgba(255,215,102,0.55), 0 1px 4px rgba(0,0,0,0.3)" : "0 1px 4px rgba(0,0,0,0.25)",
       }}
     >
-      <svg width={size * 0.78} height={size * 0.78} viewBox="0 0 24 24">{glyph()}</svg>
+      {gm ? (
+        <svg width={size * 0.8} height={size * 0.8} viewBox="0 0 24 24">
+          <polygon fill="none" stroke="#ffd766" strokeWidth="1.4" points="12,2.5 20,7 20,17 12,21.5 4,17 4,7" />
+          <text x="12" y="16.4" textAnchor="middle" fontSize="9.5" fontWeight="900" fill="#ffd766" fontFamily="Arial, sans-serif">GM</text>
+        </svg>
+      ) : (
+        <svg width={size * 0.78} height={size * 0.78} viewBox="0 0 24 24">{glyph()}</svg>
+      )}
     </span>
   );
 }
