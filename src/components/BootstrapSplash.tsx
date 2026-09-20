@@ -62,7 +62,7 @@ export default function BootstrapSplash(){
             <div>
               <div className="flex items-baseline gap-2">
                 <span className="font-black text-[18px] tracking-tight">PLGen</span>
-                <span className="text-[11px] font-bold tracking-widest bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full">v2.0</span>
+                <span className="text-[11px] font-bold tracking-widest bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full">v2.1</span>
               </div>
               <div className="text-[11px] tracking-widest font-semibold text-white/50">LOGISTICS • VITTORIA • FLAGSHIP</div>
             </div>

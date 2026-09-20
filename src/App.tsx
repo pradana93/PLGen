@@ -74,7 +74,7 @@ function Nav(){
           <div className="leading-none">
             <div className="flex items-baseline gap-1.5">
               <span className="font-black tracking-tight text-[17px] text-white">PLGen</span>
-              <span className="text-[11px] font-bold tracking-widest text-white/60 bg-white/10 border border-white/10 px-1.5 py-0.5 rounded-full">v2.0</span>
+              <span className="text-[11px] font-bold tracking-widest text-white/60 bg-white/10 border border-white/10 px-1.5 py-0.5 rounded-full">v2.1</span>
             </div>
             <div className="text-[10px] font-semibold tracking-widest text-white/45 -mt-0.5">LOGISTICS • VITTORIA</div>
           </div>

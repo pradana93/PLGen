@@ -1,5 +1,6 @@
 // Auto-generated from git log. Latest commit first.
-export const APP_VERSION = "2.0.0";
+// Maintained with every push — footer + build stamp read from here.
+export const APP_VERSION = "2.1.0";
 
 export interface ChangelogEntry {
   hash: string;
@@ -8,6 +9,45 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOGS: ChangelogEntry[] = [
+  { hash: "c67b6f9", date: "2026-09-20", message: "feat(exp): GM crest badge for Super Admin — crimson/gold monogram, levels/titles/earning untouched" },
+  { hash: "24b106c", date: "2026-09-20", message: "feat(exp): server-synced leveling for Admin/Operator — export+50 pack+30 daily+10, PB-style SVG rank badges on avatar/board/admin (additive, core untouched)" },
+  { hash: "9719482", date: "2026-09-20", message: "feat(drive): unverified-app disclosure under Drive toggle — Advanced flow + test-listed notice (UI only)" },
+  { hash: "1436669", date: "2026-09-20", message: "feat(drive): Local/Google Drive export choice — profile-bar toggle, per-user OAuth (drive.file), PL+Labels upload to PLGen/{date}_PL/{BBB|BBT}/{PL|Labels} (additive, Local + core logic untouched)" },
+  { hash: "2f74b96", date: "2026-09-20", message: "fix(anticheat): DPR-aware 320px threshold, 2-strike persistence, adaptive probe, dismissible warn — size gap alone can never lock login (confirmed via debugger only)" },
+  { hash: "e803920", date: "2026-09-19", message: "feat(update): flagship new-build banner — polls index.html hash every 60s, shows Refresh to take effect — F5 flow, lightweight" },
+  { hash: "9b59180", date: "2026-09-19", message: "feat(motion): lightweight route fade+slide 180ms + skeleton shimmer + card hover + button press — GPU-only, low-spec flagship" },
+  { hash: "e3de56c", date: "2026-09-19", message: "feat(auth): 3 roles only — Super Admin (immortal full), Admin (Dashboard/Digital PL/Live Board), Checker (Digital PL only) — migrate majestap93, arikaadmwarehouse, suhendra — preserve packing logic" },
+  { hash: "5b00463", date: "2026-09-19", message: "feat(live-board): flagship Revision History — shortage qty edits with mandatory note, PL/Koli SKU, WHEN WIB, By — additive, preserve calculateBoxes" },
+  { hash: "55b0b7a", date: "2026-09-19", message: "fix(digital-pl): qty 0 now removes empty Koli + its check — Pack all finish clickable (15/16 → 15/15), preserve calculateBoxes" },
+  { hash: "f2c33dc", date: "2026-09-19", message: "fix(digital-pl): fallback to Supabase snapshot when file empty on Vercel — fixes revise/Pack 404 for PL/BBT/19092026/003 (file ephemeral)" },
+  { hash: "63a1704", date: "2026-09-19", message: "fix(digital-pl): make revise live — merge file revision_notes & newer updated_at, add revision columns migration, tolerant Supabase mirror — shortage qty now updates instantly" },
+  { hash: "ee33d61", date: "2026-09-19", message: "feat(digital-pl): high-visibility flagship table (15px SKU, 16px mono qty, Koli grouped, sticky navy header) + revise SKU qty with mandatory note — additive, preserve calculateBoxes" },
+  { hash: "9b20744", date: "2026-09-19", message: "feat(digital-pl): standalone field checklist — pending-only picker, server-synced koli checks identical to export snapshot, dus Besar/L/S required, Done Packed marks READY, nav next to Dashboard, admin packed results on Live Board (additive, core logic untouched)" },
+  { hash: "47e693e", date: "2026-09-18", message: "feat(live-board): 50/page server-paged Live Stream — flagship paginator + status pills (ALL/PENDING/READY/CANCELLED), 25/50/100, X-Total-Count — fixes 10k long-af page" },
+  { hash: "c5f0b02", date: "2026-09-18", message: "feat(bootstrap): flagship loading screen — first open per session (GO B) — authenticating → master sync → Anti-Cheat, 800ms cap" },
+  { hash: "40fc28a", date: "2026-09-18", message: "fix(export): unpinch TOTAL KOLI row 10 — height 6 → 18 flagship PL REF layout" },
+  { hash: "aae7f6e", date: "2026-09-18", message: "feat(dashboard): PL/ + Company Code toggle (BBB/BBT) + scan DO/IT ref → Exported PL Document Info (combined DO.2026.06.00806 / IT.2026.06.00279) — preserve calculateBoxes" },
+  { hash: "297c458", date: "2026-09-17", message: "feat(admin): flagship redesign — navy command center, glass cards, orb blurs, pill tabs (UI only, logic preserved)" },
+  { hash: "63b16ce", date: "2026-09-17", message: "fix(login): disable DevTools/Inspect on login — block right-click + F12/Ctrl+Shift+I/J/C/U, blur form on devtools open (flagship)" },
+  { hash: "8bed6c7", date: "2026-09-17", message: "feat(login): flagship redesign — navy split, glass, orb blurs, show/hide pw, secure auth" },
+  { hash: "e0d68ea", date: "2026-09-17", message: "fix(feedback): remove sensitive info from form — mask email/alias/role, hide destination, minimal secure header" },
+  { hash: "9a955ed", date: "2026-09-17", message: "fix(feedback): restore Gmail SMTP fallback for Vercel prod — Feedback email not configured fix (wh.leader.vt@gmail.com → majestap93@gmail.com)" },
+  { hash: "ac41436", date: "2026-09-17", message: "feat(feedback): Gmail SMTP straight to majestap93@gmail.com (wh.leader.vt@gmail.com sender) + flagship modal + server-authoritative anti-cheat (cooldown 5m, 3/h 10/d, honeypot, time-gate, ghost)" },
+  { hash: "0071518", date: "2026-09-17", message: "feat(header): flagship clickable profile — navy glass dropdown with details + logout inside" },
+  { hash: "40c56eb", date: "2026-09-17", message: "feat(live-board): flagship multi-view Top 25 SKU (Bar/Horizontal/Doughnut/Pie/Trend) + calendar range filter (From/To) — server + client, flagship design" },
+  { hash: "63d55e0", date: "2026-09-17", message: "fix(env+sync): remove .env BOM blocking Supabase CLI, sync Supabase schema+master_data, fix packing greedy sort 1:1 with core.py, expand vite proxy parity, improve api error parsing" },
+  { hash: "a5eb720", date: "2026-09-17", message: "fix(copilot): Gemini replies no longer cut off" },
+  { hash: "22ab1d5", date: "2026-09-17", message: "feat(copilot): v2 — Gemini AI fallback for complex queries (hybrid)" },
+  { hash: "7904226", date: "2026-09-17", message: "fix(copilot): unblock close button + flagship chat panel redesign" },
+  { hash: "3733180", date: "2026-09-17", message: "feat(copilot): PLGen Copilot v1 — Local AI logistics assistant" },
+  { hash: "a469ef4", date: "2026-09-17", message: "feat(security): SuperAdmin immortal — unbannable owner account" },
+  { hash: "53b093b", date: "2026-09-17", message: "feat(LiveBoard): flagship premium UI redesign" },
+  { hash: "e86da4b", date: "2026-09-16", message: "fix(admin): optimistic UI for ban/unban/approve — instant feedback, rollback on failure" },
+  { hash: "e1773f0", date: "2026-09-16", message: "feat(security): anti-cheat system — console trap, ban hammer, approval gate" },
+  { hash: "5a472ea", date: "2026-09-16", message: "feat(footer): grouped changelog — Build hash as version" },
+  { hash: "0073c8a", date: "2026-09-16", message: "fix(footer): remove sensitive info — keep flagship, minimal" },
+  { hash: "590c76f", date: "2026-09-16", message: "feat(footer): flagship premium — navy, glass, badge, changelog timeline" },
+  { hash: "4f39ba0", date: "2026-09-16", message: "chore(changelog): refresh footer App About + changelogs to 2026-09-16" },
   { hash: "c316b2a", date: "2026-09-16", message: "fix(export): ensure single Export & Save appears in Live Board — await Supabase after instant download" },
   { hash: "86d9fbb", date: "2026-09-16", message: "fix(live-board): ensure Exported PL caught after template patch (slash delivery_no + keepalive)" },
   { hash: "7cd2ba2", date: "2026-09-16", message: "fix(export): instant PL+Labels download + widen Checker column (E 22→28)" },
