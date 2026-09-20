@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPut } from "../lib/api";
+import { expFetchBoard, expMatch, badgeForLevel, isExpEligible, type ExpEntry } from "../lib/exp";
+import RankBadge from "../components/RankBadge";
 import { useLanguage } from "../i18n";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -49,6 +51,12 @@ export default function LiveBoard(){
   const [checkers, setCheckers]=useState<string[]>([]);
   const [editingChecker, setEditingChecker]=useState<string|null>(null);
   const [editCheckerVal, setEditCheckerVal]=useState<string>("");
+  // EXP flex tags (Admin/Operator only) — best-effort alias match, miss renders nothing
+  const [expBoard, setExpBoard]=useState<ExpEntry[]>([]);
+  useEffect(()=>{
+    if(!isExpEligible(profile?.role)) return;
+    expFetchBoard().then(setExpBoard).catch(()=>{});
+  },[profile?.role]);
 
   const buildSummaryQs = ()=>{
     if(dateFrom || dateTo) {
@@ -873,7 +881,12 @@ export default function LiveBoard(){
                         <tr key={e.delivery_no} className="border-t border-slate-50 lb-row-hover">
                           <td className="px-3 py-2.5 font-mono text-xs font-bold text-[#1a252f]">{e.delivery_no}</td>
                           <td className="px-3 py-2.5 font-medium text-slate-600">{e.outlet}</td>
-                          <td className="px-3 py-2.5 font-medium text-slate-600">{e.checker}</td>
+                          <td className="px-3 py-2.5 font-medium text-slate-600">
+                            <span className="inline-flex items-center gap-1">
+                              {(()=>{ const m = expMatch(expBoard, e.checker); return m ? (<><RankBadge badge={badgeForLevel(m.level)} level={m.level} title={m.title} size={14} /><span className="text-[10px] font-black text-amber-600">Lv{m.level}</span></>) : null; })()}
+                              {e.checker}
+                            </span>
+                          </td>
                           <td className="px-3 py-2.5">
                             <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${e.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":e.status==="CANCELLED"?"bg-red-100 text-red-700 border border-red-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{e.status==="READY"?t("live.ready"): e.status==="CANCELLED"?t("live.cancelled"):t("live.packing")}</span>
                           </td>

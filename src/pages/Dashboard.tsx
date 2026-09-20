@@ -4,6 +4,7 @@ import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
 import { getExportDest, driveStatus, driveUpload } from "../lib/drive";
+import { expEarn } from "../lib/exp";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
 import { useAuth } from "../context/AuthContext";
 import KoliReviewer from "../components/KoliReviewer";
@@ -103,6 +104,7 @@ export default function Dashboard(){
         const up1 = await driveUpload({ company: companyCode, dateFolder, kind: "PL", filename: pl.filename, blob: pl.blob });
         const up2 = await driveUpload({ company: companyCode, dateFolder, kind: "Labels", filename: lb.filename, blob: lb.blob });
         showToast(t("drive.uploadedToast", { do: pl.deliveryNo }));
+        expEarn("export", pl.deliveryNo);
         if(up1.webViewLink) window.open(up1.webViewLink, "_blank");
         void up2;
       } catch(e:any){
@@ -125,6 +127,7 @@ export default function Dashboard(){
         setMaster(newMaster);
       }
       showToast(t("dash.exportedToast", { do: deliveryNo, n: boxes.length }));
+      expEarn("export", deliveryNo);
     } catch(e:any){ showToast(t("dash.exportFailed", { err: e.message })); }
   };
 

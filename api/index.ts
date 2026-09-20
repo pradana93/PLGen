@@ -2714,6 +2714,150 @@ app.post("/api/drive/upload", async (req, res) => {
   }
 });
 
+// ===== EXP leveling (Admin/Operator flex — server-awarded, additive, never gates packing) =====
+// Curve mirror: keep in sync with src/lib/exp.ts — level = floor(sqrt(exp/100)) + 1.
+function expLevel(exp: number): number {
+  return Math.floor(Math.sqrt(Math.max(0, Number(exp) || 0) / 100)) + 1;
+}
+function expBaseForLevel(level: number): number {
+  return 100 * Math.pow(Math.max(1, level) - 1, 2);
+}
+const EXP_AMOUNTS: Record<string, number> = { export: 50, pack: 30, daily: 10 };
+async function expRead(userId: string): Promise<number> {
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { data } = await sb.from("user_exp").select("exp").eq("user_id", userId).single();
+      if (data && typeof (data as any).exp === "number") return (data as any).exp;
+    }
+  } catch {}
+  const file = jsonRead<Record<string, any>>("user_exp.json", {});
+  return Number(file[userId]?.exp || 0);
+}
+async function expGrant(userId: string, key: string, amount: number): Promise<{ granted: boolean; exp: number }> {
+  // Idempotent: unique (user_id, key) wins the race; duplicates grant nothing.
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { error: insErr } = await sb.from("exp_awards").insert({ user_id: userId, key, amount });
+      if (insErr) {
+        const cur = await expRead(userId);
+        return { granted: false, exp: cur };
+      }
+      const cur = await expRead(userId);
+      const next = cur + amount;
+      await sb.from("user_exp").upsert({ user_id: userId, exp: next, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      return { granted: true, exp: next };
+    }
+  } catch {}
+  const awards = jsonRead<any[]>("exp_awards.json", []);
+  if (awards.find((a: any) => a.user_id === userId && a.key === key)) {
+    const file = jsonRead<Record<string, any>>("user_exp.json", {});
+    return { granted: false, exp: Number(file[userId]?.exp || 0) };
+  }
+  awards.push({ user_id: userId, key, amount, created_at: new Date().toISOString() });
+  jsonWrite("exp_awards.json", awards);
+  const file = jsonRead<Record<string, any>>("user_exp.json", {});
+  const next = Number(file[userId]?.exp || 0) + amount;
+  file[userId] = { exp: next, updated_at: new Date().toISOString() };
+  jsonWrite("user_exp.json", file);
+  return { granted: true, exp: next };
+}
+function expTitle(level: number): string {
+  if (level >= 100) return "Legend";
+  if (level >= 75) return "Mythic";
+  if (level >= 50) return "Master";
+  if (level >= 25) return "Expert";
+  if (level >= 10) return "Senior";
+  return "Operator";
+}
+async function expStats(userId: string): Promise<{ exports: number; packs: number; days: number }> {
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { data } = await sb.from("exp_awards").select("key").eq("user_id", userId);
+      const keys = ((data || []) as any[]).map(r => String(r.key));
+      const days = new Set(keys.filter(k => k.startsWith("daily:")).map(k => k.slice(6)));
+      return {
+        exports: keys.filter(k => k.startsWith("export:")).length,
+        packs: keys.filter(k => k.startsWith("pack:")).length,
+        days: days.size,
+      };
+    }
+  } catch {}
+  const awards = jsonRead<any[]>("exp_awards.json", []).filter((a: any) => a.user_id === userId);
+  const keys = awards.map((a: any) => String(a.key));
+  return {
+    exports: keys.filter(k => k.startsWith("export:")).length,
+    packs: keys.filter(k => k.startsWith("pack:")).length,
+    days: new Set(keys.filter(k => k.startsWith("daily:")).map(k => k.slice(6))).size,
+  };
+}
+
+// POST /api/exp/earn { type: "export"|"pack", ref } — amounts fixed server-side;
+// export requires its packing_status row to exist (genuine export, koli>0 via weight>0 guard is best-effort).
+app.post("/api/exp/earn", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!["Super Admin", "Admin"].includes(user.role)) return res.status(403).json({ error: "Admin/Operator only" });
+  const { type, ref } = req.body as any;
+  if (!["export", "pack"].includes(String(type))) return res.status(400).json({ error: "type must be export|pack" });
+  const dn = String(ref || "").slice(0, 120);
+  if (!dn) return res.status(400).json({ error: "Missing ref" });
+  // Genuineness: the PL must exist on the Live Board (created by a real export/pack flow).
+  const statuses = jsonRead<any[]>("packing_status.json", []);
+  let row = statuses.find((s: any) => String(s.delivery_no) === dn);
+  if (!row) {
+    const supa = await fetchSupabasePackingStatus().catch(() => null);
+    row = (supa || []).find((s: any) => String(s.delivery_no) === dn);
+  }
+  if (!row) return res.status(404).json({ error: "PL not found — export first" });
+  const r = await expGrant(user.id, `${type}:${dn}`, EXP_AMOUNTS[String(type)]);
+  const level = expLevel(r.exp);
+  res.json({ status: "success", granted: r.granted, exp: r.exp, level, title: expTitle(level) });
+});
+
+// GET /api/exp/me — own EXP; lazily awards the daily +10 on first fetch of the day.
+app.get("/api/exp/me", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!["Super Admin", "Admin"].includes(user.role)) return res.status(403).json({ error: "Admin/Operator only" });
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+  await expGrant(user.id, `daily:${today}`, EXP_AMOUNTS.daily).catch(() => ({}));
+  const exp = await expRead(user.id);
+  const level = expLevel(exp);
+  const base = expBaseForLevel(level);
+  const next = expBaseForLevel(level + 1);
+  const stats = await expStats(user.id);
+  res.json({
+    exp, level, title: expTitle(level),
+    progress: next > base ? Math.min(1, Math.max(0, (exp - base) / (next - base))) : 1,
+    base, next, ...stats,
+  });
+});
+
+// GET /api/exp/leaderboard — Admin/Operator only, Checkers excluded by design.
+app.get("/api/exp/leaderboard", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!["Super Admin", "Admin"].includes(user.role)) return res.status(403).json({ error: "Admin/Operator only" });
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { data: profs } = await sb.from("profiles").select("id,email,alias,role").in("role", ["Super Admin", "Admin"]);
+      const { data: exps } = await sb.from("user_exp").select("user_id,exp");
+      const emap = new Map(((exps || []) as any[]).map(r => [String(r.user_id), Number(r.exp) || 0]));
+      const board = ((profs || []) as any[]).map(p => {
+        const exp = emap.get(String(p.id)) || 0;
+        const level = expLevel(exp);
+        return { user_id: String(p.id), email: p.email, alias: p.alias || null, role: p.role, exp, level, title: expTitle(level) };
+      }).sort((a, b) => b.exp - a.exp);
+      return res.json(board);
+    }
+  } catch {}
+  res.json([]);
+});
+
 // Static serving for uploads
 app.use("/uploads", express.static(UPLOAD_DIR));
 

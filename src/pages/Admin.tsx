@@ -3,6 +3,8 @@ import { apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { useLanguage } from "../i18n";
+import RankBadge from "../components/RankBadge";
+import { expFetchBoard, badgeForLevel, type ExpEntry } from "../lib/exp";
 
 const ROLES = ["Super Admin","Admin","Checker"] as const;
 
@@ -61,6 +63,8 @@ export default function Admin(){
   const [newChecker,setNewChecker]=useState("");
   // User Management
   const [users,setUsers]=useState<any[]>([]);
+  // EXP flex tags by user id (Admin/Operator only)
+  const [expById,setExpById]=useState<Record<string, ExpEntry>>({});
   const [newUser,setNewUser]=useState({ email:"", password:"", role:"Checker" as typeof ROLES[number], alias:"" });
   const [editing,setEditing]=useState<Record<string, {role:string, alias:string}>>({});
   // Master Data detailed
@@ -132,6 +136,11 @@ export default function Admin(){
     const h = await authHeader();
     const res = await fetch(`${import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000")}/api/users`, { headers: h });
     if(res.ok) setUsers(await res.json());
+    expFetchBoard().then(b=>{
+      const m: Record<string, ExpEntry> = {};
+      for(const e of b) m[e.user_id] = e;
+      setExpById(m);
+    }).catch(()=>{});
   };
 
   useEffect(()=>{
@@ -548,7 +557,7 @@ export default function Admin(){
                             {ROLES.filter(r=> isSuperAdmin || r!=="Super Admin").map(r=> <option key={r} value={r}>{r}</option>)}
                           </select>
                         ) : (
-                          <><span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="Super Admin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>{u.role==="Super Admin" && <span className="ml-1 text-[9px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">🛡️ IMMORTAL</span>}</>
+                          <><span className={`px-2 py-1 rounded-full text-[11px] font-extrabold border ${u.role==="Super Admin"?"bg-yellow-100 text-yellow-800 border-yellow-200":u.role==="Admin"?"bg-[#2c3e50] text-white border-[#2c3e50]":u.role.includes("Vittoria")?"bg-[#ecf0f1] text-slate-700 border-slate-200":"bg-slate-100 text-slate-700"}`}>{u.role}</span>{u.role==="Super Admin" && <span className="ml-1 text-[9px] bg-gradient-to-r from-yellow-400 to-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">🛡️ IMMORTAL</span>}{expById[u.id] && <span className="ml-1 inline-flex items-center gap-0.5 align-middle" title={`${expById[u.id].exp.toLocaleString()} EXP`}><RankBadge badge={badgeForLevel(expById[u.id].level)} level={expById[u.id].level} title={expById[u.id].title} size={14} /><span className="text-[10px] font-black text-amber-600">Lv{expById[u.id].level}</span></span>}</>
                         )}
                       </td>
                       <td className="p-2.5 text-center">

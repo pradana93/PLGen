@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost, apiPut } from "../lib/api";
+import { expEarn } from "../lib/exp";
 import { useAuth } from "../context/AuthContext";
 
 // Digital PL — separate field-packing flow. Koli list comes from the server snapshot
@@ -143,6 +144,7 @@ export default function DigitalPl(){
     try {
       await apiPost(`/api/digital_pl/${encodeURIComponent(dn)}/done`, { dus_besar: b, dus_l: l, dus_s: s, by: email });
       flash("ok",`✅ ${dn} marked READY`);
+      expEarn("pack", dn);
       setDn(""); setBoxes([]); setChecks([]); setHeader(null);
       await fetchPending();
     } catch(e:any){ flash("err", e?.message||"Done failed"); }

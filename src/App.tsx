@@ -16,7 +16,9 @@ import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import FeedbackModal from "./components/FeedbackModal";
 import BootstrapSplash from "./components/BootstrapSplash";
+import RankBadge from "./components/RankBadge";
 import { getExportDest, setExportDest, driveStatus, driveConnect, driveDisconnect, type ExportDest } from "./lib/drive";
+import { expFetchMe, badgeForLevel, isExpEligible, type ExpMe } from "./lib/exp";
 import UpdateBanner from "./components/UpdateBanner";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 import { useState, useRef, useEffect } from "react";
@@ -45,6 +47,14 @@ function Nav(){
     setExportDestState(d);
     if (d === "drive") refreshDrive();
   };
+  // EXP flex (Admin/Operator only) — avatar pip + dropdown card. Checkers fetch nothing.
+  const [expMe, setExpMe] = useState<ExpMe | null>(null);
+  useEffect(()=>{
+    if (!user || !isExpEligible(profile?.role)) { setExpMe(null); return; }
+    let live = true;
+    expFetchMe().then(m => { if (live) setExpMe(m); }).catch(()=>{});
+    return ()=> { live = false; };
+  },[user, profile?.role]);
   const profileRef = useRef<HTMLDivElement>(null);
   useEffect(()=>{
     const onClick = (e:MouseEvent)=> { if(profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false); };
@@ -103,7 +113,13 @@ function Nav(){
                 className={`flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-full border transition-all ${profileOpen ? "bg-white text-[#0f1e2e] border-white shadow-md" : "bg-white/[0.08] border-white/15 text-white hover:bg-white/[0.12] hover:border-white/25"}`}
                 aria-haspopup="menu" aria-expanded={profileOpen}
               >
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shadow-sm shrink-0 ${profileOpen ? "bg-gradient-to-br from-[#3498db] to-[#2c3e50] text-white" : "bg-gradient-to-br from-[#3498db] to-[#2c3e50] border border-white/15 text-white"}`}>{initials}</div>
+                <div className={`relative w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shadow-sm shrink-0 ${profileOpen ? "bg-gradient-to-br from-[#3498db] to-[#2c3e50] text-white" : "bg-gradient-to-br from-[#3498db] to-[#2c3e50] border border-white/15 text-white"}`}>{initials}
+                  {expMe && (
+                    <span className="absolute -bottom-1 -right-1" title={`Lv ${expMe.level} • ${expMe.title}`}>
+                      <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={15} />
+                    </span>
+                  )}
+                </div>
                 <div className="hidden sm:block leading-tight text-left max-w-[160px]">
                   <div className={`text-xs font-extrabold truncate ${profileOpen?"text-[#0f1e2e]":"text-white"}`}>{profile?.alias || profile?.email?.split("@")[0] || user.email.split("@")[0]}</div>
                   <div className={`text-[10px] font-bold tracking-widest truncate ${profileOpen?"text-slate-500":"text-white/55"}`}>{profile?.role || "—"}</div>
@@ -126,6 +142,24 @@ function Nav(){
                     </div>
                   </div>
                   <div className="p-3 space-y-2.5">
+                    {expMe && (
+                      <div className="rounded-xl bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] border border-white/10 px-3 py-2.5 text-white relative overflow-hidden">
+                        <div className="absolute -right-6 -top-6 w-20 h-20 bg-white/[0.06] rounded-full blur-xl pointer-events-none" />
+                        <div className="relative flex items-center gap-2.5">
+                          <RankBadge badge={badgeForLevel(expMe.level)} level={expMe.level} title={expMe.title} size={40} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="font-black text-sm">Lv {expMe.level}</span>
+                              <span className="text-[10px] font-bold tracking-widest text-amber-300">{expMe.title.toUpperCase()}</span>
+                            </div>
+                            <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-amber-300 to-emerald-400 transition-all" style={{ width: `${Math.round(expMe.progress * 100)}%` }} />
+                            </div>
+                            <div className="mt-1 text-[10px] font-mono text-white/60">{expMe.exp.toLocaleString()} / {expMe.next.toLocaleString()} EXP • {expMe.exports} PLs • {expMe.days}d active</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
                         <div className="text-[10px] font-black tracking-widest text-slate-400">STATUS</div>
