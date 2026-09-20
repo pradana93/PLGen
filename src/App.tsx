@@ -160,6 +160,7 @@ function Nav(){
                           {driveConn === false && (
                             <button onClick={async()=>{ try { await driveConnect(); } catch {} }} className="w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-slate-100">{t("drive.connect")}</button>
                           )}
+                          <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700">⚠️ {t("drive.unverifiedNote")}</div>
                         </div>
                       )}
                     </div>
