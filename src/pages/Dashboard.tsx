@@ -3,6 +3,7 @@ import { usePackingStore } from "../store/usePackingStore";
 import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
+import { getExportDest, driveStatus, driveUpload } from "../lib/drive";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
 import { useAuth } from "../context/AuthContext";
 import KoliReviewer from "../components/KoliReviewer";
@@ -89,6 +90,27 @@ export default function Dashboard(){
     if(!checker || checker==="Select Checker") return showToast(t("dash.errChecker"));
     const clusterText = cluster? `${checker} | Cluster: ${cluster}` : checker;
     const refCombined = sourceDocs.length ? sourceDocs.join(" / ") : "";
+    // Google Drive mode — same builders, blobs uploaded to the user's own Drive
+    // instead of local download. Local path below is byte-identical to before.
+    const dest = getExportDest();
+    if(dest === "drive"){
+      try {
+        const st = await driveStatus().catch(()=> ({ connected: false }));
+        if(!st.connected) return showToast(t("drive.notConnected"));
+        const pl = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0], refCombined, { skipDownload: true });
+        const lb = await exportLabels(finalOutlet, boxes, master, { skipDownload: true });
+        const dateFolder = getDeliveryDateWIB(1, master.HOLIDAYS||[]).replace(/\D/g, "");
+        const up1 = await driveUpload({ company: companyCode, dateFolder, kind: "PL", filename: pl.filename, blob: pl.blob });
+        const up2 = await driveUpload({ company: companyCode, dateFolder, kind: "Labels", filename: lb.filename, blob: lb.blob });
+        showToast(t("drive.uploadedToast", { do: pl.deliveryNo }));
+        if(up1.webViewLink) window.open(up1.webViewLink, "_blank");
+        void up2;
+      } catch(e:any){
+        if((e as any)?.code === "NOT_CONNECTED" || (e as any)?.code === "REAUTH") return showToast(t("drive.notConnected"));
+        showToast(t("dash.exportFailed", { err: e.message }));
+      }
+      return;
+    }
     try {
       const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0], refCombined);
       await exportLabels(finalOutlet, boxes, master);

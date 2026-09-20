@@ -2537,6 +2537,183 @@ ${JSON.stringify(snap, null, 1)}`;
   }
 });
 
+// ===== Google Drive export (per-user OAuth, additive — Local flow untouched) =====
+// Each PLGen account connects its OWN Google account (drive.file scope: only files
+// the app creates). Server holds tokens + secrets; browser only sees the public Client ID.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || (IS_VERCEL ? "https://pl-gen.vercel.app/api/drive/callback" : "http://localhost:4000/api/drive/callback");
+const FRONTEND_URL = (process.env.FRONTEND_URL || (IS_VERCEL ? "https://pl-gen.vercel.app" : "http://localhost:5173")).replace(/\/$/, "");
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+function driveTokenFile(): Record<string, any> {
+  return jsonRead<Record<string, any>>("drive_tokens.json", {});
+}
+function driveTokenFileWrite(all: Record<string, any>) {
+  jsonWrite("drive_tokens.json", all);
+}
+async function getDriveRefresh(userId: string): Promise<string | null> {
+  try {
+    const sb = await getSupabase();
+    if (sb) {
+      const { data } = await sb.from("drive_tokens").select("refresh_token").eq("user_id", userId).single();
+      if ((data as any)?.refresh_token) return (data as any).refresh_token;
+    }
+  } catch {}
+  const file = driveTokenFile()[userId];
+  return file?.refresh_token || null;
+}
+async function saveDriveRefresh(userId: string, refresh: string, email: string): Promise<void> {
+  try {
+    const sb = await getSupabase();
+    if (sb) await sb.from("drive_tokens").upsert({ user_id: userId, refresh_token: refresh, email, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  } catch {}
+  try {
+    const all = driveTokenFile();
+    all[userId] = { refresh_token: refresh, email, updated_at: new Date().toISOString() };
+    driveTokenFileWrite(all);
+  } catch {}
+}
+async function deleteDriveRefresh(userId: string): Promise<void> {
+  try {
+    const sb = await getSupabase();
+    if (sb) await sb.from("drive_tokens").delete().eq("user_id", userId);
+  } catch {}
+  try {
+    const all = driveTokenFile();
+    delete all[userId];
+    driveTokenFileWrite(all);
+  } catch {}
+}
+async function driveAccessToken(refresh: string): Promise<string | null> {
+  try {
+    const r = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, refresh_token: refresh, grant_type: "refresh_token" }) as any,
+    });
+    const j = await r.json().catch(()=> ({})) as any;
+    return j.access_token || null;
+  } catch { return null; }
+}
+async function driveFindOrCreate(access: string, name: string, parentId?: string): Promise<string | null> {
+  const H: any = { Authorization: `Bearer ${access}`, "Content-Type": "application/json" };
+  try {
+    const q = encodeURIComponent(`name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false${parentId ? ` and '${parentId}' in parents` : ""}`);
+    const lr = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&spaces=drive`, { headers: H });
+    const lj = await lr.json().catch(()=> ({})) as any;
+    if (lj.files?.length) return lj.files[0].id;
+    const cr = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+      method: "POST", headers: H,
+      body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder", ...(parentId ? { parents: [parentId] } : {}) }),
+    });
+    const cj = await cr.json().catch(()=> ({})) as any;
+    return cj.id || null;
+  } catch { return null; }
+}
+
+// GET /api/drive/auth-url — build the per-user Google consent URL (needs Supabase JWT)
+app.get("/api/drive/auth-url", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!GOOGLE_CLIENT_ID) return res.status(503).json({ error: "Google Client ID not configured (GOOGLE_CLIENT_ID)" });
+  const state = String(req.headers.authorization || "").startsWith("Bearer ")
+    ? String(req.headers.authorization).slice(7) : "";
+  const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: "code", scope: DRIVE_SCOPE,
+    access_type: "offline", prompt: "consent", state,
+  }).toString();
+  res.json({ url });
+});
+
+// GET /api/drive/callback?code&state — exchange code, store refresh token, bounce to app
+app.get("/api/drive/callback", async (req, res) => {
+  const { code, state, error } = req.query as any;
+  if (error) return res.redirect(`${FRONTEND_URL}/?drive=error`);
+  if (!code || !state) return res.redirect(`${FRONTEND_URL}/?drive=error`);
+  try {
+    const sb = await getSupabase();
+    let uid = "", email = "";
+    if (sb) {
+      const { data, error: e2 } = await sb.auth.getUser(String(state));
+      if (!e2 && data?.user) { uid = data.user.id; email = (data.user.email || "").toLowerCase(); }
+    }
+    if (!uid) {
+      const decoded = decodeJwtEmail(String(state));
+      if (decoded?.email) { uid = decoded.id || decoded.email; email = decoded.email; }
+    }
+    if (!uid) return res.redirect(`${FRONTEND_URL}/?drive=error`);
+    const tr = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ code: String(code), client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: GOOGLE_REDIRECT_URI, grant_type: "authorization_code" }) as any,
+    });
+    const tj = await tr.json().catch(()=> ({})) as any;
+    if (!tj.refresh_token) return res.redirect(`${FRONTEND_URL}/?drive=error`);
+    await saveDriveRefresh(uid, tj.refresh_token, email);
+    return res.redirect(`${FRONTEND_URL}/?drive=connected`);
+  } catch {
+    return res.redirect(`${FRONTEND_URL}/?drive=error`);
+  }
+});
+
+// GET /api/drive/status — connected? (per-user own Drive)
+app.get("/api/drive/status", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  const refresh = await getDriveRefresh(user.id);
+  res.json({ connected: !!refresh, email: user.email, clientReady: !!GOOGLE_CLIENT_ID });
+});
+
+// POST /api/drive/disconnect — remove this user's Google link
+app.post("/api/drive/disconnect", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  await deleteDriveRefresh(user.id);
+  res.json({ status: "success" });
+});
+
+// POST /api/drive/upload — PL/Labels blob → PLGen/{DDMMYYYY}_PL/{BBB|BBT}/{PL|Labels}/
+// Body: { deliveryNo, company, dateFolder, kind: "PL"|"Labels", filename, mimeType, contentBase64 }
+app.post("/api/drive/upload", async (req, res) => {
+  const user = await getUserFromReq(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  const { company, dateFolder, kind, filename, mimeType, contentBase64 } = req.body as any;
+  if (!["BBB","BBT"].includes(String(company))) return res.status(400).json({ error: "company must be BBB|BBT" });
+  if (!["PL","Labels"].includes(String(kind))) return res.status(400).json({ error: "kind must be PL|Labels" });
+  if (!filename || !contentBase64) return res.status(400).json({ error: "Missing file" });
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) return res.status(503).json({ error: "Google OAuth not configured" });
+  const refresh = await getDriveRefresh(user.id);
+  if (!refresh) return res.status(409).json({ error: "Google Drive not connected — connect first", code: "NOT_CONNECTED" });
+  const access = await driveAccessToken(refresh);
+  if (!access) return res.status(502).json({ error: "Google token refresh failed — reconnect", code: "REAUTH" });
+  try {
+    const root = await driveFindOrCreate(access, "PLGen");
+    if (!root) return res.status(502).json({ error: "Drive: cannot create PLGen folder" });
+    const dateName = `${String(dateFolder || "").replace(/\D/g, "") || "00000000"}_PL`;
+    const dateId = await driveFindOrCreate(access, dateName, root);
+    if (!dateId) return res.status(502).json({ error: "Drive: cannot create date folder" });
+    const coId = await driveFindOrCreate(access, String(company), dateId);
+    if (!coId) return res.status(502).json({ error: "Drive: cannot create company folder" });
+    const kindId = await driveFindOrCreate(access, String(kind), coId);
+    if (!kindId) return res.status(502).json({ error: "Drive: cannot create kind folder" });
+    const buf = Buffer.from(String(contentBase64), "base64");
+    const boundary = "plgen" + Date.now().toString(36);
+    const meta = JSON.stringify({ name: String(filename), parents: [kindId] });
+    const preamble = Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}\r\n\r\n`);
+    const epilogue = Buffer.from(`\r\n--${boundary}--`);
+    const ur = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${access}`, "Content-Type": `multipart/related; boundary=${boundary}`, "Content-Length": String(preamble.length + buf.length + epilogue.length) },
+      body: Buffer.concat([preamble, buf, epilogue]) as any,
+    });
+    const uj = await ur.json().catch(()=> ({})) as any;
+    if (!ur.ok || !uj.id) return res.status(502).json({ error: `Drive upload failed: ${(uj.error?.message || ur.status).toString().slice(0, 200)}` });
+    res.json({ status: "success", fileId: uj.id, name: uj.name, webViewLink: uj.webViewLink || null, webContentLink: uj.webContentLink || null });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || "Drive upload error" });
+  }
+});
+
 // Static serving for uploads
 app.use("/uploads", express.static(UPLOAD_DIR));
 

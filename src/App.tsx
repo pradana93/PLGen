@@ -16,6 +16,7 @@ import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import FeedbackModal from "./components/FeedbackModal";
 import BootstrapSplash from "./components/BootstrapSplash";
+import { getExportDest, setExportDest, driveStatus, driveConnect, driveDisconnect, type ExportDest } from "./lib/drive";
 import UpdateBanner from "./components/UpdateBanner";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
 import { useState, useRef, useEffect } from "react";
@@ -32,14 +33,28 @@ function Nav(){
   };
   const initials = profile?.email ? profile.email[0].toUpperCase() : user?.email ? user.email[0].toUpperCase() : "?";
   const [profileOpen, setProfileOpen] = useState(false);
+  // Export destination (Local | Google Drive) — per browser, Local default. Drive needs per-user connect.
+  const [exportDest, setExportDestState] = useState<ExportDest>("local");
+  const [driveConn, setDriveConn] = useState<boolean | null>(null);
+  const refreshDrive = async ()=>{
+    try { const s = await driveStatus(); setDriveConn(!!s.connected); }
+    catch { setDriveConn(false); }
+  };
+  const pickDest = (d: ExportDest)=>{
+    setExportDest(d);
+    setExportDestState(d);
+    if (d === "drive") refreshDrive();
+  };
   const profileRef = useRef<HTMLDivElement>(null);
   useEffect(()=>{
     const onClick = (e:MouseEvent)=> { if(profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false); };
     const onEsc = (e:KeyboardEvent)=> { if(e.key==="Escape") setProfileOpen(false); };
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onEsc);
+    try { setExportDestState(getExportDest()); } catch {}
     return ()=> { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onEsc); };
   },[]);
+  useEffect(()=>{ if(profileOpen) refreshDrive(); },[profileOpen]);
   return (
     <nav className="sticky top-0 z-50 border-b border-white/[0.06] bg-[#0f1e2e] shadow-[0_4px_16px_rgba(0,0,0,0.12)]">
       <div className="max-w-[1400px] mx-auto px-4 h-[56px] flex items-center gap-4">
@@ -127,6 +142,27 @@ function Nav(){
                         <span className="text-xs font-mono font-bold text-slate-700">{new Date(profile.last_login_at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}</span>
                       </div>
                     )}
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                      <div className="text-[10px] font-black tracking-widest text-slate-400">EXPORT DESTINATION</div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        <button onClick={()=> pickDest("local")} className={`px-2 py-1.5 rounded-lg text-[11px] font-black transition ${exportDest==="local" ? "bg-[#0f1e2e] text-white shadow" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-100"}`}>💾 {t("drive.local")}</button>
+                        <button onClick={()=> pickDest("drive")} className={`px-2 py-1.5 rounded-lg text-[11px] font-black transition ${exportDest==="drive" ? "bg-[#0f1e2e] text-white shadow" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-100"}`}>☁️ {t("drive.drive")}</button>
+                      </div>
+                      {exportDest==="drive" && (
+                        <div className="mt-1.5">
+                          {driveConn === null && <div className="text-[11px] text-slate-400">Checking Google link…</div>}
+                          {driveConn === true && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-emerald-600">✓ {t("drive.connected")}</span>
+                              <button onClick={async()=>{ await driveDisconnect(); setDriveConn(false); }} className="text-[11px] font-bold text-red-500 underline">{t("drive.disconnect")}</button>
+                            </div>
+                          )}
+                          {driveConn === false && (
+                            <button onClick={async()=>{ try { await driveConnect(); } catch {} }} className="w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-slate-100">{t("drive.connect")}</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <button onClick={()=> { setProfileOpen(false); (window as any).__openFeedback?.(); }} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white text-xs font-extrabold hover:from-black hover:to-[#0f1e2e] transition flex items-center justify-center gap-1.5">💬 Send Feedback</button>
                     <div className="flex items-center gap-2 pt-1">
                       <Link to="/admin" onClick={()=> setProfileOpen(false)} className="flex-1 text-center px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold hover:bg-black transition">View Admin</Link>
@@ -169,13 +205,35 @@ function AppRoutes(){
   const clean = (m:string)=> m.replace(/^(feat|fix|perf|chore|chore\(.*\)|docs|style|refactor|test)(\(\w+\))?:\s*/i,"");
   const loc = useLocation();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [driveFlash, setDriveFlash] = useState<string | null>(null);
   useEffect(()=>{ (window as any).__openFeedback = ()=> setFeedbackOpen(true); return ()=> { delete (window as any).__openFeedback; }; },[]);
+  // Google Drive connect bounce (?drive=connected|error) — one-time notice, then clean URL
+  useEffect(()=>{
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const d = q.get("drive");
+      if (d === "connected" || d === "error") {
+        setDriveFlash(d);
+        q.delete("drive");
+        const rest = q.toString();
+        window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : ""));
+        setTimeout(()=> setDriveFlash(null), 5000);
+      }
+    } catch {}
+  },[]);
   return (
     <>
       <Nav />
       <UpdateBanner />
       <Copilot />
       <FeedbackModal open={feedbackOpen} onClose={()=> setFeedbackOpen(false)} />
+      {driveFlash && (
+        <div className="max-w-[1400px] mx-auto px-4 pt-3">
+          <div className={`text-xs font-bold rounded-xl px-4 py-2.5 border ${driveFlash === "connected" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200"}`}>
+            {driveFlash === "connected" ? `✓ ${t("drive.connected")} — pick Google Drive in the profile menu to export there` : t("drive.notConnected")}
+          </div>
+        </div>
+      )}
       {/* Flagship floating Feedback pill */}
       <button onClick={()=> setFeedbackOpen(true)} className="fixed bottom-5 left-5 z-40 hidden md:flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0f1e2e] text-white text-xs font-black shadow-[0_8px_24px_rgba(0,0,0,0.18)] border border-white/10 hover:bg-black transition btn-press">💬 Feedback</button>
       <Routes location={loc} key={loc.pathname}>

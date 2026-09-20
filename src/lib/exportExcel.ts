@@ -8,7 +8,9 @@ const ARIA = "Arial";
 const ARIA_BLACK = "Arial Black";
 
 // Packing List export — polished professional layout — now PL/ + REF (DO/IT) per Dashboard request
-export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string, preparedBy?: string, sourceRef?: string) {
+// opts.skipDownload: build the blob without triggering a local download (Google Drive mode).
+// Default path (no opts) is byte-identical to before — Local flow untouched.
+export async function exportPackingList(outlet: string, boxes: Box[], order: Order, master: any, checkerDisplay: string, preparedBy?: string, sourceRef?: string, opts?: { skipDownload?: boolean }) {
   const deliveryDate = getDeliveryDateWIB(1, master.HOLIDAYS||[]);
   const deliveryNo = getNextDeliveryNumber(master.companyCode||"BBB");
   const totalWeight = Object.entries(order).reduce((acc,[sku,data])=>{
@@ -403,7 +405,8 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const buf = await wb.xlsx.writeBuffer() as ArrayBuffer;
   const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
   const filename = `${_ts}_${outlet}.xlsx`;
-  saveAs(new Blob([buf]), filename);
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  if (!opts?.skipDownload) saveAs(blob, filename);
 
   // Backend logging + auto-upload — saveAs first (instant), then await Supabase so Live Board catches single-click (previous fire-and-forget sometimes dropped)
   const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
@@ -428,11 +431,13 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     const ru = await fetch(`${_base}/api/upload_packing_list`, { method: "POST", body: fd } as any);
     if(!ru.ok) console.warn("upload persist", await ru.text().catch(()=>ru.statusText));
   } catch(e){ console.warn("upload failed", e); }
-  return { deliveryNo, totalWeight };
+  return { deliveryNo, totalWeight, blob, filename };
 }
 
 // Label sheets export — mirrors addons.py generate_labels (6 labels/sheet, 2 cols x 3 rows, A4 portrait)
-export async function exportLabels(outlet: string, boxes: Box[], master: any) {
+// opts.skipDownload: build the blob without triggering a local download (Google Drive mode).
+// Default path (no opts) is byte-identical to before — Local flow untouched.
+export async function exportLabels(outlet: string, boxes: Box[], master: any, opts?: { skipDownload?: boolean }) {
   const outName = outlet.toUpperCase();
   const outletData = (master?.OUTLET_INFO || {})[outName] || {};
   const receiverName = outletData.name || outName;
@@ -564,5 +569,8 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any) {
 
   const buf = await wb.xlsx.writeBuffer();
   const _ts = (() => { const d = new Date(); return String(d.getDate()).padStart(2,"0") + String(d.getMonth()+1).padStart(2,"0") + d.getFullYear(); })();
-  saveAs(new Blob([buf]), `${outlet}_${_ts}.xlsx`);
+  const labelsFilename = `${outlet}_${_ts}.xlsx`;
+  const labelsBlob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  if (!opts?.skipDownload) saveAs(labelsBlob, labelsFilename);
+  return { blob: labelsBlob, filename: labelsFilename };
 }
