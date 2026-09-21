@@ -85,7 +85,7 @@ function Nav(){
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", t("nav.dashboard"))}
           {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", t("nav.digitalPl"))}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", t("nav.live"))}
-          {["Super Admin","Admin"].includes(profile?.role||"") && link("/admin", t("nav.admin"))}
+          {["Super Admin"].includes(profile?.role||"") && link("/admin", t("nav.admin"))}
           {!profile && <span className="text-white/40 text-xs px-2">Login to view</span>}
         </div>
         {/* mobile nav */}
@@ -93,7 +93,7 @@ function Nav(){
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", "Dash")}
           {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", "DigiPL")}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", "Report")}
-          {["Super Admin","Admin"].includes(profile?.role||"") && link("/admin", "Admin")}
+          {["Super Admin"].includes(profile?.role||"") && link("/admin", "Admin")}
         </div>
 
         {/* Right */}
@@ -279,7 +279,7 @@ function AppRoutes(){
         <Route path="/live" element={<Protected roles={["Super Admin","Admin"]}><LiveBoard /></Protected>} />
         <Route path="/manifests" element={<Protected roles={["Super Admin"]}><Manifests /></Protected>} />
         <Route path="/inbound" element={<Protected roles={["Super Admin"]}><Inbound /></Protected>} />
-        <Route path="/admin" element={<Protected roles={["Super Admin","Admin"]}><Admin /></Protected>} />
+        <Route path="/admin" element={<Protected roles={["Super Admin"]}><Admin /></Protected>} />
         <Route path="/scan/:deliveryNo" element={<ScanPage />} />
       </Routes>
       <footer className="mt-10 border-t border-white/10 bg-[#0f1e2e] text-slate-300">
