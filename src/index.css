@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Flagship lightweight motion — GPU-only (transform/opacity), no JS heavy libs */
+@keyframes flagship-fadeUp { from { opacity:0; transform: translateY(8px) } to { opacity:1; transform: translateY(0) } }
+@keyframes flagship-shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+.page-enter { animation: flagship-fadeUp 180ms ease-out both; will-change: transform, opacity; }
+.btn-press:active { transform: scale(0.98); }
+.card-hover { transition: transform 180ms ease, box-shadow 180ms ease; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -12px rgba(0,0,0,0.16); }
+.skeleton { background: linear-gradient(90deg, #eef2f7 25%, #e6ebf2 37%, #eef2f7 63%); background-size: 400% 100%; animation: flagship-shimmer 1.2s ease-in-out infinite; }
+.skeleton-dark { background: linear-gradient(90deg, #1a2f4a 25%, #1e3658 37%, #1a2f4a 63%); background-size: 400% 100%; animation: flagship-shimmer 1.2s ease-in-out infinite; }
+/* Lightweight micro-interactions — applied globally for low-spec, beautiful */
+button, a { transition: transform 120ms ease, opacity 120ms ease, box-shadow 180ms ease; }
+button:active, a:active { transform: scale(0.985); }
+.bg-white.rounded-2xl, .bg-white.rounded-xl { transition: transform 180ms ease, box-shadow 180ms ease; }
+.bg-white.rounded-2xl:hover, .bg-white.rounded-xl:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -14px rgba(0,0,0,0.12); }
+tr.lb-row-hover { transition: background-color 120ms ease; }

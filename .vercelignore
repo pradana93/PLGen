@@ -1,0 +1,13 @@
+# Python legacy + logs (kept for reference, not deployed) — Vercel build will generate dist
+*.pyc
+__pycache__/
+venv/
+.venv/
+logs/
+Labels/
+*.log
+*.tmp
+data/
+node_modules/
+.DS_Store
+.git/
