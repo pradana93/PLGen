@@ -285,12 +285,51 @@ export default function Dashboard(){
           <datalist id="outlets">
             {Object.keys(master.OUTLET_INFO||{}).map(o=> <option key={o} value={o} />)}
           </datalist>
-          <div className="mt-3 bg-[#ecf0f1] rounded-lg p-3 text-xs border">
-            <div className="font-bold">{t("dash.preview")}</div>
-            <div>{t("dash.receiver", { name: outletInfo?.name||"-" })}</div>
-            <div>{t("dash.phone", { phone: outletInfo?.phone||"-" })}</div>
-            <div>{t("dash.address", { address: outletInfo?.address || t("dash.selectOutletView") })}</div>
-          </div>
+          {/* Outlet preview — flagship identity card (UI only, same OUTLET_INFO data + auto-register flow) */}
+          {(()=>{
+            const typed = outlet.trim();
+            const status: "empty"|"registered"|"new" = !typed ? "empty" : outletInfo ? "registered" : "new";
+            const pill = status==="registered"
+              ? "bg-emerald-400/15 border-emerald-300/30 text-emerald-200"
+              : status==="new"
+                ? "bg-amber-400/15 border-amber-300/30 text-amber-200"
+                : "bg-white/10 border-white/15 text-white/60";
+            const phoneVal = outletInfo?.phone || "";
+            const showCopy = status==="registered" && phoneVal && phoneVal !== "-";
+            return (
+              <div className="mt-3 rounded-2xl overflow-hidden border border-slate-200 shadow-[0_2px_12px_rgba(15,30,46,0.08)]">
+                <div className="bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] px-3.5 py-3 text-white relative overflow-hidden">
+                  <div className="absolute -right-8 -top-8 w-24 h-24 bg-white/[0.06] rounded-full blur-2xl pointer-events-none" />
+                  <div className="relative flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-white text-[#0f1e2e] flex items-center justify-center text-lg shadow shrink-0">🏪</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-black tracking-widest text-white/50">{t("dash.preview")}</div>
+                      <div className="font-extrabold text-sm leading-tight truncate">{typed || t("dash.selectOutletView")}</div>
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-black tracking-widest ${pill}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${status==="registered" ? "bg-emerald-400" : status==="new" ? "bg-amber-400 animate-pulse" : "bg-white/40"}`} />
+                      {status==="registered" ? t("dash.outletRegistered") : status==="new" ? t("dash.outletNew") : t("dash.outletEmpty")}
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-white px-3 py-2.5 space-y-1.5 text-xs">
+                  <div className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2 text-slate-700 font-semibold">{t("dash.receiver", { name: outletInfo?.name||"-" })}</div>
+                  <div className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2 text-slate-700 font-semibold flex items-center justify-between gap-2">
+                    <span className="font-mono truncate">{t("dash.phone", { phone: outletInfo?.phone||"-" })}</span>
+                    {showCopy && (
+                      <button
+                        onClick={()=> { try { navigator.clipboard.writeText(phoneVal); showToast(t("dash.phoneCopied")); } catch {} }}
+                        title={t("dash.copyPhone")}
+                        className="shrink-0 px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-black text-slate-500 hover:bg-slate-100 hover:text-[#0f1e2e] transition"
+                      >{t("dash.copyPhone")}</button>
+                    )}
+                  </div>
+                  <div className="rounded-lg bg-slate-50 border border-slate-100 border-l-4 border-l-[#f39c12] px-2.5 py-2 text-slate-700 font-semibold break-words">{t("dash.address", { address: outletInfo?.address || t("dash.selectOutletView") })}</div>
+                </div>
+                <div className="px-3.5 py-1.5 bg-slate-50/70 border-t border-slate-100 text-[10px] font-semibold text-slate-400">{t("dash.previewSource")}</div>
+              </div>
+            );
+          })()}
           {/* Company Code chooser — BBB / BBT flagship pill */}
           <div className="mt-3">
             <label className="text-xs font-bold">Company Code</label>
