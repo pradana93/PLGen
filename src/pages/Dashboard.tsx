@@ -409,23 +409,36 @@ export default function Dashboard(){
           </div>
         </div>
 
-        {/* System Actions */}
-        <div className="bg-white rounded-xl shadow p-4">
-          <h3 className="font-bold text-sm text-[#2c3e50] mb-3">{t("dash.systemActions")}</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={handleCalculate} className="bg-[#3498db] text-white rounded-lg py-2 font-bold text-sm">{t("dash.calcRouting")}</button>
-            <button onClick={handleExport} className="bg-[#27ae60] text-white rounded-lg py-2 font-bold text-sm">{t("dash.exportSave")}</button>
-            <button onClick={()=> (document.querySelector<HTMLInputElement>('input[type=file]')?.click())} className="bg-[#9b59b6] text-white rounded-lg py-2 font-bold text-sm">{t("dash.scanner")}</button>
+        {/* System Actions — flagship pipeline (UI only, same handlers, dead shortcuts removed) */}
+        <div className="bg-white rounded-2xl shadow p-4 border border-slate-100">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-sm text-[#2c3e50]">{t("dash.systemActions")}</h3>
             <button onClick={async()=>{
               try{ const md=await apiGet("/api/master_data"); setMaster(md); showToast(t("dash.masterRefreshed"));}
               catch{ showToast(t("dash.syncFailed"));}
-            }} className="bg-[#16a085] text-white rounded-lg py-2 font-bold text-sm">{t("dash.liveSync")}</button>
-            <button onClick={()=> showToast(t("dash.printerMsg"))} className="bg-gray-400 text-white rounded-lg py-1 font-bold text-xs">{t("dash.printer")}</button>
-            <button onClick={()=> showToast(t("dash.shiftTotal", { n: Object.values(order).reduce((a,b)=>a+b.qty,0) }))} className="bg-[#f39c12] text-white rounded-lg py-1 font-bold text-xs">{t("dash.shiftReport")}</button>
-            <button onClick={()=> window.open("/live","_blank")} className="bg-[#3498db] text-white rounded-lg py-1 font-bold text-xs">{t("dash.liveBoard")}</button>
-            <button onClick={()=> window.open("/admin","_blank")} className="bg-[#9b59b6] text-white rounded-lg py-1 font-bold text-xs">{t("dash.walletAdmin")}</button>
+            }} title={t("dash.liveSync")} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-black text-[#16a085] bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition">🔄 {t("dash.liveSync")}</button>
           </div>
-          <button onClick={clearOrder} className="w-full mt-2 bg-[#e74c3c] text-white rounded-lg py-2 font-bold text-sm">{t("dash.clearOrder")}</button>
+          <div className="space-y-2">
+            <button onClick={()=> (document.querySelector<HTMLInputElement>('input[type=file]')?.click())} className="w-full group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-[#9b59b6] hover:border-[#9b59b6] px-3 py-2.5 transition text-left">
+              <span className="w-6 h-6 rounded-full bg-[#9b59b6] text-white text-[11px] font-black flex items-center justify-center shrink-0 group-hover:bg-white group-hover:text-[#9b59b6] transition">1</span>
+              <span className="flex-1 text-sm font-extrabold text-slate-700 group-hover:text-white transition">{t("dash.scanner")}</span>
+              <span className="text-slate-300 group-hover:text-white/80 group-hover:translate-x-0.5 transition">›</span>
+            </button>
+            <button onClick={handleCalculate} className="w-full group flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-[#3498db] hover:border-[#3498db] px-3 py-2.5 transition text-left">
+              <span className="w-6 h-6 rounded-full bg-[#3498db] text-white text-[11px] font-black flex items-center justify-center shrink-0 group-hover:bg-white group-hover:text-[#3498db] transition">2</span>
+              <span className="flex-1 text-sm font-extrabold text-slate-700 group-hover:text-white transition">{t("dash.calcRouting")}</span>
+              <span className="text-slate-300 group-hover:text-white/80 group-hover:translate-x-0.5 transition">›</span>
+            </button>
+            <button onClick={handleExport} className="w-full group flex items-center gap-3 rounded-xl px-3 py-3 transition text-left bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] shadow-[0_4px_16px_rgba(15,30,46,0.25)] hover:shadow-[0_6px_20px_rgba(15,30,46,0.35)] border border-white/10">
+              <span className="w-6 h-6 rounded-full bg-white text-[#0f1e2e] text-[11px] font-black flex items-center justify-center shrink-0">3</span>
+              <span className="flex-1 text-sm font-extrabold text-white">{t("dash.exportSave")}</span>
+              <span className="text-white/50 group-hover:text-white group-hover:translate-x-0.5 transition">›</span>
+            </button>
+          </div>
+          <div className="mt-3 rounded-xl bg-red-50/70 border border-red-100 p-2">
+            <div className="text-[10px] font-black tracking-widest text-red-400 px-1 mb-1">{t("dash.dangerZone")}</div>
+            <button onClick={clearOrder} className="w-full bg-white border border-red-200 text-red-600 hover:bg-[#e74c3c] hover:border-[#e74c3c] hover:text-white rounded-lg py-2 font-bold text-sm transition">{t("dash.clearOrder")}</button>
+          </div>
         </div>
       </div>
 
