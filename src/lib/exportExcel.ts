@@ -444,6 +444,8 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
   const receiverPhone = outletData.phone || "";
   const receiverAddr = outletData.address || "Address not available";
   const totalKoli = boxes.length;
+  // Same delivery-date source as exportPackingList — label stamp always matches the PL
+  const deliveryDate = getDeliveryDateWIB(1, master?.HOLIDAYS || []);
 
   const palette = getOutletPalette(outlet);
   const destBg = "FF" + palette.bg;
@@ -549,6 +551,13 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
       const cSendPhNum = ws.getCell(rowOffset + 8, colOffset + 2);
       cSendPhNum.value = "082125627591";
       cSendPhNum.fill = senderFill; cSendPhNum.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11, name: ARIA }; cSendPhNum.alignment = { horizontal: "center", vertical: "middle" };
+
+      // Row 9: DELIVERY DATE stamp (reuses the empty spacer row — layout untouched)
+      ws.mergeCells(rowOffset + 9, colOffset, rowOffset + 9, colOffset + 5);
+      const cDate = ws.getCell(rowOffset + 9, colOffset);
+      cDate.value = `Tgl Kirim: ${deliveryDate}`;
+      cDate.font = { size: 9, name: ARIA, color: { argb: "FF2C3E50" } };
+      cDate.alignment = { horizontal: "center", vertical: "middle" };
 
       // Thick border around the entire label block
       borderBox(ws, rowOffset, colOffset, rowOffset + 9, colOffset + 5);
