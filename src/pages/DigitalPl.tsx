@@ -26,6 +26,7 @@ export default function DigitalPl(){
   const [dusS, setDusS] = useState("0");
   const [saving, setSaving] = useState(false);
   const [plQuery, setPlQuery] = useState("");
+  const [todayOnly, setTodayOnly] = useState(true);
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -69,12 +70,28 @@ export default function DigitalPl(){
   const total = boxes.length;
   const allChecked = total>0 && done===total;
 
-  // Search/filter across PL number + outlet + checker (client-side over fetched pending — no API change)
+  // Today scope (WIB calendar date) — PL number embeds DDMMYYYY; fallback created_at.
+  // Pure date filter over the fetched list: checklist/snapshot logic untouched.
+  const todayLabel = useMemo(()=>{
+    const w = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    return `${String(w.getDate()).padStart(2,"0")}/${String(w.getMonth()+1).padStart(2,"0")}/${w.getFullYear()}`;
+  },[]);
+  const dateScoped = useMemo(()=>{
+    if(!todayOnly) return pending;
+    const ddmmyyyy = todayLabel.replace(/\//g, "");
+    const ymd = ddmmyyyy.replace(/^(\d{2})(\d{2})(\d{4})$/, "$3-$2-$1");
+    return pending.filter((p:any)=>{
+      if(String(p.delivery_no||"").includes(ddmmyyyy)) return true;
+      return String(p.created_at||"").slice(0,10) === ymd;
+    });
+  },[pending, todayOnly, todayLabel]);
+
+  // Search/filter across PL number + outlet + checker (client-side over date scope — no API change)
   const filteredPending = useMemo(()=>{
     const q = plQuery.trim().toLowerCase();
-    if(!q) return pending;
-    return pending.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
-  },[pending, plQuery]);
+    if(!q) return dateScoped;
+    return dateScoped.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+  },[dateScoped, plQuery]);
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
@@ -193,6 +210,16 @@ export default function DigitalPl(){
             <label className="text-xs font-extrabold tracking-wide text-slate-700">PACKING LIST (PENDING ONLY)</label>
             <span className="text-[11px] font-bold text-slate-400 shrink-0">{filteredPending.length} of {pending.length}</span>
           </div>
+          <div className="flex items-center gap-1.5 mt-2">
+            <button
+              onClick={()=> setTodayOnly(true)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+            >📅 Today ({todayLabel})</button>
+            <button
+              onClick={()=> setTodayOnly(false)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${!todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+            >All</button>
+          </div>
           <div className="flex gap-2 mt-1">
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">🔍</span>
@@ -226,8 +253,14 @@ export default function DigitalPl(){
                 </button>
               );
             })}
-            {filteredPending.length===0 && pending.length>0 && (
+            {filteredPending.length===0 && dateScoped.length>0 && (
               <div className="px-3 py-4 text-center text-xs text-slate-400">No match for “{plQuery.trim()}” — try a PL number, outlet, or checker name.</div>
+            )}
+            {dateScoped.length===0 && pending.length>0 && (
+              <div className="px-3 py-4 text-center text-xs text-slate-500">
+                <div>No PENDING PL for today ({todayLabel}).</div>
+                <button onClick={()=> setTodayOnly(false)} className="mt-1.5 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-black">Show all {pending.length}</button>
+              </div>
             )}
           </div>
           {pending.length===0 && <div className="text-xs text-slate-400 mt-2">No PENDING PL — export one from the Dashboard first.</div>}
