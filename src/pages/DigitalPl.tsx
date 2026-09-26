@@ -25,6 +25,7 @@ export default function DigitalPl(){
   const [dusL, setDusL] = useState("0");
   const [dusS, setDusS] = useState("0");
   const [saving, setSaving] = useState(false);
+  const [plQuery, setPlQuery] = useState("");
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -67,6 +68,13 @@ export default function DigitalPl(){
   const done = useMemo(()=> checks.filter(c=>c?.checked).length, [checks]);
   const total = boxes.length;
   const allChecked = total>0 && done===total;
+
+  // Search/filter across PL number + outlet + checker (client-side over fetched pending — no API change)
+  const filteredPending = useMemo(()=>{
+    const q = plQuery.trim().toLowerCase();
+    if(!q) return pending;
+    return pending.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+  },[pending, plQuery]);
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
@@ -181,13 +189,46 @@ export default function DigitalPl(){
         {msg && <div className={`text-xs font-semibold p-3 rounded-2xl border ${msg.type==="ok"?"bg-emerald-50 text-emerald-700 border-emerald-200":"bg-red-50 text-red-700 border-red-200"}`}>{msg.text}</div>}
 
         <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
-          <label className="text-xs font-extrabold tracking-wide text-slate-700">PACKING LIST (PENDING ONLY)</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs font-extrabold tracking-wide text-slate-700">PACKING LIST (PENDING ONLY)</label>
+            <span className="text-[11px] font-bold text-slate-400 shrink-0">{filteredPending.length} of {pending.length}</span>
+          </div>
           <div className="flex gap-2 mt-1">
-            <select value={dn} onChange={e=> setDn(e.target.value)} className="flex-1 border border-slate-200 rounded-xl px-3 py-3 text-sm bg-slate-50 font-mono">
-              <option value="">— Select PL —</option>
-              {pending.map((p:any)=> <option key={p.delivery_no} value={p.delivery_no}>{p.delivery_no} • {p.outlet}</option>)}
-            </select>
-            <button onClick={()=>{ fetchPending(); if(dn) loadPl(dn); }} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black">↻</button>
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">🔍</span>
+              <input
+                value={plQuery}
+                onChange={e=> setPlQuery(e.target.value)}
+                placeholder="Search PL number, outlet, or checker…"
+                className="w-full border border-slate-200 rounded-xl pl-9 pr-9 py-3 text-sm bg-slate-50 font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/20 focus:border-[#0f1e2e]"
+              />
+              {plQuery && (
+                <button onClick={()=> setPlQuery("")} title="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200 text-slate-500 text-xs font-black hover:bg-slate-300 transition">✕</button>
+              )}
+            </div>
+            <button onClick={()=>{ fetchPending(); if(dn) loadPl(dn); }} title="Refresh" className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black shrink-0">↻</button>
+          </div>
+          <div className="mt-2 max-h-[220px] overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
+            {filteredPending.map((p:any)=>{
+              const active = dn === String(p.delivery_no);
+              return (
+                <button
+                  key={p.delivery_no}
+                  onClick={()=> setDn(String(p.delivery_no))}
+                  className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition ${active ? "bg-[#0f1e2e] text-white" : "bg-white hover:bg-slate-50"}`}
+                >
+                  <span className={`font-mono text-xs font-bold shrink-0 ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no}</span>
+                  <span className={`flex-1 min-w-0 text-xs font-semibold truncate ${active ? "text-white/90" : "text-slate-600"}`}>{p.outlet}</span>
+                  {p.checker && (
+                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black ${active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"}`}>{p.checker}</span>
+                  )}
+                  {active && <span className="shrink-0 text-emerald-400 text-sm font-black">✓</span>}
+                </button>
+              );
+            })}
+            {filteredPending.length===0 && pending.length>0 && (
+              <div className="px-3 py-4 text-center text-xs text-slate-400">No match for “{plQuery.trim()}” — try a PL number, outlet, or checker name.</div>
+            )}
           </div>
           {pending.length===0 && <div className="text-xs text-slate-400 mt-2">No PENDING PL — export one from the Dashboard first.</div>}
           {header && <div className="mt-3 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span><b>Outlet:</b> {header.outlet}</span><span><b>Checker:</b> {header.checker}</span><span><b>Status:</b> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">{header.status}</span></span>{header.total_weight_kg!==undefined && <span><b>Weight:</b> {header.total_weight_kg} kg</span>}</div>}
