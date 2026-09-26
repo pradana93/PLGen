@@ -26,7 +26,7 @@ export default function DigitalPl(){
   const [dusS, setDusS] = useState("0");
   const [saving, setSaving] = useState(false);
   const [plQuery, setPlQuery] = useState("");
-  const [todayOnly, setTodayOnly] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(true);
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -84,17 +84,34 @@ export default function DigitalPl(){
     if(m) return { date: `${m[3]}/${m[2]}/${m[1]}`, estimated: true };
     return { date: "", estimated: true };
   };
-  const dateScoped = useMemo(()=>{
-    if(!todayOnly) return pending;
-    return pending.filter((p:any)=> deliveryOf(p).date === todayLabel);
-  },[pending, todayOnly, todayLabel]);
-
-  // Search/filter across PL number + outlet + checker (client-side over date scope — no API change)
+  // Search/filter across PL number + outlet + checker (client-side — no API change)
   const filteredPending = useMemo(()=>{
     const q = plQuery.trim().toLowerCase();
-    if(!q) return dateScoped;
-    return dateScoped.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
-  },[dateScoped, plQuery]);
+    if(!q) return pending;
+    return pending.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+  },[pending, plQuery]);
+
+  // Group by delivery date — today first, then chronological, undated last.
+  // Date shows once per section header, so rows stay calm with no per-row badges.
+  const groupedPending = useMemo(()=>{
+    const map = new Map<string, any[]>();
+    for(const p of filteredPending){
+      const k = deliveryOf(p).date;
+      if(!map.has(k)) map.set(k, []);
+      map.get(k)!.push(p);
+    }
+    const rank = (d:string)=> d ? `${d.slice(6,10)}${d.slice(3,5)}${d.slice(0,2)}` : "";
+    const keys = [...map.keys()].sort((a,b)=>{
+      if(a===todayLabel) return -1;
+      if(b===todayLabel) return 1;
+      if(!a) return 1;
+      if(!b) return -1;
+      return rank(a).localeCompare(rank(b));
+    });
+    return keys.map(k=>({ date: k, items: map.get(k)! }));
+  },[filteredPending, todayLabel]);
+
+  const selectedPl = pending.find((p:any)=> String(p.delivery_no)===dn);
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
@@ -213,17 +230,20 @@ export default function DigitalPl(){
             <label className="text-xs font-extrabold tracking-wide text-slate-700">PACKING LIST (PENDING ONLY)</label>
             <span className="text-[11px] font-bold text-slate-400 shrink-0">{filteredPending.length} of {pending.length}</span>
           </div>
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-            <button
-              onClick={()=> setTodayOnly(true)}
-              className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
-            >🚚 Delivering ({todayLabel})</button>
-            <button
-              onClick={()=> setTodayOnly(false)}
-              className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${!todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
-            >All</button>
-          </div>
-          <div className="flex gap-2 mt-1">
+          {!pickerOpen && dn ? (
+            <button onClick={()=> setPickerOpen(true)} className="mt-2 w-full text-left rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition px-3 py-2.5 flex items-center gap-3">
+              <span className="w-9 h-9 rounded-xl bg-[#0f1e2e] text-white flex items-center justify-center text-base shrink-0">📋</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-mono text-xs font-bold text-[#0f1e2e] truncate">{dn}</span>
+                <span className="block text-[11px] font-semibold text-slate-500 truncate">
+                  {selectedPl?.outlet || ""}{selectedPl?.checker ? ` • ${selectedPl.checker}` : ""}{(() => { const d = selectedPl ? deliveryOf(selectedPl) : { date: "", estimated: true }; return d.date ? ` • 🚚 ${d.estimated ? `~${d.date}` : d.date}` : ""; })()}
+                </span>
+              </span>
+              <span className="shrink-0 px-2.5 py-1.5 rounded-full bg-white border border-slate-200 text-[11px] font-black text-slate-600">Change ›</span>
+            </button>
+          ) : (
+          <>
+          <div className="flex gap-2 mt-2">
             <div className="relative flex-1">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">🔍</span>
               <input
@@ -238,36 +258,39 @@ export default function DigitalPl(){
             </div>
             <button onClick={()=>{ fetchPending(); if(dn) loadPl(dn); }} title="Refresh" className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black shrink-0">↻</button>
           </div>
-          <div className="mt-2 max-h-[220px] overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-            {filteredPending.map((p:any)=>{
-              const active = dn === String(p.delivery_no);
-              const del = deliveryOf(p);
-              return (
-                <button
-                  key={p.delivery_no}
-                  onClick={()=> setDn(String(p.delivery_no))}
-                  className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition ${active ? "bg-[#0f1e2e] text-white" : "bg-white hover:bg-slate-50"}`}
-                >
-                  <span className={`font-mono text-xs font-bold shrink-0 ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no}</span>
-                  <span className={`flex-1 min-w-0 text-xs font-semibold truncate ${active ? "text-white/90" : "text-slate-600"}`}>{p.outlet}</span>
-                  <span className={`shrink-0 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${active ? "bg-white/15 text-white" : "bg-emerald-50 text-emerald-700"}`}>🚚 {del.date ? (del.estimated ? `~${del.date}` : del.date) : "—"}</span>
-                  {p.checker && (
-                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black ${active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"}`}>{p.checker}</span>
-                  )}
-                  {active && <span className="shrink-0 text-emerald-400 text-sm font-black">✓</span>}
-                </button>
-              );
-            })}
-            {filteredPending.length===0 && dateScoped.length>0 && (
+          <div className="mt-2 max-h-[264px] overflow-auto rounded-xl border border-slate-200">
+            {groupedPending.map(g=>(
+              <div key={g.date || "nodate"}>
+                <div className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur px-3 py-1.5 text-[11px] font-black text-slate-600 flex items-center justify-between gap-2">
+                  <span>🚚 {g.date || "No date"}{g.date && g.date===todayLabel ? " • Today" : ""}</span>
+                  <span className="font-bold text-slate-400">{g.items.length} PL{g.items.length===1 ? "" : "s"}</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                {g.items.map((p:any)=>{
+                  const active = dn === String(p.delivery_no);
+                  return (
+                    <button
+                      key={p.delivery_no}
+                      onClick={()=>{ setDn(String(p.delivery_no)); setPickerOpen(false); }}
+                      className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition ${active ? "bg-[#0f1e2e] text-white" : "bg-white hover:bg-slate-50"}`}
+                    >
+                      <span className="flex-1 min-w-0">
+                        <span className={`block font-mono text-xs font-bold truncate ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no}</span>
+                        <span className={`block text-[11px] font-semibold truncate ${active ? "text-white/80" : "text-slate-500"}`}>{p.outlet}{p.checker ? ` • ${p.checker}` : ""}</span>
+                      </span>
+                      {active && <span className="shrink-0 text-emerald-400 text-sm font-black">✓</span>}
+                    </button>
+                  );
+                })}
+                </div>
+              </div>
+            ))}
+            {filteredPending.length===0 && pending.length>0 && (
               <div className="px-3 py-4 text-center text-xs text-slate-400">No match for “{plQuery.trim()}” — try a PL number, outlet, or checker name.</div>
             )}
-            {dateScoped.length===0 && pending.length>0 && (
-              <div className="px-3 py-4 text-center text-xs text-slate-500">
-                <div>No PENDING PL delivering {todayLabel}.</div>
-                <button onClick={()=> setTodayOnly(false)} className="mt-1.5 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-black">Show all {pending.length}</button>
-              </div>
-            )}
           </div>
+          </>
+          )}
           {pending.length===0 && <div className="text-xs text-slate-400 mt-2">No PENDING PL — export one from the Dashboard first.</div>}
           {header && <div className="mt-3 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span><b>Outlet:</b> {header.outlet}</span><span><b>Checker:</b> {header.checker}</span>{header.delivery_date && <span><b>Delivery:</b> {header.delivery_date}</span>}<span><b>Status:</b> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">{header.status}</span></span>{header.total_weight_kg!==undefined && <span><b>Weight:</b> {header.total_weight_kg} kg</span>}</div>}
         </div>
