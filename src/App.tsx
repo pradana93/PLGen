@@ -349,7 +349,7 @@ function AppRoutes(){
           </div>
 
           <div className="mt-6 pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-white/25">
-            <span>Built for DC Vittoria • Desktop only • © {new Date().getFullYear()} Burger Bangor</span>
+            <span>Built for DC Vittoria • Desktop & field mobile • © {new Date().getFullYear()} Burger Bangor</span>
             <span>v{APP_VERSION} • Build {latestBuild}</span>
           </div>
         </div>

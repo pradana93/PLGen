@@ -24,6 +24,9 @@ export default function Login(){
   // display scaling and zoom can never hard-block on their own.
   useEffect(()=>{
     let cancelled = false;
+    // Field mobile (Digital PL / Scan login on phones) — no desktop DevTools shield
+    // on touch screens: long-press menus and mobile chrome gaps must never trip it.
+    if (window.matchMedia("(pointer: coarse)").matches) return;
     const blockCtx = (e: MouseEvent)=> { e.preventDefault(); return false as any; };
     const blockKeys = (e: KeyboardEvent)=>{
       if(e.key==="F12") { e.preventDefault(); e.stopPropagation(); return false as any; }

@@ -33,7 +33,7 @@ const en: Dict = {
   "gate.title": "Desktop Only",
   "gate.desc1": "PLGen is optimized for the best experience on",
   "gate.desc2": "Please open this app on a computer to continue.",
-  "gate.notice": "🔒 Mobile access is temporarily disabled for UI quality.",
+  "gate.notice": "📱 Field checklist (Digital PL) works on mobile — other pages need a Desktop PC.",
 
   // ServerStatus
   "status.allConnected": "All Connected",
@@ -387,7 +387,7 @@ const id: Dict = {
   "gate.title": "Khusus Desktop",
   "gate.desc1": "PLGen dioptimalkan untuk pengalaman terbaik di",
   "gate.desc2": "Silakan buka aplikasi ini di komputer untuk melanjutkan.",
-  "gate.notice": "🔒 Akses perangkat seluler dinonaktifkan sementara untuk kualitas UI.",
+  "gate.notice": "📱 Daftar periksa lapangan (Digital PL) bisa dibuka di HP — halaman lain butuh PC Desktop.",
 
   // ServerStatus
   "status.allConnected": "Semua Terhubung",

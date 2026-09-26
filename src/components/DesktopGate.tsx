@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useLanguage } from "../i18n";
+
+// Field flows allowed on mobile — office flows stay desktop-gated.
+// Core packing math is identical on both; only the gate scope changes.
+const MOBILE_ALLOWED_ROUTES: RegExp[] = [/^\/login\/?$/, /^\/digital-pl\/?$/, /^\/scan\//];
 
 export default function DesktopGate({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage();
+  const loc = useLocation();
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -19,7 +25,7 @@ export default function DesktopGate({ children }: { children: React.ReactNode })
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  if (isMobile) {
+  if (isMobile && !MOBILE_ALLOWED_ROUTES.some((re) => re.test(loc.pathname))) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-[#f4f6f9]">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">

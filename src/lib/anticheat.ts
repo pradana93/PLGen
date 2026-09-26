@@ -45,6 +45,14 @@ export function isSizeSuspect(): boolean {
   return dw > t || dh > t;
 }
 
+// ── Touch-device guard (field mobile: Digital PL / Scan) ──
+// Desktop DevTools traps (debugger timing, chrome-gap sizing, contextmenu)
+// are meaningless on touch browsers and must never run there.
+export function isTouchDevice(): boolean {
+  try { return window.matchMedia("(pointer: coarse)").matches; }
+  catch { return false; }
+}
+
 // ── Debugger Timing Trap ──
 // If DevTools is open, `debugger` statement pauses execution.
 // We measure execution time: if >100ms, DevTools was paused on our trap.

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { startAntiCheat, stopAntiCheat, onViolation } from "../lib/anticheat";
+import { startAntiCheat, stopAntiCheat, onViolation, isTouchDevice } from "../lib/anticheat";
 
 type Violation = { reason: string; detail?: string; timestamp: string };
 
@@ -21,6 +21,12 @@ export default function AntiCheatProvider({ children }: { children: React.ReactN
   const isBanned = profile?.banned === true;
 
   useEffect(() => {
+    // Field mobile devices (Digital PL / Scan) never run desktop DevTools traps:
+    // mobile chrome gaps + long-press menus would false-positive. Server rules untouched.
+    if (isTouchDevice()) {
+      stopAntiCheat();
+      return;
+    }
     // IMMORTAL: SuperAdmin never runs anti-cheat engine at all — no traps, no reports, no risk
     if (!user || isBanned || profile?.role === "Super Admin") {
       stopAntiCheat();
