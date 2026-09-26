@@ -412,7 +412,7 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
   const _base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
   // Ensure Live Report sees this PL even on single click — await after instant saveAs (does not block download)
   try {
-    const r1 = await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2))})});
+    const r1 = await fetch(`${_base}/api/packing_status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,checker:checkerDisplay,status:"PENDING",total_weight_kg: Number(totalWeight.toFixed(2)),delivery_date:deliveryDate})});
     if(!r1.ok) console.warn("packing_status persist", await r1.text().catch(()=>r1.statusText));
     const r2 = await fetch(`${_base}/api/track_item_usage`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({delivery_no:deliveryNo,outlet,items:Object.fromEntries(Object.entries(order).map(([k,v])=>[k,v.qty]))})});
     if(!r2.ok) console.warn("track_item_usage persist", await r2.text().catch(()=>r2.statusText));

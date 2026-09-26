@@ -1211,12 +1211,12 @@ app.get("/api/packing_status", async (req, res) => {
   let all: any[] = [];
   const supa = await fetchSupabasePackingStatus();
   if (supa && supa.length) {
-    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0 }))); } catch {}
+    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0, delivery_date: (r as any).delivery_date||"" }))); } catch {}
     all = supa;
   } else {
     const data = jsonRead<any[]>("packing_status.json", []);
     if (data.length && (!supa || supa.length===0)) {
-      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0 }); })().catch(()=>{});
+      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0, delivery_date: e.delivery_date||"" }); })().catch(()=>{});
     }
     all = data;
   }
@@ -1257,7 +1257,7 @@ app.get("/api/packing_status", async (req, res) => {
   res.json(filtered);
 });
 app.post("/api/packing_status", async (req, res) => {
-  const { delivery_no, outlet, checker, status, total_weight_kg } = req.body;
+  const { delivery_no, outlet, checker, status, total_weight_kg, delivery_date } = req.body;
   if (!delivery_no) return res.status(400).json({ error: "Missing delivery_no" });
   const statuses = jsonRead<any[]>("packing_status.json", []);
   let found = statuses.find(s=>s.delivery_no===delivery_no);
@@ -1267,13 +1267,14 @@ app.post("/api/packing_status", async (req, res) => {
     found.checker = checker ?? found.checker;
     found.status = status ?? found.status;
     if (total_weight_kg!==undefined) found.total_weight_kg = total_weight_kg;
+    if (delivery_date!==undefined) found.delivery_date = delivery_date;
     if (status==="IN PROGRESS") found.created_at = nowWib;
   } else {
-    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "" });
+    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "", delivery_date: delivery_date||"" });
   }
   jsonWrite("packing_status.json", statuses);
   // Supabase persistent copy (service_role bypasses RLS)
-  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0 }).catch(()=>{});
+  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "" }).catch(()=>{});
   res.json({ status: "success" });
 });
 app.get("/scan/:delivery_no", (req, res) => {

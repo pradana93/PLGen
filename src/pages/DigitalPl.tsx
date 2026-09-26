@@ -70,20 +70,23 @@ export default function DigitalPl(){
   const total = boxes.length;
   const allChecked = total>0 && done===total;
 
-  // Today scope (WIB calendar date) — PL number embeds DDMMYYYY; fallback created_at.
-  // Pure date filter over the fetched list: checklist/snapshot logic untouched.
+  // Delivery-date scope (WIB calendar date) — export today -> pack/deliver next working day.
+  // Stored delivery_date (export-attested) wins; legacy rows without one fall back to
+  // the export-date proxy so nothing ever disappears. Checklist/snapshot logic untouched.
   const todayLabel = useMemo(()=>{
     const w = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     return `${String(w.getDate()).padStart(2,"0")}/${String(w.getMonth()+1).padStart(2,"0")}/${w.getFullYear()}`;
   },[]);
+  const deliveryOf = (p:any): { date: string; estimated: boolean } => {
+    const stored = String(p.delivery_date||"").trim();
+    if(stored) return { date: stored, estimated: false };
+    const m = String(p.created_at||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(m) return { date: `${m[3]}/${m[2]}/${m[1]}`, estimated: true };
+    return { date: "", estimated: true };
+  };
   const dateScoped = useMemo(()=>{
     if(!todayOnly) return pending;
-    const ddmmyyyy = todayLabel.replace(/\//g, "");
-    const ymd = ddmmyyyy.replace(/^(\d{2})(\d{2})(\d{4})$/, "$3-$2-$1");
-    return pending.filter((p:any)=>{
-      if(String(p.delivery_no||"").includes(ddmmyyyy)) return true;
-      return String(p.created_at||"").slice(0,10) === ymd;
-    });
+    return pending.filter((p:any)=> deliveryOf(p).date === todayLabel);
   },[pending, todayOnly, todayLabel]);
 
   // Search/filter across PL number + outlet + checker (client-side over date scope — no API change)
@@ -210,11 +213,11 @@ export default function DigitalPl(){
             <label className="text-xs font-extrabold tracking-wide text-slate-700">PACKING LIST (PENDING ONLY)</label>
             <span className="text-[11px] font-bold text-slate-400 shrink-0">{filteredPending.length} of {pending.length}</span>
           </div>
-          <div className="flex items-center gap-1.5 mt-2">
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
             <button
               onClick={()=> setTodayOnly(true)}
               className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
-            >📅 Today ({todayLabel})</button>
+            >🚚 Delivering ({todayLabel})</button>
             <button
               onClick={()=> setTodayOnly(false)}
               className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${!todayOnly ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
@@ -238,6 +241,7 @@ export default function DigitalPl(){
           <div className="mt-2 max-h-[220px] overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
             {filteredPending.map((p:any)=>{
               const active = dn === String(p.delivery_no);
+              const del = deliveryOf(p);
               return (
                 <button
                   key={p.delivery_no}
@@ -246,6 +250,7 @@ export default function DigitalPl(){
                 >
                   <span className={`font-mono text-xs font-bold shrink-0 ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no}</span>
                   <span className={`flex-1 min-w-0 text-xs font-semibold truncate ${active ? "text-white/90" : "text-slate-600"}`}>{p.outlet}</span>
+                  <span className={`shrink-0 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${active ? "bg-white/15 text-white" : "bg-emerald-50 text-emerald-700"}`}>🚚 {del.date ? (del.estimated ? `~${del.date}` : del.date) : "—"}</span>
                   {p.checker && (
                     <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black ${active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"}`}>{p.checker}</span>
                   )}
@@ -258,13 +263,13 @@ export default function DigitalPl(){
             )}
             {dateScoped.length===0 && pending.length>0 && (
               <div className="px-3 py-4 text-center text-xs text-slate-500">
-                <div>No PENDING PL for today ({todayLabel}).</div>
+                <div>No PENDING PL delivering {todayLabel}.</div>
                 <button onClick={()=> setTodayOnly(false)} className="mt-1.5 px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-black">Show all {pending.length}</button>
               </div>
             )}
           </div>
           {pending.length===0 && <div className="text-xs text-slate-400 mt-2">No PENDING PL — export one from the Dashboard first.</div>}
-          {header && <div className="mt-3 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span><b>Outlet:</b> {header.outlet}</span><span><b>Checker:</b> {header.checker}</span><span><b>Status:</b> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">{header.status}</span></span>{header.total_weight_kg!==undefined && <span><b>Weight:</b> {header.total_weight_kg} kg</span>}</div>}
+          {header && <div className="mt-3 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1"><span><b>Outlet:</b> {header.outlet}</span><span><b>Checker:</b> {header.checker}</span>{header.delivery_date && <span><b>Delivery:</b> {header.delivery_date}</span>}<span><b>Status:</b> <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold">{header.status}</span></span>{header.total_weight_kg!==undefined && <span><b>Weight:</b> {header.total_weight_kg} kg</span>}</div>}
         </div>
 
         {loading && <div className="text-center text-white/70 text-sm">Loading Digital PL…</div>}
