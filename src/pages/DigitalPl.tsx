@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost, apiPut } from "../lib/api";
 import { expEarn } from "../lib/exp";
 import { useAuth } from "../context/AuthContext";
@@ -27,6 +27,8 @@ export default function DigitalPl(){
   const [saving, setSaving] = useState(false);
   const [plQuery, setPlQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(true);
+  const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
+  const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -112,6 +114,19 @@ export default function DigitalPl(){
   },[filteredPending, todayLabel]);
 
   const selectedPl = pending.find((p:any)=> String(p.delivery_no)===dn);
+
+  // Koli focus filter (pure view filter — original indexes preserved for checks/revise)
+  const visibleKoli = useMemo(()=> boxes
+    .map((box,i)=>({ box, i }))
+    .filter(({i})=> koliFilter==="all" ? true : koliFilter==="packed" ? !!checks[i]?.checked : !checks[i]?.checked),
+  [boxes, checks, koliFilter]);
+
+  const jumpNext = ()=>{
+    const idx = checks.findIndex(c=>!c?.checked);
+    if(idx<0) return;
+    const go = ()=> koliRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if(koliFilter!=="all"){ setKoliFilter("all"); setTimeout(go, 120); } else go();
+  };
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
@@ -203,24 +218,34 @@ export default function DigitalPl(){
       <div className="relative max-w-6xl mx-auto p-4 md:p-6 space-y-5">
         <div className="relative rounded-[24px] overflow-hidden border border-white/10 bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] text-white shadow-[0_24px_64px_rgba(0,0,0,0.28)] p-5 md:p-6">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white text-[#0f1e2e] flex items-center justify-center text-xl shadow-lg border border-white/20">📱</div>
-            <div>
+            <div className="w-12 h-12 rounded-2xl bg-white text-[#0f1e2e] flex items-center justify-center text-xl shadow-lg border border-white/20 shrink-0">📱</div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-black text-[18px] tracking-tight">Digital PL</span>
                 <span className="text-[10px] font-bold tracking-widest bg-white text-[#0f1e2e] px-2 py-0.5 rounded-full">FIELD CHECKLIST</span>
               </div>
-              <div className="text-xs text-white/60 mt-1">Pending PL only • check each Koli as packed • server-synced • click SKU to revise for shortage</div>
+              {header ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] font-bold">
+                  <span className="px-2 py-0.5 rounded-full bg-white text-[#0f1e2e] truncate max-w-[200px]">{header.outlet}</span>
+                  {header.delivery_date && <span className="px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-300/30 text-emerald-200">🚚 {header.delivery_date}</span>}
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-300/30 text-amber-200">{header.status}</span>
+                  {header.total_weight_kg!==undefined && <span className="px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-white/70">{header.total_weight_kg} kg</span>}
+                </div>
+              ) : (
+                <div className="text-xs text-white/60 mt-1">Pending PL only • check each Koli as packed • server-synced • click SKU to revise for shortage</div>
+              )}
             </div>
-            <div className="ml-auto text-right">
-              <div className="text-[11px] tracking-widest font-semibold text-white/50">PROGRESS</div>
-              <div className="font-black text-[18px]">{done}/{total||"—"}</div>
+            <div className="ml-auto flex flex-col items-center gap-1 shrink-0">
+              <div className="relative w-14 h-14">
+                <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="4" />
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="#34d399" strokeWidth="4" strokeLinecap="round" pathLength={100} strokeDasharray={`${total>0?Math.round(done/total*100):0} 100`} className="transition-all" />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black">{total>0?Math.round(done/total*100):0}%</span>
+              </div>
+              <div className="font-black text-xs whitespace-nowrap">{done}/{total||"—"}</div>
             </div>
           </div>
-          {total>0 && (
-            <div className="mt-4 h-2.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all" style={{width:`${Math.round(done/total*100)}%`}} />
-            </div>
-          )}
         </div>
 
         {msg && <div className={`text-xs font-semibold p-3 rounded-2xl border ${msg.type==="ok"?"bg-emerald-50 text-emerald-700 border-emerald-200":"bg-red-50 text-red-700 border-red-200"}`}>{msg.text}</div>}
@@ -300,9 +325,18 @@ export default function DigitalPl(){
 
         {boxes.length>0 && (
           <div className="bg-white rounded-[20px] border border-slate-200 shadow-[0_16px_40px_rgba(0,0,0,0.18)] overflow-hidden">
-            <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white flex items-center justify-between">
-              <div className="font-black text-[15px]">Koli Checklist — identical to Exported PL ({done}/{total}) • High-visibility table</div>
+            <div className="px-5 md:px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white flex items-center justify-between gap-2 flex-wrap">
+              <div className="font-black text-[15px]">Koli Checklist — identical to Exported PL ({done}/{total})</div>
               <div className="text-xs bg-white text-[#0f1e2e] px-3 py-1 rounded-full font-black">Click SKU to revise qty + mandatory note for shortage</div>
+            </div>
+            <div className="px-5 md:px-6 py-2.5 bg-white border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
+              {(["all","remaining","packed"] as const).map(f=>(
+                <button
+                  key={f}
+                  onClick={()=> setKoliFilter(f)}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${koliFilter===f ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                >{f==="all" ? `All (${total})` : f==="remaining" ? `Remaining (${total-done})` : `Packed (${done})`}</button>
+              ))}
             </div>
             <div className="overflow-auto max-h-[66vh]">
               <table className="w-full text-sm">
@@ -317,11 +351,11 @@ export default function DigitalPl(){
                   </tr>
                 </thead>
                 <tbody>
-                  {boxes.map((box,koliIdx)=>{
+                  {visibleKoli.map(({box,i:koliIdx})=>{
                     const on = !!checks[koliIdx]?.checked;
                     const entries = Object.entries(box) as [string,number][];
                     return entries.map(([sku,qty], rowIdx)=>(
-                      <tr key={`${koliIdx}-${sku}`} className={`${on?"bg-emerald-50/60":"bg-white"} border-t border-slate-100 hover:bg-slate-50`}>
+                      <tr key={`${koliIdx}-${sku}`} ref={rowIdx===0 ? (el)=>{ koliRefs.current[koliIdx]=el; } : undefined} className={`${on?"bg-emerald-50/60":"bg-white"} border-t border-slate-100 hover:bg-slate-50`}>
                         {rowIdx===0 && (
                           <td rowSpan={entries.length} className="px-3 py-3 align-middle border-r border-slate-100 bg-slate-50">
                             <div className="flex flex-col items-center gap-1">
@@ -343,7 +377,7 @@ export default function DigitalPl(){
                         <td className="px-3 py-3 text-center"><span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-xs font-mono font-bold">{master?.ITEM_UOM?.[sku] || "Pack"}</span></td>
                         <td className="px-3 py-3 text-xs text-slate-600"><span onClick={()=> openRevise(koliIdx, sku, qty)} className="cursor-pointer hover:text-slate-900">{revisionNotes[String(koliIdx)]?.[sku] ? "— revised —" : "—"}</span></td>
                         <td className="px-3 py-3 text-center">
-                          {rowIdx===0 && <button onClick={()=> toggle(koliIdx)} className={`w-full px-3 py-2 rounded-xl text-xs font-black ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400"}`}>{on?"✓ Packed":"Pack"}</button>}
+                          {rowIdx===0 && <button onClick={()=> toggle(koliIdx)} className={`w-full min-h-[48px] px-3 py-2 rounded-xl text-sm font-black transition active:scale-[0.97] ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400"}`}>{on?"✓ Packed":"Pack"}</button>}
                         </td>
                       </tr>
                     ));
@@ -359,15 +393,44 @@ export default function DigitalPl(){
                 {[["Dus Besar",dusBesar,setDusBesar],["Dus L",dusL,setDusL],["Dus S",dusS,setDusS]].map(([label,val,set]:any)=>(
                   <div key={label}>
                     <label className="text-[11px] font-bold text-slate-500">{label}</label>
-                    <input value={val} onChange={e=> set(e.target.value)} inputMode="numeric" min={0} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono text-center bg-white" placeholder="0" />
+                    <div className="mt-1 flex items-stretch gap-1">
+                      <button onClick={()=> set(String(Math.max(0,(parseInt(val||"0",10)||0)-1)))} className="w-11 shrink-0 min-h-[48px] rounded-xl bg-white border border-slate-200 text-lg font-black text-slate-600 active:bg-slate-200 transition">−</button>
+                      <input value={val} onChange={e=> set(e.target.value)} inputMode="numeric" min={0} className="flex-1 min-w-0 border border-slate-200 rounded-xl px-2 py-2.5 text-sm font-mono text-center bg-white min-h-[48px]" placeholder="0" />
+                      <button onClick={()=> set(String((parseInt(val||"0",10)||0)+1))} className="w-11 shrink-0 min-h-[48px] rounded-xl bg-white border border-slate-200 text-lg font-black text-slate-600 active:bg-slate-200 transition">+</button>
+                    </div>
                   </div>
                 ))}
               </div>
-              <button onClick={handleDone} disabled={saving || !allChecked} className="mt-3 w-full bg-[#0f1e2e] hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3.5 font-black text-sm shadow-[0_8px_20px_rgba(15,30,46,0.22)] transition active:scale-[0.99]">
+              <button onClick={handleDone} disabled={saving || !allChecked} className="mt-3 w-full bg-[#0f1e2e] hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3.5 font-black text-sm shadow-[0_8px_20px_rgba(15,30,46,0.22)] transition active:scale-[0.99] min-h-[52px]">
                 {saving ? "Marking READY…" : allChecked ? `✅ Done Packed — Mark READY (${done}/${total})` : `Pack all Koli to finish (${done}/${total})`}
               </button>
             </div>
           </div>
+        )}
+
+        {boxes.length>0 && <div className="h-24" />}
+
+        {/* Sticky field action bar — same handleDone, same disabled rule, always in thumb reach */}
+        {boxes.length>0 && (
+          <div className="fixed bottom-0 inset-x-0 z-30 bg-[#0f1e2e]/95 backdrop-blur border-t border-white/10 px-4 py-3">
+            <div className="max-w-6xl mx-auto flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] font-black tracking-widest text-white/50">PACKING PROGRESS</div>
+                <div className="text-sm font-black text-white">{done}/{total} koli{allChecked ? " • ready" : ""}</div>
+                <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full bg-emerald-400 transition-all" style={{ width: `${total>0?Math.round(done/total*100):0}%` }} />
+                </div>
+              </div>
+              <button onClick={handleDone} disabled={saving || !allChecked} className="shrink-0 min-h-[48px] px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:bg-slate-600 text-white font-black text-sm shadow transition active:scale-[0.98] max-md:mr-12">
+                {saving ? "…" : allChecked ? "✅ Done" : `${done}/${total}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Jump to next unpacked koli */}
+        {boxes.length>0 && done<total && (
+          <button onClick={jumpNext} title="Next unpacked koli" className="fixed bottom-24 right-4 z-30 w-12 h-12 rounded-full bg-[#0f1e2e] text-white text-lg font-black shadow-[0_8px_24px_rgba(0,0,0,0.35)] border border-white/20 active:scale-95 transition">↓</button>
         )}
 
         {/* Revise modal */}
@@ -377,14 +440,20 @@ export default function DigitalPl(){
               <h3 className="font-black text-[#0f1e2e]">Revise {revise.sku} — Koli {revise.koli+1}</h3>
               <p className="text-xs text-slate-500">Current qty <b>{revise.qty}</b> • This is for stock shortage — note is mandatory</p>
               <label className="block mt-3 text-xs font-bold">New Qty (0 removes line)
-                <input type="number" min={0} value={revQty} onChange={e=> setRevQty(e.target.value)} className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 font-mono text-center" />
+                <input type="number" min={0} value={revQty} onChange={e=> setRevQty(e.target.value)} inputMode="numeric" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-3 font-mono text-center min-h-[52px] text-base" />
               </label>
+              <button onClick={()=> setRevQty("0")} className="mt-2 w-full rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-black py-2.5 min-h-[44px] active:bg-red-100 transition">Set 0 — remove this line</button>
               <label className="block mt-3 text-xs font-bold">Note — mandatory, min 5 chars <span className="text-red-500">*</span>
-                <textarea value={revNote} onChange={e=> setRevNote(e.target.value)} rows={3} placeholder="Reason: shortage, substitution, recount…" className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {["Shortage","Damaged","Recount","Substitution"].map(c=>(
+                    <button key={c} onClick={()=> setRevNote(prev=> prev ? (prev.includes(c) ? prev : `${prev}; ${c}`) : c)} className="px-2.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black active:bg-amber-100 transition">{c}</button>
+                  ))}
+                </div>
+                <textarea value={revNote} onChange={e=> setRevNote(e.target.value)} rows={3} placeholder="Reason: shortage, substitution, recount…" className="mt-1.5 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm min-h-[88px]" />
               </label>
               <div className="flex gap-2 mt-4">
-                <button onClick={()=> setRevise(null)} className="flex-1 bg-slate-100 border border-slate-200 rounded-xl py-2.5 font-bold">Cancel</button>
-                <button onClick={submitRevise} className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl py-2.5 font-black">Save Revision</button>
+                <button onClick={()=> setRevise(null)} className="flex-1 bg-slate-100 border border-slate-200 rounded-xl py-3 font-bold min-h-[52px]">Cancel</button>
+                <button onClick={submitRevise} className="flex-1 bg-amber-500 hover:bg-amber-600 text-white rounded-xl py-3 font-black min-h-[52px]">Save Revision</button>
               </div>
             </div>
           </div>
