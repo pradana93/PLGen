@@ -29,6 +29,7 @@ export default function DigitalPl(){
   const [pickerOpen, setPickerOpen] = useState(true);
   const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
   const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
+  const koliCardRefs = useRef<(HTMLDivElement|null)[]>([]);
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -124,7 +125,8 @@ export default function DigitalPl(){
   const jumpNext = ()=>{
     const idx = checks.findIndex(c=>!c?.checked);
     if(idx<0) return;
-    const go = ()=> koliRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const mobile = window.matchMedia("(max-width: 767px)").matches;
+    const go = ()=> (mobile ? koliCardRefs.current[idx] : koliRefs.current[idx])?.scrollIntoView({ behavior: "smooth", block: "center" });
     if(koliFilter!=="all"){ setKoliFilter("all"); setTimeout(go, 120); } else go();
   };
 
@@ -329,16 +331,50 @@ export default function DigitalPl(){
               <div className="font-black text-[15px]">Koli Checklist — identical to Exported PL ({done}/{total})</div>
               <div className="text-xs bg-white text-[#0f1e2e] px-3 py-1 rounded-full font-black">Click SKU to revise qty + mandatory note for shortage</div>
             </div>
-            <div className="px-5 md:px-6 py-2.5 bg-white border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
+            <div className="px-5 md:px-6 py-2.5 bg-white border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto">
               {(["all","remaining","packed"] as const).map(f=>(
                 <button
                   key={f}
                   onClick={()=> setKoliFilter(f)}
-                  className={`px-3 py-1.5 rounded-full text-[11px] font-black transition ${koliFilter===f ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+                  className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-black transition ${koliFilter===f ? "bg-[#0f1e2e] text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
                 >{f==="all" ? `All (${total})` : f==="remaining" ? `Remaining (${total-done})` : `Packed (${done})`}</button>
               ))}
             </div>
-            <div className="overflow-auto max-h-[66vh]">
+            {/* Mobile koli cards (<md) — mirror of the desktop table, same state + handlers */}
+            <div className="md:hidden max-h-[66vh] overflow-auto divide-y divide-slate-100">
+              {visibleKoli.map(({box,i:koliIdx})=>{
+                const on = !!checks[koliIdx]?.checked;
+                const entries = Object.entries(box) as [string,number][];
+                return (
+                  <div key={koliIdx} ref={(el)=>{ koliCardRefs.current[koliIdx]=el; }} className={`${on?"bg-emerald-50/70":"bg-white"}`}>
+                    <div className="px-4 py-2.5 flex items-center gap-2.5">
+                      <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-black shrink-0 ${on?"bg-emerald-500 text-white":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":koliIdx+1}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-black text-sm text-[#0f1e2e]">Koli {koliIdx+1}</span>
+                        <span className="block text-[11px] font-semibold text-slate-500">{entries.length} item{entries.length===1?"":"s"} • {on?"Packed":"Unpacked"}</span>
+                      </span>
+                      <button onClick={()=> toggle(koliIdx)} className={`shrink-0 min-h-[52px] px-5 rounded-xl text-sm font-black transition active:scale-[0.97] ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":"Pack"}</button>
+                    </div>
+                    <div className="px-4 pb-3 space-y-1.5">
+                      {entries.map(([sku,qty])=>(
+                        <button key={sku} onClick={()=> openRevise(koliIdx, sku, qty)} className="w-full text-left rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 min-h-[52px] flex items-center gap-2 active:bg-slate-100 transition">
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-black text-[15px] leading-tight text-[#0f1e2e] truncate">{sku}</span>
+                            {revisionNotes[String(koliIdx)]?.[sku] && <span className="block text-[11px] text-amber-700 font-bold truncate">{revisionNotes[String(koliIdx)][sku]}</span>}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block font-mono font-black text-[16px] text-[#0f1e2e]">×{qty}</span>
+                            <span className="block text-[10px] font-mono font-bold text-slate-400">{master?.ITEM_UOM?.[sku] || "Pack"}</span>
+                          </span>
+                          <span className="shrink-0 text-slate-300 font-black">›</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-auto max-h-[66vh]">
               <table className="w-full text-sm">
                 <thead className="bg-[#0f1e2e] text-white sticky top-0 z-10">
                   <tr className="text-[11px] tracking-widest">
@@ -385,11 +421,11 @@ export default function DigitalPl(){
                 </tbody>
               </table>
             </div>
-            <div className="px-5 md:px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">High-visibility • Koli grouped • SKU 15px black • Qty 16px mono • Tap SKU/edit to revise shortage (note required)</div>
+            <div className="hidden md:block px-5 md:px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-500">High-visibility • Koli grouped • SKU 15px black • Qty 16px mono • Tap SKU/edit to revise shortage (note required)</div>
 
             <div className="mx-5 md:mx-6 my-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <div className="font-black text-sm text-[#0f1e2e]">Dus used <span className="text-red-500">*</span> <span className="font-normal text-slate-400 text-xs">(required — 0 if none)</span></div>
-              <div className="grid grid-cols-3 gap-2 mt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
                 {[["Dus Besar",dusBesar,setDusBesar],["Dus L",dusL,setDusL],["Dus S",dusS,setDusS]].map(([label,val,set]:any)=>(
                   <div key={label}>
                     <label className="text-[11px] font-bold text-slate-500">{label}</label>
