@@ -33,6 +33,8 @@ export default function LiveBoard(){
   const [data, setData]=useState<any[]>([]);
   const [filter, setFilter]=useState("");
   const [dusFilter, setDusFilter]=useState("");
+  const [dusFrom, setDusFrom]=useState("");
+  const [dusTo, setDusTo]=useState("");
   const [summary, setSummary]=useState<Summary|null>(null);
   const [loading, setLoading]=useState(true);
   const [range, setRange]=useState<"all"|"30d"|"90d">("all");
@@ -49,6 +51,8 @@ export default function LiveBoard(){
   const [archiveFilter, setArchiveFilter]=useState("");
   const [revHist, setRevHist]=useState<any[]>([]);
   const [revFilter, setRevFilter]=useState("");
+  const [revFrom, setRevFrom]=useState("");
+  const [revTo, setRevTo]=useState("");
   const [checkers, setCheckers]=useState<string[]>([]);
   const [editingChecker, setEditingChecker]=useState<string|null>(null);
   const [editCheckerVal, setEditCheckerVal]=useState<string>("");
@@ -220,6 +224,11 @@ export default function LiveBoard(){
   const liveTotal = filtered.length;
 
   // ── Dus Usage (Besar / Medium / L / S) — detail rows per PL from packing_status (no new endpoint)
+  // WIB calendar day of an ISO timestamp (same clock as displayed WHEN column)
+  const wibDay = (iso:any)=>{
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-CA",{timeZone:"Asia/Jakarta"});
+  };
   const dusDateOf = (e:any)=>{
     const stored = String(e.delivery_date||"").trim();
     if(stored) return stored;
@@ -228,16 +237,20 @@ export default function LiveBoard(){
   };
   const dusRows = useMemo(()=>{
     const q = dusFilter.trim().toLowerCase();
+    const from = dusFrom.replace(/-/g, "");
+    const to = dusTo.replace(/-/g, "");
+    const rankOf = (d:string)=> /^\d{2}\/\d{2}\/\d{4}$/.test(d) ? `${d.slice(6,10)}${d.slice(3,5)}${d.slice(0,2)}` : "";
     const rows = data
       .filter((e:any)=> (Number(e.dus_besar)||0)+(Number(e.dus_m)||0)+(Number(e.dus_l)||0)+(Number(e.dus_s)||0) > 0)
       .map((e:any)=>{
         const besar = Number(e.dus_besar)||0, medium = Number(e.dus_m)||0, l = Number(e.dus_l)||0, s = Number(e.dus_s)||0;
         return { delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status, dusDate: dusDateOf(e), created_at: e.created_at||"", besar, medium, l, s, total: besar+medium+l+s };
       })
-      .filter(r=> !q || [r.dusDate, r.outlet, r.delivery_no, r.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+      .filter(r=> !q || [r.dusDate, r.outlet, r.delivery_no, r.checker].some(v=> String(v||"").toLowerCase().includes(q)))
+      .filter(r=>{ if(!from && !to) return true; const rk = rankOf(r.dusDate); if(!rk) return false; if(from && rk < from) return false; if(to && rk > to) return false; return true; });
     const rank = (d:string)=> /^\d{2}\/\d{2}\/\d{4}$/.test(d) ? `${d.slice(6,10)}${d.slice(3,5)}${d.slice(0,2)}` : "";
     return rows.sort((a,b)=> rank(b.dusDate).localeCompare(rank(a.dusDate)) || String(b.created_at||"").localeCompare(String(a.created_at||"")));
-  },[data, dusFilter]);
+  },[data, dusFilter, dusFrom, dusTo]);
   const dusTotals = useMemo(()=> dusRows.reduce((a,r)=>({ besar:a.besar+r.besar, medium:a.medium+r.medium, l:a.l+r.l, s:a.s+r.s, total:a.total+r.total }),{besar:0,medium:0,l:0,s:0,total:0}),[dusRows]);
 
   const exportDusExcel = async ()=>{
@@ -985,6 +998,9 @@ export default function LiveBoard(){
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <input value={dusFilter} onChange={e=> setDusFilter(e.target.value)} placeholder="Filter date / outlet / PL..." className="border border-slate-200 rounded-xl px-3 py-2 text-xs w-56 bg-slate-50 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <input type="date" value={dusFrom} max={dusTo||undefined} onChange={e=> setDusFrom(e.target.value)} title="From date" className="border border-slate-200 rounded-xl px-2 py-2 text-xs bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <input type="date" value={dusTo} min={dusFrom||undefined} onChange={e=> setDusTo(e.target.value)} title="To date" className="border border-slate-200 rounded-xl px-2 py-2 text-xs bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                {(dusFrom||dusTo) && <button onClick={()=>{ setDusFrom(""); setDusTo(""); }} title="Clear dates" className="px-2.5 py-2 rounded-xl bg-slate-100 text-slate-500 text-xs font-black hover:bg-slate-200">✕</button>}
                 <button onClick={exportDusExcel} className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all active:scale-95">Excel</button>
                 <button onClick={exportDusCSV} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">CSV</button>
               </div>
@@ -1047,8 +1063,11 @@ export default function LiveBoard(){
                   <p className="text-[11px] text-slate-400 font-medium">{revHist.length} edits • Digital PL • mandatory note</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <input value={revFilter} onChange={e=> setRevFilter(e.target.value)} placeholder="Filter PL / SKU / note..." className="border border-slate-200 rounded-xl px-3 py-2 text-xs w-56 bg-slate-50 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <input type="date" value={revFrom} max={revTo||undefined} onChange={e=> setRevFrom(e.target.value)} title="From date" className="border border-slate-200 rounded-xl px-2 py-2 text-xs bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <input type="date" value={revTo} min={revFrom||undefined} onChange={e=> setRevTo(e.target.value)} title="To date" className="border border-slate-200 rounded-xl px-2 py-2 text-xs bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                {(revFrom||revTo) && <button onClick={()=>{ setRevFrom(""); setRevTo(""); }} title="Clear dates" className="px-2.5 py-2 rounded-xl bg-slate-100 text-slate-500 text-xs font-black hover:bg-slate-200">✕</button>}
                 <button onClick={fetchAll} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">↻</button>
               </div>
             </div>
@@ -1068,7 +1087,7 @@ export default function LiveBoard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {revHist.filter(r=> !revFilter || String(r.delivery_no).toLowerCase().includes(revFilter.toLowerCase()) || String(r.sku).toLowerCase().includes(revFilter.toLowerCase()) || String(r.note).toLowerCase().includes(revFilter.toLowerCase())).slice(0,100).map((r,i)=>(
+                    {revHist.filter(r=>{ const hit = !revFilter || String(r.delivery_no).toLowerCase().includes(revFilter.toLowerCase()) || String(r.sku).toLowerCase().includes(revFilter.toLowerCase()) || String(r.note).toLowerCase().includes(revFilter.toLowerCase()); if(!hit) return false; if(revFrom||revTo){ const wd = wibDay(r.at); if(!wd) return false; if(revFrom && wd < revFrom) return false; if(revTo && wd > revTo) return false; } return true; }).slice(0,100).map((r,i)=>(
                       <tr key={i} className="border-t border-slate-100 hover:bg-amber-50/40">
                         <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{r.at ? new Date(r.at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
                         <td className="px-3 py-2 font-mono font-bold text-[#0f1e2e]">{r.delivery_no}<span className="text-slate-400 font-normal"> / Koli {r.koli_index+1}</span></td>
