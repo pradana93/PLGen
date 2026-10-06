@@ -51,6 +51,90 @@ function OfflinePinWidget(){
   );
 }
 
+function RevisionReviewWidget(){
+  // Non-blocking oversight: revisions apply instantly on Digital PL (+ email nudge);
+  // this queue only records admin acknowledgement. Checkers can never self-ack
+  // (ack endpoint requires Admin JWT).
+  const [items,setItems]=useState<any[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [acking,setAcking]=useState<string|null>(null);
+  const [err,setErr]=useState("");
+  const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+  const load = async ()=>{
+    setLoading(true); setErr("");
+    try{
+      const { data } = await supabase.auth.getSession() as any;
+      const token = data?.session?.access_token;
+      const r = await fetch(`${base}/api/digital_pl_history?limit=200`, { headers: token?{Authorization:`Bearer ${token}`}:{} as any });
+      const j = await r.json().catch(()=>[]);
+      setItems(Array.isArray(j)? j.filter((x:any)=> x.ack===false) : []);
+    }catch(e:any){ setErr(e?.message||"Failed to load"); setItems([]); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
+  const ack = async (it:any)=>{
+    const key = `${it.delivery_no}|${it.koli_index}|${it.sku}|${it.at}`;
+    setAcking(key);
+    try{
+      const { data } = await supabase.auth.getSession() as any;
+      const token = data?.session?.access_token;
+      const r = await fetch(`${base}/api/digital_pl/revisions/ack`, { method:"POST", headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) }, body: JSON.stringify({ delivery_no: it.delivery_no, koli_index: it.koli_index, sku: it.sku, at: it.at }) });
+      if(!r.ok) throw new Error((await r.json().catch(()=>({})))?.error || `${r.status}`);
+      setItems(prev=> prev.filter(x=> `${x.delivery_no}|${x.koli_index}|${x.sku}|${x.at}`!==key));
+    }catch(e:any){ alert(`Acknowledge failed: ${e?.message||e}`); }
+    setAcking(null);
+  };
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-1">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center text-base shadow">✏️</div>
+        <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">Revision Review</h3>
+        <span className={`ml-auto text-[10px] font-black tracking-widest px-2 py-0.5 rounded-full border ${items.length ? "bg-amber-100 border-amber-200 text-amber-700" : "bg-emerald-50 border-emerald-200 text-emerald-600"}`}>{loading ? "…" : items.length ? `${items.length} PENDING` : "CLEAR"}</span>
+        <button onClick={load} title="Refresh" className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">↻</button>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">Checker revisions apply instantly (line never stalls) + email sent — acknowledge here when reviewed. Legacy entries start acknowledged.</p>
+      {err && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 mb-2">{err}</div>}
+      {loading ? (
+        <div className="text-xs text-gray-400 py-4 text-center">Loading revisions…</div>
+      ) : items.length===0 ? (
+        <div className="text-center py-6 text-slate-400 text-xs">All caught up — no pending revisions. 🎉</div>
+      ) : (
+        <div className="overflow-auto max-h-[360px] rounded-xl border border-slate-100">
+          <table className="w-full text-xs">
+            <thead className="bg-[#0f1e2e] text-white sticky top-0">
+              <tr className="text-[10px] tracking-widest">
+                <th className="px-3 py-2.5 text-left">WHEN (WIB)</th>
+                <th className="px-3 py-2.5 text-left">PL / KOLI</th>
+                <th className="px-3 py-2.5 text-left">SKU</th>
+                <th className="px-3 py-2.5 text-center">QTY</th>
+                <th className="px-3 py-2.5 text-left">NOTE</th>
+                <th className="px-3 py-2.5 text-left">BY</th>
+                <th className="px-3 py-2.5 text-center">REVIEW</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it:any)=>{
+                const key = `${it.delivery_no}|${it.koli_index}|${it.sku}|${it.at}`;
+                return (
+                  <tr key={key} className="border-t border-slate-100 hover:bg-amber-50/40">
+                    <td className="px-3 py-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">{it.at ? new Date(it.at).toLocaleString("id-ID",{timeZone:"Asia/Jakarta"}) : "—"}</td>
+                    <td className="px-3 py-2 font-mono font-bold text-[#0f1e2e] whitespace-nowrap">{it.delivery_no}<span className="text-slate-400 font-normal"> / K{Number(it.koli_index)+1}</span></td>
+                    <td className="px-3 py-2 font-black text-[13px] text-[#0f1e2e]">{it.sku}</td>
+                    <td className="px-3 py-2 text-center font-mono font-black text-amber-700 whitespace-nowrap">{it.prevQty}→{it.qty}</td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[280px] break-words">{it.note}</td>
+                    <td className="px-3 py-2 text-[11px] text-slate-500 truncate max-w-[120px]">{it.by||"—"}</td>
+                    <td className="px-3 py-2 text-center"><button disabled={acking===key} onClick={()=> ack(it)} className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-black shadow-sm transition active:scale-95 whitespace-nowrap">{acking===key ? "…" : "✓ Ack"}</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Admin(){
 
   const { profile } = useAuth();
@@ -603,6 +687,11 @@ export default function Admin(){
             <div className="text-xs text-gray-400 mt-2">{t("admin.rolePerms")}</div>
           </>
         )}
+      </div>
+
+      {/* Revision Review — shortage acknowledgement queue (non-blocking oversight) */}
+      <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
+        <RevisionReviewWidget />
       </div>
 
       {/* Offline PIN Generator — Lead Dev only : flagship card, logic untouched */}

@@ -1491,7 +1491,7 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   // keep note history for audit
   const histKey = "revision_history" as any;
   if(!(rec as any)[histKey]) (rec as any)[histKey]=[];
-  (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString() });
+  (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString(), ack: false, ack_by: "", ack_at: "" });
   // If Koli became empty (qty 0 on sole SKU), remove Koli + its check + reindex revision_notes
   if(isEmpty){
     rec.boxes.splice(koli_index,1);
@@ -1522,7 +1522,44 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   });
   // audit
   try { const logs=jsonRead<any[]>("audit_logs.json",[]); logs.push({ timestamp: wibNowStr(), user: by||"unknown", role:"DigitalPL", action_type:"REVISE_KOLI", details:`${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} note:${cleanNote}`}); if(logs.length>5000) logs.splice(0,logs.length-5000); jsonWrite("audit_logs.json",logs);} catch {}
+  // notify admin (best-effort nudge — queue is source of truth, never blocks revise)
+  try {
+    const revOutlet = jsonRead<any[]>("packing_status.json", []).find((s:any)=>s.delivery_no===dn)?.outlet || "";
+    sendRevisionMail({ dn, outlet: revOutlet, koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by: by||"unknown" }).catch(()=>{});
+  } catch {}
   res.json({ status:"success", koli_index, sku, qty: Number(qty), note: cleanNote });
+});
+
+// POST acknowledge a revision — Admin/SuperAdmin only (non-blocking review queue)
+app.post("/api/digital_pl/revisions/ack", requireSupabaseAdmin, async (req, res) => {
+  const { delivery_no, koli_index, sku, at } = req.body as any;
+  if(!delivery_no || typeof koli_index!=="number" || !sku) return res.status(400).json({ error: "delivery_no, koli_index, sku required" });
+  const dn = decodeURIComponent(String(delivery_no));
+  const by = (req as any).supaUser?.email || "";
+  const stamp = new Date().toISOString();
+  const match = (h:any)=> Number(h.koli_index)===Number(koli_index) && String(h.sku)===String(sku) && (!at || String(h.at)===String(at));
+  let applied = false;
+  try {
+    const store = readDigitalPl();
+    const rec = (store as any)[dn];
+    if(rec && Array.isArray(rec.revision_history)){
+      const hit = rec.revision_history.find(match);
+      if(hit){ hit.ack = true; hit.ack_by = by; hit.ack_at = stamp; applied = true; writeDigitalPl(store); }
+    }
+  } catch {}
+  try {
+    const sb = await getSupabase();
+    if(sb){
+      const { data } = await sb.from("digital_pl_checks").select("delivery_no, revision_history").eq("delivery_no", dn).single();
+      if(data && Array.isArray((data as any).revision_history)){
+        const hist = (data as any).revision_history.map((h:any)=> match(h) ? { ...h, ack: true, ack_by: by, ack_at: stamp } : h);
+        await sb.from("digital_pl_checks").upsert({ delivery_no: dn, revision_history: hist }, { onConflict: "delivery_no" });
+        applied = true;
+      }
+    }
+  } catch {}
+  if(!applied) return res.status(404).json({ error: "Revision not found" });
+  res.json({ status: "success" });
 });
 
 // GET revision history aggregated for Live Board — read-only, additive (supabase + file fallback, newest first)
@@ -1536,12 +1573,12 @@ app.get("/api/digital_pl_history", async (req, res) => {
       if(hist.length===0 && Object.keys(notes).length===0) continue;
       // expand history + notes fallback
       if(hist.length){
-        for(const h of hist) fileRows.push({ delivery_no: dn, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||(rec as any).updated_at||"", source: "history" });
+        for(const h of hist) fileRows.push({ delivery_no: dn, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||(rec as any).updated_at||"", ack: h.ack!==false, ack_by: h.ack_by||"", ack_at: h.ack_at||"", source: "history" });
       } else {
         for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
           for(const [sku, noteStr] of Object.entries(skuMap as any)){
             const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
-            fileRows.push({ delivery_no: dn, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: (rec as any).updated_at||"", source: "notes" });
+            fileRows.push({ delivery_no: dn, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: (rec as any).updated_at||"", ack: true, ack_by: "", ack_at: "", source: "notes" });
           }
         }
       }
@@ -1556,12 +1593,12 @@ app.get("/api/digital_pl_history", async (req, res) => {
           const hist = row.revision_history || [];
           const notes = row.revision_notes || {};
           if(hist.length){
-            for(const h of hist) supaRows.push({ delivery_no: row.delivery_no, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||row.updated_at||"", source: "supa_history" });
+            for(const h of hist) supaRows.push({ delivery_no: row.delivery_no, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||row.updated_at||"", ack: h.ack!==false, ack_by: h.ack_by||"", ack_at: h.ack_at||"", source: "supa_history" });
           } else {
             for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
               for(const [sku, noteStr] of Object.entries(skuMap as any)){
                 const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
-                supaRows.push({ delivery_no: row.delivery_no, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: row.updated_at||"", source: "supa_notes" });
+                supaRows.push({ delivery_no: row.delivery_no, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: row.updated_at||"", ack: true, ack_by: "", ack_at: "", source: "supa_notes" });
               }
             }
           }
@@ -2184,6 +2221,40 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER || "wh.leader.vt@gmail.com";
 const SMTP_PASS = (process.env.SMTP_PASS || "gncudpxrrkrlrqzh").replace(/\s+/g, "");
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+const REVISION_NOTIFY_TO = process.env.REVISION_NOTIFY_TO || FEEDBACK_TO;
+// Fire-and-forget revision notify — the Admin review queue is source of truth, email is the nudge. Never throws.
+async function sendRevisionMail(args: { dn: string; outlet: string; koli_index: number; sku: string; prevQty: number; qty: number; note: string; by: string }): Promise<void> {
+  try {
+    if(!SMTP_USER || !SMTP_PASS) return;
+    const nodemailer = await import("nodemailer");
+    const transporter = (nodemailer as any).createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT===465, auth: { user: SMTP_USER, pass: SMTP_PASS } });
+    const { dn, outlet, koli_index, sku, prevQty, qty, note, by } = args;
+    const esc = (s:any)=> String(s??"").replace(/</g,"&lt;");
+    const html = `
+      <div style="font-family: Segoe UI, sans-serif; max-width:640px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden">
+        <div style="background:#b45309; color:white; padding:16px 20px;">
+          <div style="font-weight:900; font-size:16px;">✏️ PLGen Revision — needs review</div>
+          <div style="font-size:12px; opacity:0.85;">${esc(dn)} • Koli ${koli_index+1} • ${wibNowStr()} WIB</div>
+        </div>
+        <div style="padding:16px 20px; color:#334155; line-height:1.7;">
+          <div><b>Outlet:</b> ${esc(outlet||"—")}</div>
+          <div><b>SKU:</b> ${esc(sku)}</div>
+          <div><b>Qty:</b> ${prevQty} → <b>${qty}</b></div>
+          <div><b>By:</b> ${esc(by||"unknown")}</div>
+          <div style="margin-top:8px; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px;"><b>Note:</b> ${esc(note)}</div>
+          <div style="margin-top:12px; font-size:11px; color:#94a3b8;">Applied instantly on Digital PL • acknowledge in Admin → Revision Review</div>
+        </div>
+      </div>
+    `;
+    await transporter.sendMail({
+      from: `"PLGen Revisions" <${SMTP_FROM}>`,
+      to: REVISION_NOTIFY_TO,
+      subject: `[Revise] ${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} — ${by}`,
+      text: `Revision needs review\nPL: ${dn}\nOutlet: ${outlet||"-"}\nKoli: ${koli_index+1}\nSKU: ${sku}\nQty: ${prevQty} -> ${qty}\nBy: ${by||"unknown"}\nWIB: ${wibNowStr()}\nNote: ${note}`,
+      html,
+    });
+  } catch(e){ console.error("revision notify failed", (e as any)?.message||e); }
+}
 
 function sanitizeFeedback(str:string, max=2000){
   let s = String(str||"").trim();
