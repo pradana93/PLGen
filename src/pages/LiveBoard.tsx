@@ -32,6 +32,7 @@ export default function LiveBoard(){
   const [plView, setPlView] = useState<any|null>(null);
   const [data, setData]=useState<any[]>([]);
   const [filter, setFilter]=useState("");
+  const [dusFilter, setDusFilter]=useState("");
   const [summary, setSummary]=useState<Summary|null>(null);
   const [loading, setLoading]=useState(true);
   const [range, setRange]=useState<"all"|"30d"|"90d">("all");
@@ -217,6 +218,57 @@ export default function LiveBoard(){
     return hit && statusHit && inCalendarRange(String(e.created_at||""));
   });
   const liveTotal = filtered.length;
+
+  // ── Dus Usage (Besar / Medium / L / S) — detail rows per PL from packing_status (no new endpoint)
+  const dusDateOf = (e:any)=>{
+    const stored = String(e.delivery_date||"").trim();
+    if(stored) return stored;
+    const m = String(e.created_at||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+  };
+  const dusRows = useMemo(()=>{
+    const q = dusFilter.trim().toLowerCase();
+    const rows = data
+      .filter((e:any)=> (Number(e.dus_besar)||0)+(Number(e.dus_m)||0)+(Number(e.dus_l)||0)+(Number(e.dus_s)||0) > 0)
+      .map((e:any)=>{
+        const besar = Number(e.dus_besar)||0, medium = Number(e.dus_m)||0, l = Number(e.dus_l)||0, s = Number(e.dus_s)||0;
+        return { delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status, dusDate: dusDateOf(e), created_at: e.created_at||"", besar, medium, l, s, total: besar+medium+l+s };
+      })
+      .filter(r=> !q || [r.dusDate, r.outlet, r.delivery_no, r.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+    const rank = (d:string)=> /^\d{2}\/\d{2}\/\d{4}$/.test(d) ? `${d.slice(6,10)}${d.slice(3,5)}${d.slice(0,2)}` : "";
+    return rows.sort((a,b)=> rank(b.dusDate).localeCompare(rank(a.dusDate)) || String(b.created_at||"").localeCompare(String(a.created_at||"")));
+  },[data, dusFilter]);
+  const dusTotals = useMemo(()=> dusRows.reduce((a,r)=>({ besar:a.besar+r.besar, medium:a.medium+r.medium, l:a.l+r.l, s:a.s+r.s, total:a.total+r.total }),{besar:0,medium:0,l:0,s:0,total:0}),[dusRows]);
+
+  const exportDusExcel = async ()=>{
+    if(!dusRows.length) return alert("No dus data to export");
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "PLGen Dus Usage";
+    const ws = wb.addWorksheet("Dus Usage");
+    ws.getRow(1).values = ["Delivery Date","Outlet","PL No","Checker","Status","Dus Besar","Dus Medium","Dus L","Dus S","Total"];
+    ws.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    ws.getRow(1).fill = { type:"pattern", pattern:"solid", fgColor:{ argb: "#FF2C3E50" } };
+    ws.getRow(1).alignment = { horizontal:"center", vertical:"middle" };
+    dusRows.forEach(r=> ws.addRow([r.dusDate, r.outlet, r.delivery_no, r.checker||"-", r.status, r.besar, r.medium, r.l, r.s, r.total]));
+    const t = dusTotals;
+    const tr = ws.addRow(["TOTAL", `${dusRows.length} PLs`, "", "", "", t.besar, t.medium, t.l, t.s, t.total]);
+    tr.font = { bold: true };
+    ws.columns.forEach((c:any)=> c.width = 16);
+    ws.getColumn(2).width = 28; ws.getColumn(3).width = 24;
+    ws.views = [{ state:"frozen", ySplit:1 }];
+    const buf = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buf]), `DusUsage_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const exportDusCSV = ()=>{
+    if(!dusRows.length) return alert("No dus data to export");
+    const esc = (v:any)=> `"${String(v??"").replace(/"/g,'""')}"`;
+    const lines = [["Delivery Date","Outlet","PL No","Checker","Status","Dus Besar","Dus Medium","Dus L","Dus S","Total"].map(esc).join(",")];
+    dusRows.forEach(r=> lines.push([r.dusDate, r.outlet, r.delivery_no, r.checker||"-", r.status, r.besar, r.medium, r.l, r.s, r.total].map(esc).join(",")));
+    const t = dusTotals;
+    lines.push(["TOTAL",`${dusRows.length} PLs`,"","","",t.besar,t.medium,t.l,t.s,t.total].map(esc).join(","));
+    saveAs(new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"}), `DusUsage_${new Date().toISOString().slice(0,10)}.csv`);
+  };
   const liveTotalPages = Math.max(1, Math.ceil(liveTotal / livePageSize));
   const livePaginated = filtered.slice((livePage-1)*livePageSize, livePage*livePageSize);
   const filteredArchive = archive.filter((a:any)=>{
@@ -921,6 +973,70 @@ export default function LiveBoard(){
             )}
           </div>
 
+          {/* Dus Usage — Besar / Medium / L / S per delivery date & outlet (detail per PL) */}
+          <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center shadow-md shadow-teal-500/20">📦</div>
+                <div>
+                  <h3 className="font-black text-sm text-[#0f1e2e]">Dus Usage — Besar / Medium / L / S</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">{dusRows.length} PLs with dus • by delivery date & outlet</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input value={dusFilter} onChange={e=> setDusFilter(e.target.value)} placeholder="Filter date / outlet / PL..." className="border border-slate-200 rounded-xl px-3 py-2 text-xs w-56 bg-slate-50 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0f1e2e]/15" />
+                <button onClick={exportDusExcel} className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all active:scale-95">Excel</button>
+                <button onClick={exportDusCSV} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">CSV</button>
+              </div>
+            </div>
+            {dusRows.length===0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs">No dus recorded yet — pack a PL on Digital PL or confirm via Scan.</div>
+            ) : (
+              <div className="overflow-auto max-h-[320px]">
+                <table className="w-full text-xs">
+                  <thead className="bg-[#0f1e2e] text-white sticky top-0">
+                    <tr className="text-[10px] tracking-widest">
+                      <th className="px-3 py-2.5 text-left">DELIVERY DATE</th>
+                      <th className="px-3 py-2.5 text-left">OUTLET</th>
+                      <th className="px-3 py-2.5 text-left">PL NO</th>
+                      <th className="px-3 py-2.5 text-left">CHECKER</th>
+                      <th className="px-3 py-2.5 text-center">BESAR</th>
+                      <th className="px-3 py-2.5 text-center">MEDIUM</th>
+                      <th className="px-3 py-2.5 text-center">L</th>
+                      <th className="px-3 py-2.5 text-center">S</th>
+                      <th className="px-3 py-2.5 text-center">TOTAL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dusRows.map((r:any)=>(
+                      <tr key={r.delivery_no} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-3 py-2 font-mono font-bold text-[#0f1e2e] whitespace-nowrap">{r.dusDate}</td>
+                        <td className="px-3 py-2 font-medium text-slate-700">{r.outlet}</td>
+                        <td className="px-3 py-2 font-mono text-[11px] text-slate-500">{r.delivery_no}</td>
+                        <td className="px-3 py-2 text-slate-500">{r.checker||"—"}</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold">{r.besar}</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold">{r.medium}</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold">{r.l}</td>
+                        <td className="px-3 py-2 text-center font-mono font-bold">{r.s}</td>
+                        <td className="px-3 py-2 text-center font-mono font-black text-[#0f1e2e]">{r.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 border-t-2 border-slate-200 font-black text-slate-700">
+                      <td colSpan={4} className="px-3 py-2.5 text-right">TOTAL ({dusRows.length} PLs)</td>
+                      <td className="px-3 py-2.5 text-center font-mono">{dusTotals.besar}</td>
+                      <td className="px-3 py-2.5 text-center font-mono">{dusTotals.medium}</td>
+                      <td className="px-3 py-2.5 text-center font-mono">{dusTotals.l}</td>
+                      <td className="px-3 py-2.5 text-center font-mono">{dusTotals.s}</td>
+                      <td className="px-3 py-2.5 text-center font-mono">{dusTotals.total}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* Revision History — flagship high-visibility, shortage edits */}
           <div className="lb-section bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -975,7 +1091,7 @@ export default function LiveBoard(){
         <div className="fixed inset-0 bg-[#0f1e2e]/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={()=> setPlView(null)}>
           <div className="bg-white rounded-[20px] shadow-[0_24px_64px_rgba(0,0,0,0.35)] border border-white/40 w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden" onClick={e=> e.stopPropagation()}>
             <div className="bg-gradient-to-br from-[#0f1e2e] via-[#1a2f4a] to-[#2c3e50] text-white px-5 py-4 flex items-center justify-between">
-              <div><div className="font-black text-sm">📱 Packed Results — {plView.delivery_no}</div><div className="text-[11px] text-white/60">{(plView.checks||[]).filter((c:any)=>c?.checked).length}/{(plView.boxes||[]).length||"—"} koli packed • Dus Besar {plView.dus_besar??"—"} / L {plView.dus_l??"—"} / S {plView.dus_s??"—"}{plView.packed_by?` • by ${plView.packed_by}`:""}</div></div>
+              <div><div className="font-black text-sm">📱 Packed Results — {plView.delivery_no}</div><div className="text-[11px] text-white/60">{(plView.checks||[]).filter((c:any)=>c?.checked).length}/{(plView.boxes||[]).length||"—"} koli packed • Dus Besar {plView.dus_besar??"—"} / M {plView.dus_m??"—"} / L {plView.dus_l??"—"} / S {plView.dus_s??"—"}{plView.packed_by?` • by ${plView.packed_by}`:""}</div></div>
               <button onClick={()=> setPlView(null)} className="text-white/70 hover:text-white text-lg">✖</button>
             </div>
             <div className="flex-1 overflow-auto p-4">

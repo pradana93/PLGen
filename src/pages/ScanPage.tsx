@@ -10,7 +10,7 @@ export default function ScanPage(){
   const [status,setStatus]=useState<any>(null);
   const [checkers,setCheckers]=useState<string[]>([]);
   const [sel,setSel]=useState("");
-  const [dusL,setDusL]=useState(0); const [dusS,setDusS]=useState(0); const [dusB,setDusB]=useState(0);
+  const [dusL,setDusL]=useState(0); const [dusS,setDusS]=useState(0); const [dusB,setDusB]=useState(0); const [dusM,setDusM]=useState(0);
   const [msg,setMsg]=useState("");
   useEffect(()=>{
     apiGet(`/api/packing_status`).then((all:any[])=>{
@@ -22,7 +22,7 @@ export default function ScanPage(){
   const confirm=async()=>{
     if(!sel) return setMsg(t("scan.errChecker"));
     const base=import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
-    const r=await fetch(`${base}/api/scan/${encodeURIComponent(dn)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ checker:sel, dus_l:dusL, dus_s:dusS, dus_besar:dusB })});
+    const r=await fetch(`${base}/api/scan/${encodeURIComponent(dn)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ checker:sel, dus_l:dusL, dus_s:dusS, dus_besar:dusB, dus_m:dusM })});
     if(r.ok){ setMsg(t("scan.verified")); setStatus((s:any)=>({ ...s, status:"READY" })); }
     else setMsg(t("scan.failed", { err: await r.text() }));
   };
@@ -46,10 +46,11 @@ export default function ScanPage(){
           <option value="">{t("scan.selectChecker")}</option>
           {checkers.map(c=> <option key={c} value={c}>{c}</option>)}
         </select>
-        <div className="grid grid-cols-3 gap-2 mt-3">
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <div><label className="text-xs">Dus Besar</label><input type="number" value={dusB} onChange={e=> setDusB(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></div>
+          <div><label className="text-xs">Dus M</label><input type="number" value={dusM} onChange={e=> setDusM(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></div>
           <div><label className="text-xs">Dus L</label><input type="number" value={dusL} onChange={e=> setDusL(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></div>
           <div><label className="text-xs">Dus S</label><input type="number" value={dusS} onChange={e=> setDusS(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></div>
-          <div><label className="text-xs">Dus Besar</label><input type="number" value={dusB} onChange={e=> setDusB(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></div>
         </div>
         <button onClick={confirm} className="w-full mt-4 bg-[#27ae60] text-white rounded-lg py-3 font-bold">{t("scan.confirm")}</button>
         {msg && <div className="mt-3 text-sm font-semibold">{msg}</div>}

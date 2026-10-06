@@ -24,6 +24,7 @@ export default function DigitalPl(){
   const [dusBesar, setDusBesar] = useState("0");
   const [dusL, setDusL] = useState("0");
   const [dusS, setDusS] = useState("0");
+  const [dusM, setDusM] = useState("0");
   const [saving, setSaving] = useState(false);
   const [plQuery, setPlQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(true);
@@ -59,7 +60,7 @@ export default function DigitalPl(){
       setChecks(Array.isArray(d.checks)?d.checks:[]);
       setRevisionNotes((d.revision_notes||{}) as any);
       setHeader(d.header||null);
-      setDusBesar(String(d.dus_besar??0)); setDusL(String(d.dus_l??0)); setDusS(String(d.dus_s??0));
+      setDusBesar(String(d.dus_besar??0)); setDusL(String(d.dus_l??0)); setDusS(String(d.dus_s??0)); setDusM(String((d as any).dus_m??0));
     } catch(e:any){
       setBoxes([]); setChecks([]);
       setRevisionNotes({});
@@ -198,13 +199,13 @@ export default function DigitalPl(){
 
   const parseDus = (v:string)=> /^\d+$/.test(v.trim()) ? parseInt(v.trim(),10) : NaN;
   const handleDone = async ()=>{
-    const b = parseDus(dusBesar), l = parseDus(dusL), s = parseDus(dusS);
-    if([b,l,s].some(Number.isNaN)) return flash("err","Dus Besar / L / S are required (0 or more, whole numbers)");
+    const b = parseDus(dusBesar), l = parseDus(dusL), s = parseDus(dusS), m = parseDus(dusM);
+    if([b,l,s,m].some(Number.isNaN)) return flash("err","Dus Besar / M / L / S are required (0 or more, whole numbers)");
     if(!allChecked) return flash("err",`Check all ${total} Koli first (${done}/${total} packed)`);
-    if(!confirm(`Mark ${dn} as READY on the Live Packing Board?\nDus — Besar: ${b}, L: ${l}, S: ${s}`)) return;
+    if(!confirm(`Mark ${dn} as READY on the Live Packing Board?\nDus — Besar: ${b}, M: ${m}, L: ${l}, S: ${s}`)) return;
     setSaving(true);
     try {
-      await apiPost(`/api/digital_pl/${encodeURIComponent(dn)}/done`, { dus_besar: b, dus_l: l, dus_s: s, by: email });
+      await apiPost(`/api/digital_pl/${encodeURIComponent(dn)}/done`, { dus_besar: b, dus_l: l, dus_s: s, dus_m: m, by: email });
       flash("ok",`✅ ${dn} marked READY`);
       expEarn("pack", dn);
       setDn(""); setBoxes([]); setChecks([]); setHeader(null);
@@ -425,8 +426,8 @@ export default function DigitalPl(){
 
             <div className="mx-5 md:mx-6 my-4 rounded-2xl bg-slate-50 border border-slate-200 p-4">
               <div className="font-black text-sm text-[#0f1e2e]">Dus used <span className="text-red-500">*</span> <span className="font-normal text-slate-400 text-xs">(required — 0 if none)</span></div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                {[["Dus Besar",dusBesar,setDusBesar],["Dus L",dusL,setDusL],["Dus S",dusS,setDusS]].map(([label,val,set]:any)=>(
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
+                {[["Dus Besar",dusBesar,setDusBesar],["Dus M",dusM,setDusM],["Dus L",dusL,setDusL],["Dus S",dusS,setDusS]].map(([label,val,set]:any)=>(
                   <div key={label}>
                     <label className="text-[11px] font-bold text-slate-500">{label}</label>
                     <div className="mt-1 flex items-stretch gap-1">

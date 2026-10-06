@@ -1211,12 +1211,12 @@ app.get("/api/packing_status", async (req, res) => {
   let all: any[] = [];
   const supa = await fetchSupabasePackingStatus();
   if (supa && supa.length) {
-    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0, delivery_date: (r as any).delivery_date||"" }))); } catch {}
+    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0, dus_m: (r as any).dus_m||0, delivery_date: (r as any).delivery_date||"" }))); } catch {}
     all = supa;
   } else {
     const data = jsonRead<any[]>("packing_status.json", []);
     if (data.length && (!supa || supa.length===0)) {
-      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0, delivery_date: e.delivery_date||"" }); })().catch(()=>{});
+      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0, dus_m: e.dus_m||0, delivery_date: e.delivery_date||"" }); })().catch(()=>{});
     }
     all = data;
   }
@@ -1257,7 +1257,7 @@ app.get("/api/packing_status", async (req, res) => {
   res.json(filtered);
 });
 app.post("/api/packing_status", async (req, res) => {
-  const { delivery_no, outlet, checker, status, total_weight_kg, delivery_date } = req.body;
+  const { delivery_no, outlet, checker, status, total_weight_kg, delivery_date, dus_m } = req.body;
   if (!delivery_no) return res.status(400).json({ error: "Missing delivery_no" });
   const statuses = jsonRead<any[]>("packing_status.json", []);
   let found = statuses.find(s=>s.delivery_no===delivery_no);
@@ -1268,13 +1268,14 @@ app.post("/api/packing_status", async (req, res) => {
     found.status = status ?? found.status;
     if (total_weight_kg!==undefined) found.total_weight_kg = total_weight_kg;
     if (delivery_date!==undefined) found.delivery_date = delivery_date;
+    if (dus_m!==undefined) found.dus_m = Number(dus_m)||0;
     if (status==="IN PROGRESS") found.created_at = nowWib;
   } else {
-    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "", delivery_date: delivery_date||"" });
+    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "", delivery_date: delivery_date||"", dus_m: dus_m ?? 0 });
   }
   jsonWrite("packing_status.json", statuses);
   // Supabase persistent copy (service_role bypasses RLS)
-  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "" }).catch(()=>{});
+  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "", dus_m: dus_m ?? found?.dus_m ?? 0 }).catch(()=>{});
   res.json({ status: "success" });
 });
 app.get("/scan/:delivery_no", (req, res) => {
@@ -1283,7 +1284,7 @@ app.get("/scan/:delivery_no", (req, res) => {
 });
 app.post("/api/scan/:delivery_no", async (req, res) => {
   const delivery_no = decodeURIComponent(req.params.delivery_no);
-  const { checker, dus_l, dus_s, dus_besar } = req.body;
+  const { checker, dus_l, dus_s, dus_besar, dus_m } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
   const entry = statuses.find(s=>s.delivery_no===delivery_no);
   if (!entry) {
@@ -1296,7 +1297,7 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
     if (entry.status==="READY"||entry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
     entry.status = "READY";
     if (checker) entry.checker = checker;
-    entry.dus_l = Number(dus_l)||0; entry.dus_s = Number(dus_s)||0; entry.dus_besar = Number(dus_besar)||0;
+    entry.dus_l = Number(dus_l)||0; entry.dus_s = Number(dus_s)||0; entry.dus_besar = Number(dus_besar)||0; if (dus_m!==undefined) entry.dus_m = Number(dus_m)||0;
     entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
     jsonWrite("packing_status.json", statuses);
   }
@@ -1304,7 +1305,7 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
   try {
     const sb = await getSupabase();
     if (sb) {
-      await sb.from("packing_status").update({ status: "READY", checker: checker||undefined, dus_l: Number(dus_l)||0, dus_s: Number(dus_s)||0, dus_besar: Number(dus_besar)||0, scanned_at: new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"}) }).eq("delivery_no", delivery_no);
+      await sb.from("packing_status").update({ status: "READY", checker: checker||undefined, dus_l: Number(dus_l)||0, dus_s: Number(dus_s)||0, dus_besar: Number(dus_besar)||0, ...(dus_m!==undefined ? { dus_m: Number(dus_m)||0 } : {}), scanned_at: new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"}) }).eq("delivery_no", delivery_no);
     }
   } catch {}
   res.json({ status: "success", entry: entry || { delivery_no, status:"READY" } });
@@ -1323,14 +1324,14 @@ app.get("/scan/*", async (req, res) => {
   }
   const checkers = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS }).checkers;
   const opts = checkers.map((c:string)=>`<option value="${c}">${c}</option>`).join("");
-  res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title></head><body style="font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f4f6f9"><div style="background:white;padding:32px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:420px;width:100%;text-align:center"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}</p><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><select name="checker" required style="width:100%;padding:10px;margin:10px 0"><option value="">Select Checker</option>${opts}</select><div style="display:flex;gap:8px;margin:10px 0"><input name="dus_l" type="number" placeholder="Dus L" value="0" style="flex:1;padding:8px"/><input name="dus_s" type="number" placeholder="Dus S" value="0" style="flex:1;padding:8px"/><input name="dus_besar" type="number" placeholder="Dus Besar" value="0" style="flex:1;padding:8px"/></div><button type="submit" style="width:100%;padding:12px;background:#27ae60;color:white;border:none;border-radius:8px;font-weight:bold">CONFIRM & FINALIZE</button></form></div></body></html>`);
+  res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title></head><body style="font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f4f6f9"><div style="background:white;padding:32px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:420px;width:100%;text-align:center"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}</p><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><select name="checker" required style="width:100%;padding:10px;margin:10px 0"><option value="">Select Checker</option>${opts}</select><div style="display:flex;gap:8px;margin:10px 0"><input name="dus_l" type="number" placeholder="Dus L" value="0" style="flex:1;padding:8px"/><input name="dus_s" type="number" placeholder="Dus S" value="0" style="flex:1;padding:8px"/><input name="dus_besar" type="number" placeholder="Dus Besar" value="0" style="flex:1;padding:8px"/><input name="dus_m" type="number" placeholder="Dus M" value="0" style="flex:1;padding:8px"/></div><button type="submit" style="width:100%;padding:12px;background:#27ae60;color:white;border:none;border-radius:8px;font-weight:bold">CONFIRM & FINALIZE</button></form></div></body></html>`);
 });
 
 // ===== Packing Board update via PUT for status override =====
-// Additive: also accepts dus_l/dus_s/dus_besar (Digital PL Done Packed) — backward compatible, old callers unaffected
+// Additive: also accepts dus_l/dus_s/dus_besar/dus_m (Digital PL Done Packed) — backward compatible, old callers unaffected
 app.put("/api/packing_status/:delivery_no", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);
-  const { status, checker, dus_l, dus_s, dus_besar } = req.body;
+  const { status, checker, dus_l, dus_s, dus_besar, dus_m } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
   const entry = statuses.find(s=>s.delivery_no===dn);
   if (!entry) return res.status(404).json({ error: "Not found" });
@@ -1339,6 +1340,7 @@ app.put("/api/packing_status/:delivery_no", async (req, res) => {
   if (dus_l!==undefined) entry.dus_l = Number(dus_l)||0;
   if (dus_s!==undefined) entry.dus_s = Number(dus_s)||0;
   if (dus_besar!==undefined) entry.dus_besar = Number(dus_besar)||0;
+  if (dus_m!==undefined) entry.dus_m = Number(dus_m)||0;
   if (status==="READY") entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
   jsonWrite("packing_status.json", statuses);
   // Supabase mirror
@@ -1351,6 +1353,7 @@ app.put("/api/packing_status/:delivery_no", async (req, res) => {
       if (dus_l!==undefined) upd.dus_l = Number(dus_l)||0;
       if (dus_s!==undefined) upd.dus_s = Number(dus_s)||0;
       if (dus_besar!==undefined) upd.dus_besar = Number(dus_besar)||0;
+      if (dus_m!==undefined) upd.dus_m = Number(dus_m)||0;
       if (status==="READY") upd.scanned_at=entry.scanned_at;
       if (Object.keys(upd).length) await sb.from("packing_status").update(upd).eq("delivery_no", dn);
     }
@@ -1362,7 +1365,7 @@ app.put("/api/packing_status/:delivery_no", async (req, res) => {
 // Snapshot boxes at export time so Digital PL koli list is byte-identical to the Exported PL.
 // File fallback digital_pl.json mirrors the pattern of packing_status.json; Supabase table
 // digital_pl_checks (see supabase/migrations/20250919010000_digital_pl_checks.sql) is best-effort.
-type DigitalPlStore = Record<string, { boxes: any[]; checks: { checked: boolean; by: string; at: string }[]; dus_besar: number; dus_l: number; dus_s: number; packed_by: string; packed_at: string; updated_at: string }>;
+type DigitalPlStore = Record<string, { boxes: any[]; checks: { checked: boolean; by: string; at: string }[]; dus_besar: number; dus_l: number; dus_s: number; dus_m: number; packed_by: string; packed_at: string; updated_at: string }>;
 function readDigitalPl(): DigitalPlStore {
   return jsonRead<DigitalPlStore>("digital_pl.json", {});
 }
@@ -1395,9 +1398,9 @@ app.post("/api/digital_pl/:delivery_no/snapshot", async (req, res) => {
   const prev = store[dn];
   const n = boxes.length;
   const checks = prev && Array.isArray(prev.checks) && prev.checks.length===n ? prev.checks : Array.from({length:n},()=>({checked:false,by:"",at:""}));
-  store[dn] = { boxes, checks, dus_besar: prev?.dus_besar||0, dus_l: prev?.dus_l||0, dus_s: prev?.dus_s||0, packed_by: prev?.packed_by||"", packed_at: prev?.packed_at||"", updated_at: new Date().toISOString() };
+  store[dn] = { boxes, checks, dus_besar: prev?.dus_besar||0, dus_l: prev?.dus_l||0, dus_s: prev?.dus_s||0, dus_m: (prev as any)?.dus_m||0, packed_by: prev?.packed_by||"", packed_at: prev?.packed_at||"", updated_at: new Date().toISOString() };
   writeDigitalPl(store);
-  saveSupabaseDigitalPl({ delivery_no: dn, boxes, checks, dus_besar: store[dn].dus_besar, dus_l: store[dn].dus_l, dus_s: store[dn].dus_s, packed_by: store[dn].packed_by||null, packed_at: store[dn].packed_at||null, updated_at: store[dn].updated_at }).catch(()=>{});
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes, checks, dus_besar: store[dn].dus_besar, dus_l: store[dn].dus_l, dus_s: store[dn].dus_s, dus_m: store[dn].dus_m, packed_by: store[dn].packed_by||null, packed_at: store[dn].packed_at||null, updated_at: store[dn].updated_at }).catch(()=>{});
   res.json({ status: "success", koli: n });
 });
 // GET single Digital PL (boxes snapshot + checks + packing header)
@@ -1416,7 +1419,7 @@ app.get("/api/digital_pl/:delivery_no", async (req, res) => {
     const checks = useFileBoxes ? rec!.checks : (Array.isArray(supa.checks) ? supa.checks : (rec?.checks||[]));
     const revNotes = (rec as any)?.revision_notes || (supa as any).revision_notes || {};
     const revHist = (rec as any)?.revision_history || (supa as any).revision_history || [];
-    rec = { boxes, checks, dus_besar: supa.dus_besar ?? rec?.dus_besar ?? 0, dus_l: supa.dus_l ?? rec?.dus_l ?? 0, dus_s: supa.dus_s ?? rec?.dus_s ?? 0, packed_by: supa.packed_by || rec?.packed_by || "", packed_at: supa.packed_at || rec?.packed_at || "", updated_at: supa.updated_at || rec?.updated_at || "", ...(Object.keys(revNotes).length ? { revision_notes: revNotes } : {}), ...(revHist.length ? { revision_history: revHist } : {}) } as any;
+    rec = { boxes, checks, dus_besar: supa.dus_besar ?? rec?.dus_besar ?? 0, dus_l: supa.dus_l ?? rec?.dus_l ?? 0, dus_s: supa.dus_s ?? rec?.dus_s ?? 0, dus_m: (supa as any).dus_m ?? (rec as any)?.dus_m ?? 0, packed_by: supa.packed_by || rec?.packed_by || "", packed_at: supa.packed_at || rec?.packed_at || "", updated_at: supa.updated_at || rec?.updated_at || "", ...(Object.keys(revNotes).length ? { revision_notes: revNotes } : {}), ...(revHist.length ? { revision_history: revHist } : {}) } as any;
     // Back-merge file revision_notes if supa lacks them but file has them
     if((rec as any).revision_notes && !(supa as any).revision_notes) {
       // keep file version already merged
@@ -1425,7 +1428,7 @@ app.get("/api/digital_pl/:delivery_no", async (req, res) => {
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn + " — export the PL first" });
   const header = jsonRead<any[]>("packing_status.json", []).find((s:any)=>s.delivery_no===dn) || null;
   const done = rec.checks.filter((c:any)=>c?.checked).length;
-  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by, packed_at: rec.packed_at, header, revision_notes: (rec as any).revision_notes || {}, revision_history: (rec as any).revision_history || [] });
+  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by, packed_at: rec.packed_at, header, revision_notes: (rec as any).revision_notes || {}, revision_history: (rec as any).revision_history || [] });
 });
 // PUT single koli check — server sync (one koli at a time so concurrent packers never overwrite each other)
 app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
@@ -1438,7 +1441,7 @@ app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
   if(!rec){
     const supa = await fetchSupabaseDigitalPl(dn);
     if(supa){
-      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, dus_m: supa.dus_m||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
       store[dn]=rec; writeDigitalPl(store);
     }
   }
@@ -1447,7 +1450,7 @@ app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
   rec.checks[koli_index] = { checked: !!checked, by: !!checked ? by : "", at: !!checked ? new Date().toISOString() : "" };
   rec.updated_at = new Date().toISOString();
   writeDigitalPl(store);
-  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
   const done = rec.checks.filter((c:any)=>c?.checked).length;
   res.json({ status: "success", done, total: rec.boxes.length });
 });
@@ -1466,7 +1469,7 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   if(!rec){
     const supa = await fetchSupabaseDigitalPl(dn);
     if(supa){
-      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, dus_m: supa.dus_m||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
       store[dn]=rec; writeDigitalPl(store);
     }
   }
@@ -1508,14 +1511,14 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   rec.updated_at = new Date().toISOString();
   writeDigitalPl(store);
   // Best-effort Supabase mirror — tolerate missing revision columns (file is source of truth, so live still works)
-  const supaPayload:any = { delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at };
+  const supaPayload:any = { delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at };
   // Include revision cols only if table supports them — caller catches error
   (supaPayload as any).revision_notes = (rec as any)[notesKey];
   (supaPayload as any).revision_history = (rec as any)[histKey];
   saveSupabaseDigitalPl(supaPayload).catch(async ()=>{
     // Retry without revision cols if table lacks them
     try { const { createClient } = await import("@supabase/supabase-js"); const sb = (await import("@supabase/supabase-js").then(()=>null)); } catch {}
-    saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+    saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
   });
   // audit
   try { const logs=jsonRead<any[]>("audit_logs.json",[]); logs.push({ timestamp: wibNowStr(), user: by||"unknown", role:"DigitalPL", action_type:"REVISE_KOLI", details:`${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} note:${cleanNote}`}); if(logs.length>5000) logs.splice(0,logs.length-5000); jsonWrite("audit_logs.json",logs);} catch {}
@@ -1584,9 +1587,9 @@ app.get("/api/digital_pl_history", async (req, res) => {
 // POST done — validates all koli checked + dus required, then flips packing_status READY via the same path as Live Board
 app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   const dn = decodeURIComponent(req.params.delivery_no);
-  const { dus_besar, dus_l, dus_s } = req.body as { dus_besar?: number; dus_l?: number; dus_s?: number };
+  const { dus_besar, dus_l, dus_s, dus_m } = req.body as { dus_besar?: number; dus_l?: number; dus_s?: number; dus_m?: number };
   const by = String((req.body as any)?.by || (req.headers["x-user-email"] as string) || "").slice(0,120);
-  for (const [k,v] of [["dus_besar",dus_besar],["dus_l",dus_l],["dus_s",dus_s]] as const) {
+  for (const [k,v] of [["dus_besar",dus_besar],["dus_l",dus_l],["dus_s",dus_s],["dus_m",dus_m]] as const) {
     if (v===undefined || v===null || !Number.isInteger(Number(v)) || Number(v)<0) return res.status(400).json({ error: `${k} is required (0 or more)` });
   }
   let store = readDigitalPl();
@@ -1594,14 +1597,14 @@ app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   if(!rec){
     const supa = await fetchSupabaseDigitalPl(dn);
     if(supa){
-      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+      rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, dus_m: supa.dus_m||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
       store[dn]=rec; writeDigitalPl(store);
     }
   }
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn });
   const pending = rec.checks.map((c:any,i:number)=>c?.checked?null:i).filter((x:any)=>x!==null);
   if (pending.length) return res.status(400).json({ error: `Koli not all packed: ${pending.length} remaining`, pending });
-  rec.dus_besar = Number(dus_besar); rec.dus_l = Number(dus_l); rec.dus_s = Number(dus_s);
+  rec.dus_besar = Number(dus_besar); rec.dus_l = Number(dus_l); rec.dus_s = Number(dus_s); rec.dus_m = Number(dus_m);
   rec.packed_by = by; rec.packed_at = new Date().toISOString(); rec.updated_at = rec.packed_at;
   writeDigitalPl(store);
   // Flip packing_status READY (file + Supabase mirror — same fields the scan flow writes)
@@ -1609,14 +1612,14 @@ app.post("/api/digital_pl/:delivery_no/done", async (req, res) => {
   const entry = statuses.find((s:any)=>s.delivery_no===dn);
   if (!entry) { return res.status(404).json({ error: "Packing status not found for " + dn }); }
   entry.status = "READY";
-  entry.dus_l = rec.dus_l; entry.dus_s = rec.dus_s; entry.dus_besar = rec.dus_besar;
+  entry.dus_l = rec.dus_l; entry.dus_s = rec.dus_s; entry.dus_besar = rec.dus_besar; entry.dus_m = rec.dus_m;
   entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
   jsonWrite("packing_status.json", statuses);
   try {
     const sb = await getSupabase();
-    if (sb) await sb.from("packing_status").update({ status:"READY", dus_l: rec.dus_l, dus_s: rec.dus_s, dus_besar: rec.dus_besar, scanned_at: entry.scanned_at }).eq("delivery_no", dn);
+    if (sb) await sb.from("packing_status").update({ status:"READY", dus_l: rec.dus_l, dus_s: rec.dus_s, dus_besar: rec.dus_besar, dus_m: rec.dus_m, scanned_at: entry.scanned_at }).eq("delivery_no", dn);
   } catch {}
-  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
+  saveSupabaseDigitalPl({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: rec.updated_at }).catch(()=>{});
   res.json({ status: "success", delivery_no: dn });
 });
 
