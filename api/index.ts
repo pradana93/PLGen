@@ -1491,7 +1491,7 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   // keep note history for audit
   const histKey = "revision_history" as any;
   if(!(rec as any)[histKey]) (rec as any)[histKey]=[];
-  (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString(), ack: false, ack_by: "", ack_at: "" });
+  (rec as any)[histKey].push({ koli_index, sku, prevQty, qty: Number(qty), note: cleanNote, by, at: new Date().toISOString(), status: "pending", reviewed_by: "", reviewed_at: "" });
   // If Koli became empty (qty 0 on sole SKU), remove Koli + its check + reindex revision_notes
   if(isEmpty){
     rec.boxes.splice(koli_index,1);
@@ -1530,36 +1530,88 @@ app.put("/api/digital_pl/:delivery_no/revise", async (req, res) => {
   res.json({ status:"success", koli_index, sku, qty: Number(qty), note: cleanNote });
 });
 
-// POST acknowledge a revision — Admin/SuperAdmin only (non-blocking review queue)
-app.post("/api/digital_pl/revisions/ack", requireSupabaseAdmin, async (req, res) => {
-  const { delivery_no, koli_index, sku, at } = req.body as any;
+// POST review a revision — Admin/SuperAdmin only.
+// approve = stamp final (data already live). reject = auto-restore prevQty in the live
+// checklist (conflict-safe: refuses when superseded; removed koli re-inserted unchecked;
+// restored koli never inherits a check earned under other numbers).
+app.post("/api/digital_pl/revisions/review", requireSupabaseAdmin, async (req, res) => {
+  const { delivery_no, koli_index, sku, at, action } = req.body as any;
   if(!delivery_no || typeof koli_index!=="number" || !sku) return res.status(400).json({ error: "delivery_no, koli_index, sku required" });
+  if(action!=="approve" && action!=="reject") return res.status(400).json({ error: "action must be approve or reject" });
   const dn = decodeURIComponent(String(delivery_no));
   const by = (req as any).supaUser?.email || "";
   const stamp = new Date().toISOString();
   const match = (h:any)=> Number(h.koli_index)===Number(koli_index) && String(h.sku)===String(sku) && (!at || String(h.at)===String(at));
-  let applied = false;
+  const statusOf = (h:any)=> String((h as any).status || ((h as any).ack===false ? "pending" : "approved"));
+  let store: any = null;
+  let rec: any = null;
   try {
-    const store = readDigitalPl();
-    const rec = (store as any)[dn];
-    if(rec && Array.isArray(rec.revision_history)){
-      const hit = rec.revision_history.find(match);
-      if(hit){ hit.ack = true; hit.ack_by = by; hit.ack_at = stamp; applied = true; writeDigitalPl(store); }
-    }
-  } catch {}
-  try {
-    const sb = await getSupabase();
-    if(sb){
-      const { data } = await sb.from("digital_pl_checks").select("delivery_no, revision_history").eq("delivery_no", dn).single();
-      if(data && Array.isArray((data as any).revision_history)){
-        const hist = (data as any).revision_history.map((h:any)=> match(h) ? { ...h, ack: true, ack_by: by, ack_at: stamp } : h);
-        await sb.from("digital_pl_checks").upsert({ delivery_no: dn, revision_history: hist }, { onConflict: "delivery_no" });
-        applied = true;
+    store = readDigitalPl();
+    rec = (store as any)[dn];
+    if(!rec){
+      const supa = await fetchSupabaseDigitalPl(dn);
+      if(supa){
+        rec = { boxes: Array.isArray(supa.boxes)?supa.boxes:[], checks: Array.isArray(supa.checks)?supa.checks:[], dus_besar: supa.dus_besar||0, dus_l: supa.dus_l||0, dus_s: supa.dus_s||0, dus_m: supa.dus_m||0, packed_by: supa.packed_by||"", packed_at: supa.packed_at||"", updated_at: supa.updated_at||new Date().toISOString(), revision_notes: (supa as any).revision_notes||{}, revision_history: (supa as any).revision_history||[] } as any;
+        (store as any)[dn]=rec;
       }
     }
   } catch {}
-  if(!applied) return res.status(404).json({ error: "Revision not found" });
-  res.json({ status: "success" });
+  if(!rec) return res.status(404).json({ error: "No Digital PL snapshot for "+dn });
+  const hist = Array.isArray((rec as any).revision_history) ? (rec as any).revision_history : [];
+  const hit = hist.find(match);
+  if(!hit) return res.status(404).json({ error: "Revision not found" });
+  if(statusOf(hit)!=="pending") return res.status(400).json({ error: `Already ${statusOf(hit)}` });
+  // A newer revision for the same SKU makes restore ambiguous — refuse, never overwrite blindly
+  const laterExists = hist.some((h:any)=> h!==hit && String(h.sku)===String(sku) && String(h.at||"") > String((hit as any).at||""));
+  const save = async ()=>{
+    (rec as any).updated_at = stamp;
+    writeDigitalPl(store);
+    try {
+      const sb = await getSupabase();
+      if(sb) await sb.from("digital_pl_checks").upsert({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by||null, packed_at: rec.packed_at||null, updated_at: stamp, revision_notes: (rec as any).revision_notes||{}, revision_history: (rec as any).revision_history||{} }, { onConflict: "delivery_no" });
+    } catch {}
+  };
+  if(action==="approve"){
+    hit.status = "approved"; delete (hit as any).ack; hit.reviewed_by = by; hit.reviewed_at = stamp;
+    await save();
+    return res.json({ status: "success", action: "approved" });
+  }
+  // reject — restore prevQty
+  const prevQty = Number((hit as any).prevQty);
+  const revQty = Number((hit as any).qty);
+  if(!Number.isInteger(prevQty) || prevQty<0) return res.status(400).json({ error: "Cannot restore: invalid recorded qty" });
+  const ki = Number(koli_index);
+  const box = rec.boxes[ki] as Record<string,number> | undefined;
+  let target = ki;
+  if(box && (sku in box)){
+    const cur = Number((box as any)[sku]);
+    if(cur!==prevQty && (cur!==revQty || laterExists)) return res.status(409).json({ error: "Superseded by a newer revision — restore manually on Digital PL" });
+    if(cur!==prevQty) (box as any)[sku] = prevQty;
+  } else {
+    if(laterExists) return res.status(409).json({ error: "Superseded by a newer revision — restore manually on Digital PL" });
+    // koli was removed (or line gone): re-insert at original position, unchecked
+    target = Math.min(Math.max(ki,0), rec.boxes.length);
+    rec.boxes.splice(target,0,{ [String(sku)]: prevQty });
+    rec.checks.splice(target,0,{checked:false,by:"",at:""});
+    const notes = (((rec as any).revision_notes||{}) as Record<string,any>);
+    const shifted: Record<string,any> = {};
+    for(const k of Object.keys(notes)){
+      const n = parseInt(k,10);
+      shifted[String(isNaN(n) ? k : (n>=target ? n+1 : n))] = notes[k];
+    }
+    (rec as any).revision_notes = shifted;
+  }
+  // restored koli must be re-packed — never inherit a check earned under other numbers
+  if(rec.checks[target]) rec.checks[target] = { checked:false, by:"", at:"" };
+  // display note reflects the restore; history array keeps the original record (audit intact)
+  if(!(rec as any).revision_notes) (rec as any).revision_notes = {};
+  const nm = (rec as any).revision_notes;
+  const tkey = String(target);
+  if(!nm[tkey]) nm[tkey] = {};
+  nm[tkey][String(sku)] = `${revQty}→${prevQty} by ${by||"admin"} (rejected — restored${(hit as any).note ? `; was: ${String((hit as any).note).slice(0,120)}` : ""})`;
+  hit.status = "rejected"; delete (hit as any).ack; hit.reviewed_by = by; hit.reviewed_at = stamp;
+  await save();
+  return res.json({ status: "success", action: "rejected", restored: prevQty });
 });
 
 // GET revision history aggregated for Live Board — read-only, additive (supabase + file fallback, newest first)
@@ -1573,12 +1625,12 @@ app.get("/api/digital_pl_history", async (req, res) => {
       if(hist.length===0 && Object.keys(notes).length===0) continue;
       // expand history + notes fallback
       if(hist.length){
-        for(const h of hist) fileRows.push({ delivery_no: dn, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||(rec as any).updated_at||"", ack: h.ack!==false, ack_by: h.ack_by||"", ack_at: h.ack_at||"", source: "history" });
+        for(const h of hist) fileRows.push({ delivery_no: dn, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||(rec as any).updated_at||"", status: (h as any).status || ((h as any).ack===false ? "pending" : "approved"), reviewed_by: (h as any).reviewed_by||(h as any).ack_by||"", reviewed_at: (h as any).reviewed_at||(h as any).ack_at||"", source: "history" });
       } else {
         for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
           for(const [sku, noteStr] of Object.entries(skuMap as any)){
             const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
-            fileRows.push({ delivery_no: dn, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: (rec as any).updated_at||"", ack: true, ack_by: "", ack_at: "", source: "notes" });
+            fileRows.push({ delivery_no: dn, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: (rec as any).updated_at||"", status: "approved", reviewed_by: "", reviewed_at: "", source: "notes" });
           }
         }
       }
@@ -1593,12 +1645,12 @@ app.get("/api/digital_pl_history", async (req, res) => {
           const hist = row.revision_history || [];
           const notes = row.revision_notes || {};
           if(hist.length){
-            for(const h of hist) supaRows.push({ delivery_no: row.delivery_no, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||row.updated_at||"", ack: h.ack!==false, ack_by: h.ack_by||"", ack_at: h.ack_at||"", source: "supa_history" });
+            for(const h of hist) supaRows.push({ delivery_no: row.delivery_no, koli_index: h.koli_index, sku: h.sku, prevQty: h.prevQty, qty: h.qty, note: h.note, by: h.by||"", at: h.at||row.updated_at||"", status: (h as any).status || ((h as any).ack===false ? "pending" : "approved"), reviewed_by: (h as any).reviewed_by||(h as any).ack_by||"", reviewed_at: (h as any).reviewed_at||(h as any).ack_at||"", source: "supa_history" });
           } else {
             for(const [k, skuMap] of Object.entries(notes as Record<string,Record<string,string>>)){
               for(const [sku, noteStr] of Object.entries(skuMap as any)){
                 const m = String(noteStr).match(/^(\d+)→(\d+) by (.*?): (.*)$/);
-                supaRows.push({ delivery_no: row.delivery_no, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: row.updated_at||"", ack: true, ack_by: "", ack_at: "", source: "supa_notes" });
+                supaRows.push({ delivery_no: row.delivery_no, koli_index: parseInt(k,10), sku, prevQty: m? parseInt(m[1],10): null, qty: m? parseInt(m[2],10): null, note: m? m[4] : noteStr, by: m? m[3]:"", at: row.updated_at||"", status: "approved", reviewed_by: "", reviewed_at: "", source: "supa_notes" });
               }
             }
           }

@@ -1084,7 +1084,7 @@ export default function LiveBoard(){
                       <th className="px-3 py-2.5 text-center">Qty</th>
                       <th className="px-3 py-2.5 text-left">Note (mandatory)</th>
                       <th className="px-3 py-2.5 text-left">By</th>
-                      <th className="px-3 py-2.5 text-center">Ack</th>
+                      <th className="px-3 py-2.5 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1096,7 +1096,7 @@ export default function LiveBoard(){
                         <td className="px-3 py-2 text-center font-mono font-black text-amber-700">{r.prevQty}→{r.qty}</td>
                         <td className="px-3 py-2 text-slate-700 max-w-[320px] break-words">{r.note}</td>
                         <td className="px-3 py-2 text-[11px] text-slate-500 truncate max-w-[120px]">{r.by||"—"}</td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap">{r.ack ? <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 text-[10px] font-black">✓{r.ack_by ? ` ${String(r.ack_by).split("@")[0]}` : ""}</span> : <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black">Pending</span>}</td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">{r.status==="rejected" ? <span className="px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-600 text-[10px] font-black">↩ Rejected{r.reviewed_by ? ` ${String(r.reviewed_by).split("@")[0]}` : ""}</span> : (r.status||"pending")==="pending" ? <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black">Pending</span> : <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 text-[10px] font-black">✓{r.reviewed_by ? ` ${String(r.reviewed_by).split("@")[0]}` : ""}</span>}</td>
                       </tr>
                     ))}
                   </tbody>

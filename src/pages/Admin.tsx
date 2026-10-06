@@ -67,21 +67,22 @@ function RevisionReviewWidget(){
       const token = data?.session?.access_token;
       const r = await fetch(`${base}/api/digital_pl_history?limit=200`, { headers: token?{Authorization:`Bearer ${token}`}:{} as any });
       const j = await r.json().catch(()=>[]);
-      setItems(Array.isArray(j)? j.filter((x:any)=> x.ack===false) : []);
+      setItems(Array.isArray(j)? j.filter((x:any)=> (x.status||"pending")==="pending") : []);
     }catch(e:any){ setErr(e?.message||"Failed to load"); setItems([]); }
     setLoading(false);
   };
   useEffect(()=>{ load(); },[]);
-  const ack = async (it:any)=>{
+  const review = async (it:any, action:"approve"|"reject")=>{
     const key = `${it.delivery_no}|${it.koli_index}|${it.sku}|${it.at}`;
+    if(action==="reject" && !confirm(`Reject this revision?\n${it.sku}: restores qty to ${it.prevQty} in the live checklist (${it.delivery_no} Koli ${Number(it.koli_index)+1}).`)) return;
     setAcking(key);
     try{
       const { data } = await supabase.auth.getSession() as any;
       const token = data?.session?.access_token;
-      const r = await fetch(`${base}/api/digital_pl/revisions/ack`, { method:"POST", headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) }, body: JSON.stringify({ delivery_no: it.delivery_no, koli_index: it.koli_index, sku: it.sku, at: it.at }) });
+      const r = await fetch(`${base}/api/digital_pl/revisions/review`, { method:"POST", headers:{ "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) }, body: JSON.stringify({ delivery_no: it.delivery_no, koli_index: it.koli_index, sku: it.sku, at: it.at, action }) });
       if(!r.ok) throw new Error((await r.json().catch(()=>({})))?.error || `${r.status}`);
       setItems(prev=> prev.filter(x=> `${x.delivery_no}|${x.koli_index}|${x.sku}|${x.at}`!==key));
-    }catch(e:any){ alert(`Acknowledge failed: ${e?.message||e}`); }
+    }catch(e:any){ alert(`${action==="approve"?"Approve":"Reject"} failed: ${e?.message||e}`); }
     setAcking(null);
   };
   return (
@@ -92,7 +93,7 @@ function RevisionReviewWidget(){
         <span className={`ml-auto text-[10px] font-black tracking-widest px-2 py-0.5 rounded-full border ${items.length ? "bg-amber-100 border-amber-200 text-amber-700" : "bg-emerald-50 border-emerald-200 text-emerald-600"}`}>{loading ? "…" : items.length ? `${items.length} PENDING` : "CLEAR"}</span>
         <button onClick={load} title="Refresh" className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold hover:bg-slate-50">↻</button>
       </div>
-      <p className="text-xs text-gray-500 mb-3">Checker revisions apply instantly (line never stalls) + email sent — acknowledge here when reviewed. Legacy entries start acknowledged.</p>
+      <p className="text-xs text-gray-500 mb-3">Approve finalizes the revision • Reject restores the previous qty in the live checklist. Revisions apply instantly + email sent — this queue only records your decision.</p>
       {err && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 mb-2">{err}</div>}
       {loading ? (
         <div className="text-xs text-gray-400 py-4 text-center">Loading revisions…</div>
@@ -123,7 +124,7 @@ function RevisionReviewWidget(){
                     <td className="px-3 py-2 text-center font-mono font-black text-amber-700 whitespace-nowrap">{it.prevQty}→{it.qty}</td>
                     <td className="px-3 py-2 text-slate-700 max-w-[280px] break-words">{it.note}</td>
                     <td className="px-3 py-2 text-[11px] text-slate-500 truncate max-w-[120px]">{it.by||"—"}</td>
-                    <td className="px-3 py-2 text-center"><button disabled={acking===key} onClick={()=> ack(it)} className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-black shadow-sm transition active:scale-95 whitespace-nowrap">{acking===key ? "…" : "✓ Ack"}</button></td>
+                    <td className="px-3 py-2 text-center whitespace-nowrap"><button disabled={acking===key} onClick={()=> review(it,"approve")} title="Approve" className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-black shadow-sm transition active:scale-95">{acking===key ? "…" : "✓ Approve"}</button> <button disabled={acking===key} onClick={()=> review(it,"reject")} title="Reject — restores previous qty" className="px-3 py-1.5 rounded-xl bg-white border border-red-200 hover:bg-red-50 disabled:opacity-40 text-red-600 text-[11px] font-black transition active:scale-95">{acking===key ? "…" : "✕ Reject"}</button></td>
                   </tr>
                 );
               })}
