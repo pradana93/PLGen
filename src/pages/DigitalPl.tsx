@@ -31,6 +31,10 @@ export default function DigitalPl(){
   const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
   const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
   const koliCardRefs = useRef<(HTMLDivElement|null)[]>([]);
+  // ── Live-poll guards (see poll effect below): polls must never clobber live work.
+  // Any local mutation stamps lastMutate; polls pause 10s after it, while saving,
+  // while the revise modal is open, and on failed polls state is kept (no blanking).
+  const lastMutate = useRef<number>(0);
   const [master, setMaster] = useState<any>({ ITEM_UOM: {} });
   const [revise, setRevise] = useState<null | { koli: number; sku: string; qty: number }>(null);
   const [revQty, setRevQty] = useState("");
@@ -51,17 +55,18 @@ export default function DigitalPl(){
   useEffect(()=>{ fetchPending(); },[]);
   useEffect(()=>{ (async()=>{ try{ const md=await apiGet("/api/master_data"); setMaster(md);}catch{} })(); },[]);
 
-  const loadPl = async (deliveryNo: string)=>{
+  const loadPl = async (deliveryNo: string, opts?: { keepDus?: boolean; quiet?: boolean })=>{
     if(!deliveryNo) return;
-    setLoading(true); setNoSnap("");
+    if(!opts?.quiet){ setLoading(true); setNoSnap(""); }
     try {
       const d = await apiGet(`/api/digital_pl/${encodeURIComponent(deliveryNo)}`);
       setBoxes(Array.isArray(d.boxes)?d.boxes:[]);
       setChecks(Array.isArray(d.checks)?d.checks:[]);
       setRevisionNotes((d.revision_notes||{}) as any);
       setHeader(d.header||null);
-      setDusBesar(String(d.dus_besar??0)); setDusL(String(d.dus_l??0)); setDusS(String(d.dus_s??0)); setDusM(String((d as any).dus_m??0));
+      if(!opts?.keepDus) setDusBesar(String(d.dus_besar??0)), setDusL(String(d.dus_l??0)), setDusS(String(d.dus_s??0)), setDusM(String((d as any).dus_m??0));
     } catch(e:any){
+      if(opts?.quiet){ setLoading(false); return; }
       setBoxes([]); setChecks([]);
       setRevisionNotes({});
       setNoSnap(e?.message || "No Digital PL snapshot — export the PL first");
@@ -69,6 +74,24 @@ export default function DigitalPl(){
     setLoading(false);
   };
   useEffect(()=>{ if(dn) loadPl(dn); },[dn]);
+  // Live updates: 15s poll + refetch on tab-visible so admin approve/reject lands
+  // without manual refresh. Guards: hidden tab, saving, open revise modal,
+  // recent local mutation, in-flight load. Dus inputs + errors untouched on polls.
+  useEffect(()=>{
+    if(!dn) return;
+    const tick = ()=>{
+      if(document.hidden) return;
+      if(saving) return;
+      if(revise) return;
+      if(loading) return;
+      if(Date.now() - lastMutate.current < 10000) return;
+      loadPl(dn, { keepDus: true, quiet: true });
+    };
+    const id = setInterval(tick, 15000);
+    const onVis = ()=>{ if(document.visibilityState==="visible") tick(); };
+    document.addEventListener("visibilitychange", onVis);
+    return ()=>{ clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  },[dn, saving, revise, loading]);
 
   const done = useMemo(()=> checks.filter(c=>c?.checked).length, [checks]);
   const total = boxes.length;
@@ -133,6 +156,7 @@ export default function DigitalPl(){
 
   const toggle = async (i:number)=>{
     const next = !checks[i]?.checked;
+    lastMutate.current = Date.now();
     setChecks(prev=> prev.map((c,j)=> j===i ? {checked:next, by: next?email:"", at: next?new Date().toISOString():""} : c));
     try {
       await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/check`, { koli_index: i, checked: next, by: email });
@@ -152,6 +176,7 @@ export default function DigitalPl(){
     const q = parseInt(revQty,10);
     if(isNaN(q) || q<0) return flash("err","Qty must be 0 or more");
     if(!revNote.trim() || revNote.trim().length<5) return flash("err","Note is mandatory (min 5 chars) — explain shortage");
+    lastMutate.current = Date.now();
     try{
       await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/revise`, { koli_index: revise.koli, sku: revise.sku, qty: q, note: revNote.trim(), by: email });
       // optimistic local — mirror server splice logic for empty Koli so Pack button updates live before reload
