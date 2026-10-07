@@ -53,7 +53,7 @@ export default function DigitalPl(){
   // Input stays live (plQuery); filtering follows 250ms after typing pauses.
   const [debQuery, setDebQuery] = useState("");
   useEffect(()=>{ const id = setTimeout(()=> setDebQuery(plQuery), 250); return ()=> clearTimeout(id); },[plQuery]);
-  const [pickerOpen, setPickerOpen] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState<boolean>(()=>{ try{ return !localStorage.getItem(DN_KEY); }catch{ return true; } });
   const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
   const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
   const koliCardRefs = useRef<(HTMLDivElement|null)[]>([]);
