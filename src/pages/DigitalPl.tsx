@@ -24,7 +24,18 @@ export default function DigitalPl(){
   const { profile, user } = useAuth();
   const email = (profile?.email || user?.email || "").toLowerCase();
   const [pending, setPending] = useState<any[]>([]);
-  const [dn, setDn] = useState("");
+  const DN_KEY = "plgen-digitalpl-dn";
+  const [dn, setDn] = useState<string>(()=>{ try{ return localStorage.getItem("plgen-digitalpl-dn")||""; }catch{ return ""; } });
+  const dnRef = useRef("");
+  dnRef.current = dn;
+  // Persist selected PL — a killed background tab remounts onto the SAME PL, never auto-jumps.
+  useEffect(()=>{ try{ if(dn) localStorage.setItem(DN_KEY, dn); }catch{} },[dn]);
+  // Server-version gate: polls apply a snapshot only when strictly newer per PL.
+  // Stale copies (cold serverless instance + swallowed write) are discarded, never painted.
+  const appliedAt = useRef<Record<string,string>>({});
+  // Per-koli in-flight lock — Pack disables during its own POST so double-taps
+  // and slow networks can't interleave two toggles for one koli.
+  const [packing, setPacking] = useState<Record<number,boolean>>({});
   const [boxes, setBoxes] = useState<KoliBox[]>([]);
   const [checks, setChecks] = useState<Check[]>([]);
   const [header, setHeader] = useState<any>(null);
@@ -64,7 +75,9 @@ export default function DigitalPl(){
       const only = (Array.isArray(list)?list:[]).filter((p:any)=> String(p.status||"").toUpperCase()==="PENDING");
       only.sort((a:any,b:any)=> String(b.created_at||"").localeCompare(String(a.created_at||"")));
       setPending(only);
-      if(!dn && only.length) setDn(String(only[0].delivery_no));
+      if(only.length){
+        if(!dnRef.current || !only.some((p:any)=> String(p.delivery_no)===dnRef.current)) setDn(String(only[0].delivery_no));
+      } else if(dnRef.current){ setDn(""); }
     } catch { setPending([]); }
   };
   useEffect(()=>{ fetchPending(); },[]);
@@ -72,9 +85,12 @@ export default function DigitalPl(){
 
   const loadPl = async (deliveryNo: string, opts?: { keepDus?: boolean; quiet?: boolean })=>{
     if(!deliveryNo) return;
-    if(!opts?.quiet){ setLoading(true); setNoSnap(""); }
+    if(!opts?.quiet){ setLoading(true); setNoSnap(""); delete appliedAt.current[deliveryNo]; }
     try {
       const d = await apiGet(`/api/digital_pl/${encodeURIComponent(deliveryNo)}`);
+      const stamp = String(d.updated_at||"");
+      if(stamp && appliedAt.current[deliveryNo] && stamp <= appliedAt.current[deliveryNo]){ setLoading(false); return; }
+      if(stamp) appliedAt.current[deliveryNo] = stamp;
       setBoxes(Array.isArray(d.boxes)?d.boxes:[]);
       setChecks(Array.isArray(d.checks)?d.checks:[]);
       setRevisionNotes((d.revision_notes||{}) as any);
@@ -184,14 +200,18 @@ export default function DigitalPl(){
   };
 
   const toggle = async (i:number)=>{
+    if(packing[i]) return;
     const next = !checks[i]?.checked;
     lastMutate.current = Date.now();
+    setPacking(prev=> ({ ...prev, [i]: true }));
     setChecks(prev=> prev.map((c,j)=> j===i ? {checked:next, by: next?email:"", at: next?new Date().toISOString():""} : c));
     try {
       await apiPut(`/api/digital_pl/${encodeURIComponent(dn)}/check`, { koli_index: i, checked: next, by: email });
     } catch(e:any){
       setChecks(prev=> prev.map((c,j)=> j===i ? {checked:!next, by:"", at:""} : c));
       flash("err", e?.message||"Sync failed");
+    } finally {
+      setPacking(prev=> ({ ...prev, [i]: false }));
     }
   };
 
@@ -413,7 +433,7 @@ export default function DigitalPl(){
                         <span className="block font-black text-sm text-[#0f1e2e]">Koli {koliIdx+1}</span>
                         <span className="block text-[11px] font-semibold text-slate-500">{entries.length} item{entries.length===1?"":"s"} • {on?"Packed":"Unpacked"}</span>
                       </span>
-                      <button onClick={()=> toggle(koliIdx)} className={`shrink-0 min-h-[52px] px-5 rounded-xl text-sm font-black transition active:scale-[0.97] ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":"Pack"}</button>
+                      <button disabled={!!packing[koliIdx]} onClick={()=> toggle(koliIdx)} className={`shrink-0 min-h-[52px] px-5 rounded-xl text-sm font-black transition active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":"Pack"}</button>
                     </div>
                     <div className="px-4 pb-3 space-y-1.5">
                       {entries.map(([sku,qty])=>(
@@ -477,7 +497,7 @@ export default function DigitalPl(){
                         <td className="px-3 py-3 text-center"><span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-xs font-mono font-bold">{master?.ITEM_UOM?.[sku] || "Pack"}</span></td>
                         <td className="px-3 py-3 text-xs text-slate-600"><span onClick={()=> openRevise(koliIdx, sku, qty)} className="cursor-pointer hover:text-slate-900">{revisionNotes[String(koliIdx)]?.[sku] ? "— revised —" : "—"}</span></td>
                         <td className="px-3 py-3 text-center">
-                          {rowIdx===0 && <button onClick={()=> toggle(koliIdx)} className={`w-full min-h-[48px] px-3 py-2 rounded-xl text-sm font-black transition active:scale-[0.97] ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400"}`}>{on?"✓ Packed":"Pack"}</button>}
+                          {rowIdx===0 && <button disabled={!!packing[koliIdx]} onClick={()=> toggle(koliIdx)} className={`w-full min-h-[48px] px-3 py-2 rounded-xl text-sm font-black transition active:scale-[0.97] disabled:opacity-50 disabled:cursor-wait ${on?"bg-emerald-500 text-white shadow":"bg-white border-2 border-slate-300 text-slate-600 hover:border-slate-400"}`}>{on?"✓ Packed":"Pack"}</button>}
                         </td>
                       </tr>
                     ));

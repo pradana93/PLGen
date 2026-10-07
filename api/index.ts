@@ -1428,7 +1428,7 @@ app.get("/api/digital_pl/:delivery_no", async (req, res) => {
   if (!rec) return res.status(404).json({ error: "No Digital PL snapshot for " + dn + " — export the PL first" });
   const header = jsonRead<any[]>("packing_status.json", []).find((s:any)=>s.delivery_no===dn) || null;
   const done = rec.checks.filter((c:any)=>c?.checked).length;
-  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by, packed_at: rec.packed_at, header, revision_notes: (rec as any).revision_notes || {}, revision_history: (rec as any).revision_history || [] });
+  res.json({ delivery_no: dn, boxes: rec.boxes, checks: rec.checks, done, total: rec.boxes.length, dus_besar: rec.dus_besar, dus_l: rec.dus_l, dus_s: rec.dus_s, dus_m: rec.dus_m, packed_by: rec.packed_by, packed_at: rec.packed_at, updated_at: (rec as any).updated_at || "", header, revision_notes: (rec as any).revision_notes || {}, revision_history: (rec as any).revision_history || [] });
 });
 // PUT single koli check — server sync (one koli at a time so concurrent packers never overwrite each other)
 app.put("/api/digital_pl/:delivery_no/check", async (req, res) => {
