@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost, apiPut } from "../lib/api";
 import { expEarn } from "../lib/exp";
 import { useAuth } from "../context/AuthContext";
@@ -8,6 +8,17 @@ import { useAuth } from "../context/AuthContext";
 // so it is identical to the Exported PL. Core packing math is never touched here.
 type KoliBox = Record<string, number>;
 type Check = { checked: boolean; by: string; at: string };
+
+// Error boundary around the PL picker list — one malformed row can never blank the page.
+// (Weak phones white-screened on heavy re-renders; this is the last-resort guard.)
+class PickerBoundary extends Component<{ onReset: ()=>void; children: React.ReactNode }, { err: unknown }> {
+  state = { err: null as unknown };
+  static getDerivedStateFromError(err: unknown){ return { err }; }
+  render(){
+    if(this.state.err) return <div className="px-3 py-4 text-center text-xs text-red-600">Search hit a bad row — <button onClick={()=>{ this.setState({ err: null }); this.props.onReset(); }} className="underline font-bold">clear search</button></div>;
+    return this.props.children;
+  }
+}
 
 export default function DigitalPl(){
   const { profile, user } = useAuth();
@@ -27,6 +38,10 @@ export default function DigitalPl(){
   const [dusM, setDusM] = useState("0");
   const [saving, setSaving] = useState(false);
   const [plQuery, setPlQuery] = useState("");
+  // Debounced query — weak phones choked re-rendering 500+ rows per keystroke.
+  // Input stays live (plQuery); filtering follows 250ms after typing pauses.
+  const [debQuery, setDebQuery] = useState("");
+  useEffect(()=>{ const id = setTimeout(()=> setDebQuery(plQuery), 250); return ()=> clearTimeout(id); },[plQuery]);
   const [pickerOpen, setPickerOpen] = useState(true);
   const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
   const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
@@ -105,6 +120,7 @@ export default function DigitalPl(){
     return `${String(w.getDate()).padStart(2,"0")}/${String(w.getMonth()+1).padStart(2,"0")}/${w.getFullYear()}`;
   },[]);
   const deliveryOf = (p:any): { date: string; estimated: boolean } => {
+    if(!p) return { date: "", estimated: true };
     const stored = String(p.delivery_date||"").trim();
     if(stored) return { date: stored, estimated: false };
     const m = String(p.created_at||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -113,10 +129,10 @@ export default function DigitalPl(){
   };
   // Search/filter across PL number + outlet + checker (client-side — no API change)
   const filteredPending = useMemo(()=>{
-    const q = plQuery.trim().toLowerCase();
+    const q = debQuery.trim().toLowerCase();
     if(!q) return pending;
-    return pending.filter((p:any)=> [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
-  },[pending, plQuery]);
+    return pending.filter((p:any)=> p && [p.delivery_no, p.outlet, p.checker].some(v=> String(v||"").toLowerCase().includes(q)));
+  },[pending, debQuery]);
 
   // Group by delivery date — today first, then chronological, undated last.
   // Date shows once per section header, so rows stay calm with no per-row badges.
@@ -138,7 +154,20 @@ export default function DigitalPl(){
     return keys.map(k=>({ date: k, items: map.get(k)! }));
   },[filteredPending, todayLabel]);
 
-  const selectedPl = pending.find((p:any)=> String(p.delivery_no)===dn);
+  const selectedPl = pending.find((p:any)=> p && String(p.delivery_no)===dn);
+
+  // Render cap — filtering still searches everything; only painting is capped
+  // so weak phones never hold 500+ live rows in the DOM.
+  const capped = useMemo(()=>{
+    const groups: { date: string; items: any[] }[] = [];
+    let shown = 0;
+    for(const g of groupedPending){
+      if(shown >= 80) break;
+      const items = g.items.filter((p:any)=> p).slice(0, 80 - shown);
+      if(items.length){ groups.push({ date: g.date, items }); shown += items.length; }
+    }
+    return { groups, shown, hidden: Math.max(0, filteredPending.length - shown) };
+  },[groupedPending, filteredPending.length]);
 
   // Koli focus filter (pure view filter — original indexes preserved for checks/revise)
   const visibleKoli = useMemo(()=> boxes
@@ -311,8 +340,9 @@ export default function DigitalPl(){
             </div>
             <button onClick={()=>{ fetchPending(); if(dn) loadPl(dn); }} title="Refresh" className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-black shrink-0">↻</button>
           </div>
+          <PickerBoundary onReset={()=> setPlQuery("")}>
           <div className="mt-2 max-h-[264px] overflow-auto rounded-xl border border-slate-200">
-            {groupedPending.map(g=>(
+            {capped.groups.map(g=>(
               <div key={g.date || "nodate"}>
                 <div className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur px-3 py-1.5 text-[11px] font-black text-slate-600 flex items-center justify-between gap-2">
                   <span>🚚 {g.date || "No date"}{g.date && g.date===todayLabel ? " • Today" : ""}</span>
@@ -338,10 +368,14 @@ export default function DigitalPl(){
                 </div>
               </div>
             ))}
+            {capped.hidden>0 && (
+              <div className="px-3 py-2 text-center text-[11px] font-semibold text-slate-400 bg-slate-50 border-t border-slate-100">+{capped.hidden} more — refine your search to see more</div>
+            )}
             {filteredPending.length===0 && pending.length>0 && (
-              <div className="px-3 py-4 text-center text-xs text-slate-400">No match for “{plQuery.trim()}” — try a PL number, outlet, or checker name.</div>
+              <div className="px-3 py-4 text-center text-xs text-slate-400">No match for “{debQuery.trim()}” — try a PL number, outlet, or checker name.</div>
             )}
           </div>
+          </PickerBoundary>
           </>
           )}
           {pending.length===0 && <div className="text-xs text-slate-400 mt-2">No PENDING PL — export one from the Dashboard first.</div>}
