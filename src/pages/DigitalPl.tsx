@@ -417,15 +417,19 @@ export default function DigitalPl(){
                     const on = !!checks[koliIdx]?.checked;
                     const entries = Object.entries(box) as [string,number][];
                     return entries.map(([sku,qty], rowIdx)=>(
-                      <tr key={`${koliIdx}-${sku}`} ref={rowIdx===0 ? (el)=>{ koliRefs.current[koliIdx]=el; } : undefined} className={`${on?"bg-emerald-50/60":"bg-white"} border-t border-slate-100 hover:bg-slate-50`}>
-                        {rowIdx===0 && (
-                          <td rowSpan={entries.length} className="px-3 py-3 align-middle border-r border-slate-100 bg-slate-50">
+                      <tr key={`${koliIdx}-${sku}`} ref={rowIdx===0 ? (el)=>{ koliRefs.current[koliIdx]=el; } : undefined} className={`${on ? "bg-emerald-50/60" : koliIdx%2 ? "bg-slate-50" : "bg-white"} ${rowIdx===0 ? "border-t-2 border-t-slate-300" : "border-t border-slate-100"} hover:bg-slate-50`}>
+                        <td className="px-2 py-3 align-middle border-r border-slate-100 w-14">
+                          {rowIdx===0 ? (
                             <div className="flex flex-col items-center gap-1">
                               <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black ${on?"bg-emerald-500 text-white":"bg-white border-2 border-slate-300 text-slate-600"}`}>{on?"✓":koliIdx+1}</span>
                               <span className="text-xs font-black text-[#0f1e2e]">Koli {koliIdx+1}</span>
                             </div>
-                          </td>
-                        )}
+                          ) : (
+                            <div className="flex flex-col items-center" title={`Koli ${koliIdx+1}`}>
+                              <span className="px-1.5 py-0.5 rounded-md bg-[#0f1e2e] text-white text-[10px] font-black font-mono">K{koliIdx+1}</span>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-3">
                           <button onClick={()=> openRevise(koliIdx, sku, qty)} className="text-left group">
                             <div className="font-black text-[15px] leading-tight text-[#0f1e2e] group-hover:text-sky-700 group-hover:underline">{sku}</div>
