@@ -1278,9 +1278,25 @@ app.post("/api/packing_status", async (req, res) => {
   saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "", dus_m: dus_m ?? found?.dus_m ?? 0 }).catch(()=>{});
   res.json({ status: "success" });
 });
-app.get("/scan/:delivery_no", (req, res) => {
-  // Compatibility: redirect to frontend scan page handled by frontend, but provide API
-  res.json({ delivery_no: req.params.delivery_no });
+// Pretty HTML scan page (for QR) — shared by /scan/:delivery_no and the /scan/* fallback.
+// Supabase-aware; one-time gate (READY/CANCELLED rejected here, enforced again on POST).
+async function serveScanPage(deliveryNoRaw: string, res: any) {
+  const delivery_no = decodeURIComponent(deliveryNoRaw || "");
+  let entry = jsonRead<any[]>("packing_status.json", []).find(s=>s.delivery_no===delivery_no) as any;
+  if (!entry) {
+    const supa = await fetchSupabasePackingStatus();
+    entry = supa?.find((s:any)=> s.delivery_no===delivery_no);
+  }
+  if (!entry) return res.status(404).send("<h1>❌ Not found</h1>");
+  if (entry.status==="READY"||entry.status==="CANCELLED") {
+    return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1 style="color:#c0392b">⛔ SCAN REJECTED</h1><p>Already ${entry.status} at ${entry.scanned_at}</p><p>${delivery_no}</p></body></html>`);
+  }
+  const checkers = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS }).checkers;
+  const opts = checkers.map((c:string)=>`<option value="${c}">${c}</option>`).join("");
+  res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title></head><body style="font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f4f6f9"><div style="background:white;padding:32px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:420px;width:100%;text-align:center"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}</p><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><select name="checker" required style="width:100%;padding:10px;margin:10px 0"><option value="">Select Checker</option>${opts}</select><div style="display:flex;gap:8px;margin:10px 0"><input name="dus_l" type="number" placeholder="Dus L" value="0" style="flex:1;padding:8px"/><input name="dus_s" type="number" placeholder="Dus S" value="0" style="flex:1;padding:8px"/><input name="dus_besar" type="number" placeholder="Dus Besar" value="0" style="flex:1;padding:8px"/><input name="dus_m" type="number" placeholder="Dus M" value="0" style="flex:1;padding:8px"/></div><button type="submit" style="width:100%;padding:12px;background:#27ae60;color:white;border:none;border-radius:8px;font-weight:bold">CONFIRM & FINALIZE</button></form></div></body></html>`);
+}
+app.get("/scan/:delivery_no", async (req, res) => {
+  await serveScanPage(req.params.delivery_no, res);
 });
 app.post("/api/scan/:delivery_no", async (req, res) => {
   const delivery_no = decodeURIComponent(req.params.delivery_no);
@@ -1310,21 +1326,10 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
   } catch {}
   res.json({ status: "success", entry: entry || { delivery_no, status:"READY" } });
 });
-// Pretty HTML scan pages (for QR) — Supabase-aware
+// Pretty HTML scan pages (for QR) — Supabase-aware, multi-segment fallback (proxies that
+// normalize %2F into real slashes land here instead of /scan/:delivery_no)
 app.get("/scan/*", async (req, res) => {
-  const delivery_no = decodeURIComponent((req.params as any)[0] || "");
-  let entry = jsonRead<any[]>("packing_status.json", []).find(s=>s.delivery_no===delivery_no) as any;
-  if (!entry) {
-    const supa = await fetchSupabasePackingStatus();
-    entry = supa?.find((s:any)=> s.delivery_no===delivery_no);
-  }
-  if (!entry) return res.status(404).send("<h1>❌ Not found</h1>");
-  if (entry.status==="READY"||entry.status==="CANCELLED") {
-    return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h1 style="color:#c0392b">⛔ SCAN REJECTED</h1><p>Already ${entry.status} at ${entry.scanned_at}</p><p>${delivery_no}</p></body></html>`);
-  }
-  const checkers = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS }).checkers;
-  const opts = checkers.map((c:string)=>`<option value="${c}">${c}</option>`).join("");
-  res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title></head><body style="font-family:sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f4f6f9"><div style="background:white;padding:32px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:420px;width:100%;text-align:center"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}</p><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><select name="checker" required style="width:100%;padding:10px;margin:10px 0"><option value="">Select Checker</option>${opts}</select><div style="display:flex;gap:8px;margin:10px 0"><input name="dus_l" type="number" placeholder="Dus L" value="0" style="flex:1;padding:8px"/><input name="dus_s" type="number" placeholder="Dus S" value="0" style="flex:1;padding:8px"/><input name="dus_besar" type="number" placeholder="Dus Besar" value="0" style="flex:1;padding:8px"/><input name="dus_m" type="number" placeholder="Dus M" value="0" style="flex:1;padding:8px"/></div><button type="submit" style="width:100%;padding:12px;background:#27ae60;color:white;border:none;border-radius:8px;font-weight:bold">CONFIRM & FINALIZE</button></form></div></body></html>`);
+  await serveScanPage((req.params as any)[0] || "", res);
 });
 
 // ===== Packing Board update via PUT for status override =====
