@@ -1,7 +1,8 @@
 // 1:1 port of core.py export_packing_list + addons.py generate_labels
-// Preserves: A4 portrait layout, QR embed (B44), header rows, palette fills, thick borders, row heights, print area
+// Preserves: A4 portrait layout, QR scan band (row 12), header rows, palette fills, thick borders, row heights, print area
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
+import QRCode from "qrcode";
 import { Box, Order, getNextDeliveryNumber, getDeliveryDateWIB, buildDisplayRows, getOutletPalette } from "./packing";
 
 const ARIA = "Arial";
@@ -283,6 +284,33 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
     border: { top: thin, left: thin, bottom: medium, right: medium },
   });
   ws.getRow(11).height = 18;
+
+  // ── Row 12: SCAN band (QR + caption) — repurposes the blank spacer row:
+  // A–E width unchanged (A4 scale identical), rows 13+ untouched, nothing shifts.
+  ws.mergeCells("A12:B12");
+  setAll(ws.getCell("A12"), {
+    value: "",
+    fill: WARM_LIGHT,
+    align: { horizontal: "center", vertical: "middle" },
+    border: { top: thin, left: medium, bottom: thin, right: thin },
+  });
+  ws.mergeCells("C12:E12");
+  setAll(ws.getCell("C12"), {
+    value: "SCAN TO CONFIRM ✓\n" + deliveryNo,
+    font: { name: "Arial", size: 11, bold: true, color: { argb: NAVY } },
+    fill: WARM_LIGHT,
+    align: { horizontal: "center", vertical: "middle", wrapText: true },
+    border: { top: thin, left: thin, bottom: thin, right: medium },
+  });
+  ws.getRow(12).height = 110;
+  // QR image — square, explicit pixel size (never stretched), anchored inside A12:B12.
+  // URL origin-derived so it works on Vercel + custom domains with no extra env.
+  try {
+    const scanUrl = `${window.location.origin}/scan/${encodeURIComponent(deliveryNo)}`;
+    const qrDataUrl = await QRCode.toDataURL(scanUrl, { width: 200, margin: 1, errorCorrectionLevel: "M" });
+    const qrId = wb.addImage({ base64: qrDataUrl.split(",")[1], extension: "png" });
+    ws.addImage(qrId, { tl: { col: 1.31, row: 11.06 }, ext: { width: 96, height: 96 } } as any);
+  } catch(e){ console.warn("QR embed failed (layout untouched)", e); }
 
   // ════════════════════════════════════════════════════════════════
   //  SECTION 3 — TABLE HEADER (row 13, shifted +1 for REF)

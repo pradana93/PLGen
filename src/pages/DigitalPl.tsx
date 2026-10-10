@@ -1,6 +1,7 @@
 import { Component, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost, apiPut } from "../lib/api";
 import { expEarn } from "../lib/exp";
+import { isAuditSample } from "../lib/audit";
 import { useAuth } from "../context/AuthContext";
 
 // Digital PL — separate field-packing flow. Koli list comes from the server snapshot
@@ -25,7 +26,8 @@ export default function DigitalPl(){
   const email = (profile?.email || user?.email || "").toLowerCase();
   const [pending, setPending] = useState<any[]>([]);
   const DN_KEY = "plgen-digitalpl-dn";
-  const [dn, setDn] = useState<string>(()=>{ try{ return localStorage.getItem("plgen-digitalpl-dn")||""; }catch{ return ""; } });
+  const [dnParam] = useState<string>(()=>{ try{ return new URLSearchParams(window.location.search).get("dn") || ""; }catch{ return ""; } });
+  const [dn, setDn] = useState<string>(()=>{ try{ return dnParam || localStorage.getItem("plgen-digitalpl-dn")||""; }catch{ return ""; } });
   const dnRef = useRef("");
   dnRef.current = dn;
   // Persist selected PL — a killed background tab remounts onto the SAME PL, never auto-jumps.
@@ -53,7 +55,7 @@ export default function DigitalPl(){
   // Input stays live (plQuery); filtering follows 250ms after typing pauses.
   const [debQuery, setDebQuery] = useState("");
   useEffect(()=>{ const id = setTimeout(()=> setDebQuery(plQuery), 250); return ()=> clearTimeout(id); },[plQuery]);
-  const [pickerOpen, setPickerOpen] = useState<boolean>(()=>{ try{ return !localStorage.getItem(DN_KEY); }catch{ return true; } });
+  const [pickerOpen, setPickerOpen] = useState<boolean>(()=>{ try{ return !(dnParam || localStorage.getItem(DN_KEY)); }catch{ return true; } });
   const [koliFilter, setKoliFilter] = useState<"all"|"remaining"|"packed">("all");
   const koliRefs = useRef<(HTMLTableRowElement|null)[]>([]);
   const koliCardRefs = useRef<(HTMLDivElement|null)[]>([]);
@@ -76,8 +78,8 @@ export default function DigitalPl(){
       only.sort((a:any,b:any)=> String(b.created_at||"").localeCompare(String(a.created_at||"")));
       setPending(only);
       if(only.length){
-        if(!dnRef.current || !only.some((p:any)=> String(p.delivery_no)===dnRef.current)) setDn(String(only[0].delivery_no));
-      } else if(dnRef.current){ setDn(""); }
+        if(!dnRef.current || (!dnParam && !only.some((p:any)=> String(p.delivery_no)===dnRef.current))) setDn(String(only[0].delivery_no));
+      } else if(dnRef.current && !dnParam){ setDn(""); }
     } catch { setPending([]); }
   };
   useEffect(()=>{ fetchPending(); },[]);
@@ -336,7 +338,7 @@ export default function DigitalPl(){
             <button onClick={()=> setPickerOpen(true)} className="mt-2 w-full text-left rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition px-3 py-2.5 flex items-center gap-3">
               <span className="w-9 h-9 rounded-xl bg-[#0f1e2e] text-white flex items-center justify-center text-base shrink-0">📋</span>
               <span className="flex-1 min-w-0">
-                <span className="block font-mono text-xs font-bold text-[#0f1e2e] truncate">{dn}</span>
+                <span className="block font-mono text-xs font-bold text-[#0f1e2e] truncate">{dn} {isAuditSample(dn) && <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-100 border border-amber-200 text-amber-700 text-[9px] font-black align-middle">AUDIT</span>}</span>
                 <span className="block text-[11px] font-semibold text-slate-500 truncate">
                   {selectedPl?.outlet || ""}{selectedPl?.checker ? ` • ${selectedPl.checker}` : ""}{(() => { const d = selectedPl ? deliveryOf(selectedPl) : { date: "", estimated: true }; return d.date ? ` • 🚚 ${d.estimated ? `~${d.date}` : d.date}` : ""; })()}
                 </span>
@@ -378,7 +380,7 @@ export default function DigitalPl(){
                       className={`w-full text-left px-3 py-2.5 flex items-center gap-3 transition ${active ? "bg-[#0f1e2e] text-white" : "bg-white hover:bg-slate-50"}`}
                     >
                       <span className="flex-1 min-w-0">
-                        <span className={`block font-mono text-xs font-bold truncate ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no}</span>
+                        <span className={`block font-mono text-xs font-bold truncate ${active ? "text-white" : "text-[#0f1e2e]"}`}>{p.delivery_no} {isAuditSample(p.delivery_no) && <span className="ml-1 px-1.5 py-px rounded bg-amber-100 border border-amber-200 text-amber-700 text-[9px] font-black align-middle">AUDIT</span>}</span>
                         <span className={`block text-[11px] font-semibold truncate ${active ? "text-white/80" : "text-slate-500"}`}>{p.outlet}{p.checker ? ` • ${p.checker}` : ""}</span>
                       </span>
                       {active && <span className="shrink-0 text-emerald-400 text-sm font-black">✓</span>}

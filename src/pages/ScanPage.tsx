@@ -1,6 +1,7 @@
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { apiGet } from "../lib/api";
+import { isAuditSample } from "../lib/audit";
 import { useLanguage } from "../i18n";
 
 export default function ScanPage(){
@@ -42,6 +43,12 @@ export default function ScanPage(){
         <div className="text-5xl">📦</div>
         <h2 className="text-xl font-bold mt-2">{t("scan.verify")}</h2>
         <p className="text-sm text-gray-600">{t("scan.outlet", { outlet: status.outlet, dn })}</p>
+        {isAuditSample(dn) && (
+          <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-left">
+            <div className="text-xs font-black text-amber-700">⚠️ Audit PL — please complete the Digital PL checklist</div>
+            <Link to={`/digital-pl?dn=${encodeURIComponent(dn)}`} className="mt-1 inline-block text-xs font-black text-[#0f1e2e] underline">Open checklist →</Link>
+          </div>
+        )}
         <select value={sel} onChange={e=> setSel(e.target.value)} className="w-full mt-4 border rounded-lg px-3 py-2">
           <option value="">{t("scan.selectChecker")}</option>
           {checkers.map(c=> <option key={c} value={c}>{c}</option>)}

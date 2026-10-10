@@ -83,7 +83,7 @@ function Nav(){
         {/* Nav pills — centered — role-gated flagship (Super Admin immortal full, Admin Dashboard/Digital PL/Live Board, Checker Digital PL only) */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 bg-black/10 border border-white/10 rounded-full p-1">
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", t("nav.dashboard"))}
-          {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", t("nav.digitalPl"))}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/digital-pl", t("nav.digitalPl"))}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", t("nav.live"))}
           {["Super Admin"].includes(profile?.role||"") && link("/admin", t("nav.admin"))}
           {!profile && <span className="text-white/40 text-xs px-2">Login to view</span>}
@@ -91,7 +91,7 @@ function Nav(){
         {/* mobile nav */}
         <div className="flex md:hidden items-center gap-1 ml-2">
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", "Dash")}
-          {["Super Admin","Admin","Checker"].includes(profile?.role||"") && link("/digital-pl", "DigiPL")}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/digital-pl", "DigiPL")}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", "Report")}
           {["Super Admin"].includes(profile?.role||"") && link("/admin", "Admin")}
         </div>
