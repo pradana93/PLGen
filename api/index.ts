@@ -1211,12 +1211,12 @@ app.get("/api/packing_status", async (req, res) => {
   let all: any[] = [];
   const supa = await fetchSupabasePackingStatus();
   if (supa && supa.length) {
-    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0, dus_m: (r as any).dus_m||0, delivery_date: (r as any).delivery_date||"" }))); } catch {}
+    try { jsonWrite("packing_status.json", supa.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, checker: r.checker, status: r.status, total_weight_kg: Number(r.total_weight_kg||0), created_at: r.created_at ? new Date(r.created_at).toLocaleString("en-CA", {timeZone:"Asia/Jakarta"}).replace(",","") : r.created_at, scanned_at: r.scanned_at||"", dus_l: r.dus_l||0, dus_s: r.dus_s||0, dus_besar: r.dus_besar||0, dus_m: (r as any).dus_m||0, delivery_date: (r as any).delivery_date||"", source_ref: (r as any).source_ref||"" }))); } catch {}
     all = supa;
   } else {
     const data = jsonRead<any[]>("packing_status.json", []);
     if (data.length && (!supa || supa.length===0)) {
-      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0, dus_m: e.dus_m||0, delivery_date: e.delivery_date||"" }); })().catch(()=>{});
+      (async()=>{ for(const e of data) await saveSupabasePackingStatus({ delivery_no: e.delivery_no, outlet: e.outlet, checker: e.checker, status: e.status||"PENDING", total_weight_kg: e.total_weight_kg||0, created_at: e.created_at ? new Date(e.created_at).toISOString() : new Date().toISOString(), scanned_at: e.scanned_at||"", dus_l: e.dus_l||0, dus_s: e.dus_s||0, dus_besar: e.dus_besar||0, dus_m: e.dus_m||0, delivery_date: e.delivery_date||"", source_ref: e.source_ref||"" }); })().catch(()=>{});
     }
     all = data;
   }
@@ -1257,7 +1257,7 @@ app.get("/api/packing_status", async (req, res) => {
   res.json(filtered);
 });
 app.post("/api/packing_status", async (req, res) => {
-  const { delivery_no, outlet, checker, status, total_weight_kg, delivery_date, dus_m } = req.body;
+  const { delivery_no, outlet, checker, status, total_weight_kg, delivery_date, dus_m, source_ref } = req.body;
   if (!delivery_no) return res.status(400).json({ error: "Missing delivery_no" });
   const statuses = jsonRead<any[]>("packing_status.json", []);
   let found = statuses.find(s=>s.delivery_no===delivery_no);
@@ -1268,14 +1268,15 @@ app.post("/api/packing_status", async (req, res) => {
     found.status = status ?? found.status;
     if (total_weight_kg!==undefined) found.total_weight_kg = total_weight_kg;
     if (delivery_date!==undefined) found.delivery_date = delivery_date;
+    if (source_ref!==undefined) found.source_ref = source_ref;
     if (dus_m!==undefined) found.dus_m = Number(dus_m)||0;
     if (status==="IN PROGRESS") found.created_at = nowWib;
   } else {
-    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "", delivery_date: delivery_date||"", dus_m: dus_m ?? 0 });
+    statuses.push({ delivery_no, outlet: outlet||"Unknown", checker: checker||"Unknown", status: status||"PENDING", total_weight_kg: total_weight_kg||0, created_at: nowWib, scanned_at: "", delivery_date: delivery_date||"", dus_m: dus_m ?? 0, source_ref: source_ref||"" });
   }
   jsonWrite("packing_status.json", statuses);
   // Supabase persistent copy (service_role bypasses RLS)
-  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "", dus_m: dus_m ?? found?.dus_m ?? 0 }).catch(()=>{});
+  saveSupabasePackingStatus({ delivery_no, outlet: outlet||found?.outlet||"Unknown", checker: checker||found?.checker||"Unknown", status: status||found?.status||"PENDING", total_weight_kg: total_weight_kg ?? found?.total_weight_kg ?? 0, created_at: found?.created_at ? new Date(found.created_at).toISOString() : new Date().toISOString(), scanned_at: found?.scanned_at||"", dus_l: found?.dus_l||0, dus_s: found?.dus_s||0, dus_besar: found?.dus_besar||0, delivery_date: delivery_date ?? found?.delivery_date ?? "", dus_m: dus_m ?? found?.dus_m ?? 0, source_ref: source_ref ?? found?.source_ref ?? "" }).catch(()=>{});
   res.json({ status: "success" });
 });
 // Pretty HTML scan page (for QR) — shared by /scan/:delivery_no and the /scan/* fallback.
@@ -1296,7 +1297,10 @@ async function serveScanPage(deliveryNoRaw: string, res: any) {
   }
   const checkers = jsonRead<any>(CHECKERS_FILE, { checkers: DEFAULT_CHECKERS }).checkers;
   const opts = checkers.map((c:string)=>`<option value="${c}">${c}</option>`).join("");
-  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title><style>${SCAN_CSS}</style></head><body><div class="card"><div class="head"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}</p></div><div class="body"><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><label class="lbl" for="checker">Checker</label><select class="inp" id="checker" name="checker" required><option value="">Select Checker</option>${opts}</select><label class="lbl">Dus used (0 if none)</label><div class="grid2"><div><div class="dl">Dus Besar</div><input class="inp" name="dus_besar" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus M</div><input class="inp" name="dus_m" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus L</div><input class="inp" name="dus_l" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus S</div><input class="inp" name="dus_s" type="number" inputmode="numeric" min="0" value="0"></div></div><button class="confirm" type="submit">CONFIRM &amp; FINALIZE</button></form><div class="foot">One scan per PL — re-scans are rejected.</div></div></div></body></html>`);
+  const delLine = (entry as any).delivery_date ? `<br>🚚 Delivering ${(entry as any).delivery_date}` : "";
+  const refVal = String((entry as any).source_ref||"").trim();
+  const refLine = refVal ? `<br>REF: ${refVal}` : "";
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verify Packing</title><style>${SCAN_CSS}</style></head><body><div class="card"><div class="head"><h1>📦 VERIFY PACKING</h1><p>Outlet: <b>${entry.outlet}</b><br>DO: ${delivery_no}${delLine}${refLine}</p></div><div class="body"><form method="POST" action="/api/scan/${encodeURIComponent(delivery_no)}"><label class="lbl" for="checker">Checker</label><select class="inp" id="checker" name="checker" required><option value="">Select Checker</option>${opts}</select><label class="lbl">Dus used (0 if none)</label><div class="grid2"><div><div class="dl">Dus Besar</div><input class="inp" name="dus_besar" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus M</div><input class="inp" name="dus_m" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus L</div><input class="inp" name="dus_l" type="number" inputmode="numeric" min="0" value="0"></div><div><div class="dl">Dus S</div><input class="inp" name="dus_s" type="number" inputmode="numeric" min="0" value="0"></div></div><button class="confirm" type="submit">CONFIRM &amp; FINALIZE</button></form><div class="foot">One scan per PL — re-scans are rejected.</div></div></div></body></html>`);
 }
 app.get("/scan/:delivery_no", async (req, res) => {
   await serveScanPage(req.params.delivery_no, res);
