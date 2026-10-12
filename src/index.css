@@ -17,3 +17,19 @@ button:active, a:active { transform: scale(0.985); }
 .bg-white.rounded-2xl, .bg-white.rounded-xl { transition: transform 180ms ease, box-shadow 180ms ease; }
 .bg-white.rounded-2xl:hover, .bg-white.rounded-xl:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -14px rgba(0,0,0,0.12); }
 tr.lb-row-hover { transition: background-color 120ms ease; }
+/* Dropzone drag-over motion — koli box drop-in (GPU-only transform/opacity) */
+@keyframes dz-box-bounce {
+  0%, 100% { transform: translateY(-10px); }
+  45% { transform: translateY(4px) scale(1.06, .94); }
+  60% { transform: translateY(0) scale(.96, 1.05); }
+  75% { transform: translateY(-4px) scale(1, 1); }
+}
+.dz-box { display: inline-block; animation: dz-box-bounce .7s ease-in-out infinite; will-change: transform; }
+@keyframes dz-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, .35); }
+  50% { box-shadow: 0 0 0 10px rgba(39, 174, 96, 0); }
+}
+.dz-active { animation: dz-glow 1.2s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dz-box, .dz-active { animation: none; }
+}

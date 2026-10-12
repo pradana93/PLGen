@@ -372,13 +372,14 @@ export default function Dashboard(){
               <button key={val} onClick={()=> setFilter(val)} className={`px-2 py-1 text-xs rounded-full font-bold border ${filter===val?"bg-[#2c3e50] text-white":"bg-white"}`}>{label}</button>
             ))}
           </div>
-          {/* Dropzone */}
+          {/* Dropzone — drag-over plays the koli box drop-in (CSS only, handlers untouched) */}
           <div
             onDragOver={e=>{e.preventDefault(); setDragOver(true)}}
             onDragLeave={()=> setDragOver(false)}
             onDrop={onDrop}
-            className={`border-2 border-dashed rounded-xl p-4 text-center mb-3 ${dragOver?"bg-green-50 border-green-500":"bg-[#f9fafb] border-gray-300"}`}
+            className={`border-2 rounded-xl p-4 text-center mb-3 min-h-[152px] flex flex-col items-center justify-center transition-colors duration-150 ${dragOver?"dz-active bg-green-50 border-solid border-green-500 scale-[1.02]":"bg-[#f9fafb] border-dashed border-gray-300"}`}
           >
+            {dragOver && <div className="text-3xl leading-none mb-1" aria-hidden="true"><span className="dz-box">📦</span></div>}
             <div className="text-sm font-extrabold">{dragOver?t("dash.dropHere"):t("dash.dragDrop")}</div>
             <div className="text-xs text-gray-500">{t("dash.dropzoneInfo")}</div>
             <label className="inline-block mt-1 px-3 py-1 bg-[#3498db] text-white rounded-full text-xs font-bold cursor-pointer">
