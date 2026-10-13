@@ -2286,6 +2286,19 @@ const SMTP_USER = process.env.SMTP_USER || "wh.leader.vt@gmail.com";
 const SMTP_PASS = (process.env.SMTP_PASS || "gncudpxrrkrlrqzh").replace(/\s+/g, "");
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 const REVISION_NOTIFY_TO = process.env.REVISION_NOTIFY_TO || FEEDBACK_TO;
+// Notify-To list managed on the Admin tab (master_data NOTIFY_TO, max 5, validated).
+// Chain: master list → REVISION_NOTIFY_TO env → FEEDBACK_TO. Never empty by construction.
+function getNotifyList(): string[] {
+  const ok = (s:any)=> typeof s==="string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+  try {
+    const md = jsonRead<any>(MASTER_FILE, {});
+    const raw = Array.isArray((md as any).NOTIFY_TO) ? (md as any).NOTIFY_TO : [];
+    const list = [...new Set(raw.map((s:any)=> String(s||"").trim().toLowerCase()).filter(ok))].slice(0,5);
+    if(list.length) return list;
+  } catch {}
+  if(ok(REVISION_NOTIFY_TO)) return [REVISION_NOTIFY_TO.trim().toLowerCase()];
+  return [FEEDBACK_TO];
+}
 // Fire-and-forget revision notify — the Admin review queue is source of truth, email is the nudge. Never throws.
 async function sendRevisionMail(args: { dn: string; outlet: string; koli_index: number; sku: string; prevQty: number; qty: number; note: string; by: string }): Promise<void> {
   try {
@@ -2312,7 +2325,7 @@ async function sendRevisionMail(args: { dn: string; outlet: string; koli_index: 
     `;
     await transporter.sendMail({
       from: `"PLGen Revisions" <${SMTP_FROM}>`,
-      to: REVISION_NOTIFY_TO,
+      to: getNotifyList().join(","),
       subject: `[Revise] ${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} — ${by}`,
       text: `Revision needs review\nPL: ${dn}\nOutlet: ${outlet||"-"}\nKoli: ${koli_index+1}\nSKU: ${sku}\nQty: ${prevQty} -> ${qty}\nBy: ${by||"unknown"}\nWIB: ${wibNowStr()}\nNote: ${note}`,
       html,

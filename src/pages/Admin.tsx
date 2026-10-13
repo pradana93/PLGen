@@ -136,6 +136,82 @@ function RevisionReviewWidget(){
   );
 }
 
+function NotifyListWidget(){
+  // Notify-To recipients for revision + scan-ready emails. Stored as master_data
+  // NOTIFY_TO (synced file + Supabase + PythonAnywhere via the master save path,
+  // auto-backed-up server-side). Empty list falls back to server env, never drops mail.
+  const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+  const valid = (s:string)=> /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+  const [emails,setEmails]=useState<string[]>([]);
+  const [draft,setDraft]=useState("");
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
+  const [err,setErr]=useState("");
+  const authed = async ()=>{
+    const { data } = await supabase.auth.getSession() as any;
+    const token = data?.session?.access_token;
+    return { base, headers: { "Content-Type":"application/json", ...(token?{Authorization:`Bearer ${token}`}:{}) } as any };
+  };
+  const clean = (arr:any)=> [...new Set((Array.isArray(arr)?arr:[]).map((s:any)=> String(s||"").trim().toLowerCase()).filter(valid))].slice(0,5) as string[];
+  const load = async ()=>{
+    setLoading(true); setErr("");
+    try{
+      const r = await fetch(`${base}/api/master_data`);
+      const md = await r.json().catch(()=>({}));
+      setEmails(clean((md as any).NOTIFY_TO));
+    }catch(e:any){ setErr(e?.message||"Failed to load"); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
+  const save = async (next:string[])=>{
+    setSaving(true); setErr("");
+    try{
+      const { headers } = await authed();
+      const r0 = await fetch(`${base}/api/master_data`);
+      const fresh = await r0.json().catch(()=>({}));
+      const r = await fetch(`${base}/api/master_data`, { method:"POST", headers, body: JSON.stringify({ master_data: { ...(fresh as any), NOTIFY_TO: next } }) });
+      if(!r.ok) throw new Error(await r.text().catch(()=>`${r.status}`));
+      setEmails(next); setDraft("");
+    }catch(e:any){ setErr(e?.message||"Save failed"); }
+    setSaving(false);
+  };
+  const add = ()=>{
+    const v = draft.trim().toLowerCase();
+    if(!valid(v)) return setErr("Enter a valid email address");
+    if(emails.includes(v)) return setErr("Already in the list");
+    if(emails.length>=5) return setErr("Max 5 recipients");
+    setErr(""); save([...emails, v]);
+  };
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-1">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center text-base shadow">🔔</div>
+        <h3 className="font-black text-[16px] tracking-tight text-[#0f1e2e]">Notify To</h3>
+        <span className="ml-auto text-[10px] font-black tracking-widest bg-sky-50 border border-sky-200 text-sky-700 px-2 py-0.5 rounded-full">{loading ? "…" : `${emails.length}/5`}</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">Email recipients for revision + scan-ready notifications. Empty list falls back to server config — mail never drops.</p>
+      {err && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 mb-2">{err}</div>}
+      {loading ? (
+        <div className="text-xs text-gray-400 py-4 text-center">Loading recipients…</div>
+      ) : (
+        <>
+          <div className="flex gap-2 mb-3">
+            <input value={draft} onChange={e=> setDraft(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") add(); }} placeholder="name@example.com" inputMode="email" className="flex-1 border rounded-lg px-3 py-2 text-sm" maxLength={120} />
+            <button disabled={saving} onClick={add} className="px-4 py-2 bg-[#0f1e2e] text-white rounded-lg text-sm font-bold disabled:opacity-40">Add</button>
+          </div>
+          {emails.length===0 ? (
+            <div className="text-xs text-slate-400 bg-slate-50 border border-slate-100 rounded-lg p-3 text-center">No custom recipients — using server default.</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {emails.map(e=> <span key={e} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-xs font-mono flex items-center gap-2">{e}<button disabled={saving} onClick={()=> save(emails.filter(x=> x!==e))} title="Remove" className="text-red-500 font-black disabled:opacity-40">×</button></span>)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Admin(){
 
   const { profile } = useAuth();
@@ -693,6 +769,11 @@ export default function Admin(){
       {/* Revision Review — shortage acknowledgement queue (non-blocking oversight) */}
       <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
         <RevisionReviewWidget />
+      </div>
+
+      {/* Notify To — email recipients for revision + scan-ready notifications */}
+      <div className="bg-white/95 backdrop-blur rounded-[20px] border border-white/40 shadow-[0_16px_40px_rgba(0,0,0,0.18)] p-5 md:p-6">
+        <NotifyListWidget />
       </div>
 
       {/* Offline PIN Generator — Lead Dev only : flagship card, logic untouched */}
