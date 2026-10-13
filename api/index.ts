@@ -1310,12 +1310,15 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
   const { checker, dus_l, dus_s, dus_besar, dus_m } = req.body;
   const statuses = jsonRead<any[]>("packing_status.json", []);
   const entry = statuses.find(s=>s.delivery_no===delivery_no);
+  let mailSrc: any = null;
+  const scanTime = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
   if (!entry) {
     // try Supabase
     const supa = await fetchSupabasePackingStatus();
     const supaEntry = supa?.find((s:any)=> s.delivery_no===delivery_no);
     if (!supaEntry) return res.status(404).json({ error: "Not found" });
     if (supaEntry.status==="READY"||supaEntry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
+    mailSrc = supaEntry;
   } else {
     if (entry.status==="READY"||entry.status==="CANCELLED") return res.status(400).json({ error: "Already processed" });
     entry.status = "READY";
@@ -1323,6 +1326,7 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
     entry.dus_l = Number(dus_l)||0; entry.dus_s = Number(dus_s)||0; entry.dus_besar = Number(dus_besar)||0; if (dus_m!==undefined) entry.dus_m = Number(dus_m)||0;
     entry.scanned_at = new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"});
     jsonWrite("packing_status.json", statuses);
+    mailSrc = entry;
   }
   // Supabase mirror
   try {
@@ -1330,6 +1334,11 @@ app.post("/api/scan/:delivery_no", async (req, res) => {
     if (sb) {
       await sb.from("packing_status").update({ status: "READY", checker: checker||undefined, dus_l: Number(dus_l)||0, dus_s: Number(dus_s)||0, dus_besar: Number(dus_besar)||0, ...(dus_m!==undefined ? { dus_m: Number(dus_m)||0 } : {}), scanned_at: new Date().toLocaleTimeString("id-ID",{timeZone:"Asia/Jakarta"}) }).eq("delivery_no", delivery_no);
     }
+  } catch {}
+  // notify admin (best-effort nudge — confirm already succeeded, never blocks)
+  try {
+    const m = mailSrc || {};
+    sendScanReadyMail({ dn: delivery_no, outlet: String(m.outlet||"Unknown"), checker: String(checker||"-"), dus_besar: Number(dus_besar)||0, dus_m: Number(dus_m)||0, dus_l: Number(dus_l)||0, dus_s: Number(dus_s)||0, weight: Number(m.total_weight_kg||0), delivery_date: String(m.delivery_date||""), source_ref: String(m.source_ref||""), scanned_at: String(m.scanned_at||scanTime) }).catch(()=>{});
   } catch {}
   res.json({ status: "success", entry: entry || { delivery_no, status:"READY" } });
 });
@@ -2292,8 +2301,8 @@ function getNotifyList(): string[] {
   const ok = (s:any)=> typeof s==="string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
   try {
     const md = jsonRead<any>(MASTER_FILE, {});
-    const raw = Array.isArray((md as any).NOTIFY_TO) ? (md as any).NOTIFY_TO : [];
-    const list = [...new Set(raw.map((s:any)=> String(s||"").trim().toLowerCase()).filter(ok))].slice(0,5);
+    const raw: string[] = Array.isArray((md as any).NOTIFY_TO) ? (md as any).NOTIFY_TO : [];
+    const list: string[] = [...new Set(raw.map((s:any)=> String(s||"").trim().toLowerCase()).filter((s:any)=> ok(s)))].slice(0,5);
     if(list.length) return list;
   } catch {}
   if(ok(REVISION_NOTIFY_TO)) return [REVISION_NOTIFY_TO.trim().toLowerCase()];
@@ -2331,6 +2340,40 @@ async function sendRevisionMail(args: { dn: string; outlet: string; koli_index: 
       html,
     });
   } catch(e){ console.error("revision notify failed", (e as any)?.message||e); }
+}
+// Fire-and-forget scan-READY notify — the confirm already succeeded; email is the nudge.
+// Recipients come from the Admin Notify-To list (env fallback). Never throws.
+async function sendScanReadyMail(args: { dn: string; outlet: string; checker: string; dus_besar: number; dus_m: number; dus_l: number; dus_s: number; weight: number; delivery_date: string; source_ref: string; scanned_at: string }): Promise<void> {
+  try {
+    if(!SMTP_USER || !SMTP_PASS) return;
+    const nodemailer = await import("nodemailer");
+    const transporter = (nodemailer as any).createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT===465, auth: { user: SMTP_USER, pass: SMTP_PASS } });
+    const { dn, outlet, checker, dus_besar, dus_m, dus_l, dus_s, weight, delivery_date, source_ref, scanned_at } = args;
+    const esc = (s:any)=> String(s??"").replace(/</g,"&lt;");
+    const row = (k:string,v:string)=> `<div><span style="color:#64748b;">${k}:</span> <b>${esc(v)}</b></div>`;
+    const html = `
+      <div style="font-family: Segoe UI, sans-serif; max-width:640px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden">
+        <div style="background:#166534; color:white; padding:16px 20px;">
+          <div style="font-weight:900; font-size:16px;">✅ Scan READY — ${esc(outlet)}</div>
+          <div style="font-size:12px; opacity:0.85;">${esc(dn)} • scanned ${esc(scanned_at)} WIB</div>
+        </div>
+        <div style="padding:16px 20px; color:#334155; line-height:1.8;">
+          ${row("Checker", checker||"-")}
+          ${row("Dus Besar", String(dus_besar))}${row("Dus M", String(dus_m))}${row("Dus L", String(dus_l))}${row("Dus S", String(dus_s))}
+          ${row("Weight", weight ? `${weight} kg` : "—")}
+          ${delivery_date ? row("Delivery", delivery_date) : ""}
+          ${source_ref ? row("REF", source_ref) : ""}
+        </div>
+      </div>
+    `;
+    await transporter.sendMail({
+      from: `"PLGen Scans" <${SMTP_FROM}>`,
+      to: getNotifyList().join(","),
+      subject: `[Scan READY] ${outlet} — ${dn} (B:${dus_besar}/M:${dus_m}/L:${dus_l}/S:${dus_s})`,
+      text: `Scan READY\nOutlet: ${outlet}\nPL: ${dn}\nChecker: ${checker||"-"}\nScanned: ${scanned_at} WIB\nDus — Besar: ${dus_besar}, M: ${dus_m}, L: ${dus_l}, S: ${dus_s}\nWeight: ${weight||"-"} kg\nDelivery: ${delivery_date||"-"}\nREF: ${source_ref||"-"}`,
+      html,
+    });
+  } catch(e){ console.error("scan ready notify failed", (e as any)?.message||e); }
 }
 
 function sanitizeFeedback(str:string, max=2000){
