@@ -2308,38 +2308,74 @@ function getNotifyList(): string[] {
   if(ok(REVISION_NOTIFY_TO)) return [REVISION_NOTIFY_TO.trim().toLowerCase()];
   return [FEEDBACK_TO];
 }
+// ---- Notification templates (pure exported builders — same facts, verifiable) ----
+// One card grammar for both mails (header + facts table + detail table + footer),
+// email-client-safe: table layout, inline styles only, max-width 600, hidden preheader.
+function mailEsc(s:any){ return String(s??"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function mailFactRow(k:string, v:string){
+  return `<tr><td style="padding:7px 0;color:#64748b;font-size:13px;" width="38%">${k}</td><td style="padding:7px 0;font-size:13px;color:#0f1e2e;" align="right"><b>${mailEsc(v)}</b></td></tr>`;
+}
+function mailShell(headBg:string, headTitle:string, headSub:string, bodyHtml:string){
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:600px;margin:0 auto;"><div style="border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;background:#ffffff"><div style="background:${headBg};color:#ffffff;padding:16px 20px;"><div style="font-weight:900;font-size:16px;">${headTitle}</div><div style="font-size:12px;opacity:.85;">${headSub}</div></div><div style="padding:16px 20px;">${bodyHtml}</div></div></div>`;
+}
+function mailPre(text:string){
+  return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${mailEsc(text)}</div>`;
+}
+export function buildRevisionMail(args: { dn: string; outlet: string; koli_index: number; sku: string; prevQty: number; qty: number; note: string; by: string }): { subject: string; text: string; html: string } {
+  const { dn, outlet, koli_index, sku, prevQty, qty, note, by } = args;
+  const subject = `[Revise] ${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} — ${by}`;
+  const text = `Revision needs review\nPL: ${dn}\nOutlet: ${outlet||"-"}\nKoli: ${koli_index+1}\nSKU: ${sku}\nQty: ${prevQty} -> ${qty}\nBy: ${by||"unknown"}\nWIB: ${wibNowStr()}\nNote: ${note}`;
+  const html = mailPre(`Revision ${sku} ${prevQty}→${qty} on ${dn} by ${by||"unknown"} — needs review`) + mailShell(
+    "#b45309",
+    `✏️ PLGen Revision — needs review`,
+    `${mailEsc(dn)} • Koli ${koli_index+1} • ${mailEsc(wibNowStr())} WIB`,
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">`
+    + mailFactRow("Outlet", outlet||"—") + mailFactRow("SKU", sku) + mailFactRow("By", by||"unknown")
+    + `</table>`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;"><tr><td style="padding:12px;font-size:15px;" align="center">Qty <b>${prevQty}</b> → <b style="font-size:18px;">${qty}</b></td></tr></table>`
+    + `<div style="margin-top:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px;font-size:13px;color:#334155;"><b>Note:</b> ${mailEsc(note)}</div>`
+    + `<div style="margin-top:12px;font-size:11px;color:#94a3b8;text-align:center;">Applied instantly on Digital PL • acknowledge in Admin → Revision Review</div>`
+  );
+  return { subject, text, html };
+}
 // Fire-and-forget revision notify — the Admin review queue is source of truth, email is the nudge. Never throws.
 async function sendRevisionMail(args: { dn: string; outlet: string; koli_index: number; sku: string; prevQty: number; qty: number; note: string; by: string }): Promise<void> {
   try {
     if(!SMTP_USER || !SMTP_PASS) return;
     const nodemailer = await import("nodemailer");
     const transporter = (nodemailer as any).createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT===465, auth: { user: SMTP_USER, pass: SMTP_PASS } });
-    const { dn, outlet, koli_index, sku, prevQty, qty, note, by } = args;
-    const esc = (s:any)=> String(s??"").replace(/</g,"&lt;");
-    const html = `
-      <div style="font-family: Segoe UI, sans-serif; max-width:640px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden">
-        <div style="background:#b45309; color:white; padding:16px 20px;">
-          <div style="font-weight:900; font-size:16px;">✏️ PLGen Revision — needs review</div>
-          <div style="font-size:12px; opacity:0.85;">${esc(dn)} • Koli ${koli_index+1} • ${wibNowStr()} WIB</div>
-        </div>
-        <div style="padding:16px 20px; color:#334155; line-height:1.7;">
-          <div><b>Outlet:</b> ${esc(outlet||"—")}</div>
-          <div><b>SKU:</b> ${esc(sku)}</div>
-          <div><b>Qty:</b> ${prevQty} → <b>${qty}</b></div>
-          <div><b>By:</b> ${esc(by||"unknown")}</div>
-          <div style="margin-top:8px; background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px;"><b>Note:</b> ${esc(note)}</div>
-          <div style="margin-top:12px; font-size:11px; color:#94a3b8;">Applied instantly on Digital PL • acknowledge in Admin → Revision Review</div>
-        </div>
-      </div>
-    `;
+    const m = buildRevisionMail(args);
     await transporter.sendMail({
       from: `"PLGen Revisions" <${SMTP_FROM}>`,
       to: getNotifyList().join(","),
-      subject: `[Revise] ${dn} Koli ${koli_index+1} ${sku} ${prevQty}→${qty} — ${by}`,
-      text: `Revision needs review\nPL: ${dn}\nOutlet: ${outlet||"-"}\nKoli: ${koli_index+1}\nSKU: ${sku}\nQty: ${prevQty} -> ${qty}\nBy: ${by||"unknown"}\nWIB: ${wibNowStr()}\nNote: ${note}`,
-      html,
+      subject: m.subject,
+      text: m.text,
+      html: m.html,
     });
   } catch(e){ console.error("revision notify failed", (e as any)?.message||e); }
+}
+export function buildScanReadyMail(args: { dn: string; outlet: string; checker: string; dus_besar: number; dus_m: number; dus_l: number; dus_s: number; weight: number; delivery_date: string; source_ref: string; scanned_at: string }): { subject: string; text: string; html: string } {
+  const { dn, outlet, checker, dus_besar, dus_m, dus_l, dus_s, weight, delivery_date, source_ref, scanned_at } = args;
+  const total = dus_besar+dus_m+dus_l+dus_s;
+  const subject = `[Scan READY] ${outlet} — ${dn} (B:${dus_besar}/M:${dus_m}/L:${dus_l}/S:${dus_s})`;
+  const text = `Scan READY\nOutlet: ${outlet}\nPL: ${dn}\nChecker: ${checker||"-"}\nScanned: ${scanned_at} WIB\nDus — Besar: ${dus_besar}, M: ${dus_m}, L: ${dus_l}, S: ${dus_s}, Total: ${total}\nWeight: ${weight||"-"} kg\nDelivery: ${delivery_date||"-"}\nREF: ${source_ref||"-"}`;
+  const dusRow = (k:string,v:number)=> `<tr><td style="padding:7px 0;color:#64748b;font-size:13px;">${k}</td><td style="padding:7px 0;font-size:14px;color:#0f1e2e;" align="right"><b>${v}</b></td></tr>`;
+  const html = mailPre(`✅ ${outlet} ready — ${total} dus • ${dn} • ${checker||"-"}`) + mailShell(
+    "#166534",
+    `✅ Scan READY — ${mailEsc(outlet)}`,
+    `${mailEsc(dn)} • scanned ${mailEsc(scanned_at)} WIB`,
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">`
+    + mailFactRow("Checker", checker||"—") + mailFactRow("Weight", weight ? `${weight} kg` : "—")
+    + (delivery_date ? mailFactRow("Delivery", delivery_date) : "") + (source_ref ? mailFactRow("REF", source_ref) : "")
+    + `</table>`
+    + `<div style="margin-top:10px;font-size:11px;font-weight:800;letter-spacing:.08em;color:#94a3b8;">DUS USAGE</div>`
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">`
+    + dusRow("Dus Besar", dus_besar) + dusRow("Dus M", dus_m) + dusRow("Dus L", dus_l) + dusRow("Dus S", dus_s)
+    + `<tr><td style="padding:9px 0 2px;font-size:14px;color:#0f1e2e;border-top:2px solid #e2e8f0;"><b>Total</b></td><td style="padding:9px 0 2px;font-size:16px;color:#0f1e2e;border-top:2px solid #e2e8f0;" align="right"><b>${total}</b></td></tr>`
+    + `</table>`
+    + `<div style="margin-top:12px;font-size:11px;color:#94a3b8;text-align:center;">One scan per PL — re-scans are rejected.</div>`
+  );
+  return { subject, text, html };
 }
 // Fire-and-forget scan-READY notify — the confirm already succeeded; email is the nudge.
 // Recipients come from the Admin Notify-To list (env fallback). Never throws.
@@ -2348,30 +2384,13 @@ async function sendScanReadyMail(args: { dn: string; outlet: string; checker: st
     if(!SMTP_USER || !SMTP_PASS) return;
     const nodemailer = await import("nodemailer");
     const transporter = (nodemailer as any).createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT===465, auth: { user: SMTP_USER, pass: SMTP_PASS } });
-    const { dn, outlet, checker, dus_besar, dus_m, dus_l, dus_s, weight, delivery_date, source_ref, scanned_at } = args;
-    const esc = (s:any)=> String(s??"").replace(/</g,"&lt;");
-    const row = (k:string,v:string)=> `<div><span style="color:#64748b;">${k}:</span> <b>${esc(v)}</b></div>`;
-    const html = `
-      <div style="font-family: Segoe UI, sans-serif; max-width:640px; margin:0 auto; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden">
-        <div style="background:#166534; color:white; padding:16px 20px;">
-          <div style="font-weight:900; font-size:16px;">✅ Scan READY — ${esc(outlet)}</div>
-          <div style="font-size:12px; opacity:0.85;">${esc(dn)} • scanned ${esc(scanned_at)} WIB</div>
-        </div>
-        <div style="padding:16px 20px; color:#334155; line-height:1.8;">
-          ${row("Checker", checker||"-")}
-          ${row("Dus Besar", String(dus_besar))}${row("Dus M", String(dus_m))}${row("Dus L", String(dus_l))}${row("Dus S", String(dus_s))}
-          ${row("Weight", weight ? `${weight} kg` : "—")}
-          ${delivery_date ? row("Delivery", delivery_date) : ""}
-          ${source_ref ? row("REF", source_ref) : ""}
-        </div>
-      </div>
-    `;
+    const m = buildScanReadyMail(args);
     await transporter.sendMail({
       from: `"PLGen Scans" <${SMTP_FROM}>`,
       to: getNotifyList().join(","),
-      subject: `[Scan READY] ${outlet} — ${dn} (B:${dus_besar}/M:${dus_m}/L:${dus_l}/S:${dus_s})`,
-      text: `Scan READY\nOutlet: ${outlet}\nPL: ${dn}\nChecker: ${checker||"-"}\nScanned: ${scanned_at} WIB\nDus — Besar: ${dus_besar}, M: ${dus_m}, L: ${dus_l}, S: ${dus_s}\nWeight: ${weight||"-"} kg\nDelivery: ${delivery_date||"-"}\nREF: ${source_ref||"-"}`,
-      html,
+      subject: m.subject,
+      text: m.text,
+      html: m.html,
     });
   } catch(e){ console.error("scan ready notify failed", (e as any)?.message||e); }
 }
