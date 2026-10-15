@@ -580,12 +580,13 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
       cSendPhNum.value = "082125627591";
       cSendPhNum.fill = senderFill; cSendPhNum.font = { color: { argb: "FFFFFFFF" }, bold: true, size: 11, name: ARIA }; cSendPhNum.alignment = { horizontal: "center", vertical: "middle" };
 
-      // Row 9: DELIVERY DATE stamp (reuses the empty spacer row — layout untouched)
+      // Row 9: DELIVERY DATE + UNBOXING WARNING (reuses the spacer row — layout untouched).
+      // Bold (not just red) so it survives black-and-white printing.
       ws.mergeCells(rowOffset + 9, colOffset, rowOffset + 9, colOffset + 5);
       const cDate = ws.getCell(rowOffset + 9, colOffset);
-      cDate.value = `Tgl Kirim: ${deliveryDate}`;
-      cDate.font = { size: 9, name: ARIA, color: { argb: "FF2C3E50" } };
-      cDate.alignment = { horizontal: "center", vertical: "middle" };
+      cDate.value = `Tgl Kirim: ${deliveryDate}\n⚠️ MOHON VIDEO UNBOXING SEBELUM DIBUKA — klaim tanpa video tidak dapat diverifikasi. Terima kasih.`;
+      cDate.font = { size: 8, bold: true, name: ARIA, color: { argb: "FF2C3E50" } };
+      cDate.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
       // Thick border around the entire label block
       borderBox(ws, rowOffset, colOffset, rowOffset + 9, colOffset + 5);
@@ -600,7 +601,7 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
       ws.getRow(rowOffset + 6).height = 25;
       ws.getRow(rowOffset + 7).height = 25;
       ws.getRow(rowOffset + 8).height = 25;
-      ws.getRow(rowOffset + 9).height = 15;
+      ws.getRow(rowOffset + 9).height = 30;
     }
   }
 
