@@ -601,7 +601,8 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
       ws.getRow(rowOffset + 6).height = 25;
       ws.getRow(rowOffset + 7).height = 25;
       ws.getRow(rowOffset + 8).height = 25;
-      ws.getRow(rowOffset + 9).height = 30;
+      // Roomy enough for date + 2 wrapped warning lines incl. the taller emoji line-box
+      ws.getRow(rowOffset + 9).height = 44;
     }
   }
 
