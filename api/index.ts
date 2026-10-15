@@ -2717,27 +2717,45 @@ ${JSON.stringify(snap, null, 1)}`;
     }
     historyArr.push({ role: "user", parts: [{ text: String(message).slice(0, 2000) }] });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(()=> controller.abort(), 20000);
+    const hintFor = (s:number)=> s===503||s===429 ? "Google overloaded, retry shortly" : s===401||s===403 ? "API key rejected — check GEMINI_API_KEY env" : s===404 ? "model not found — check GEMINI_MODEL env" : s===400 ? "bad request" : `HTTP ${s}`;
+    const payload = JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: historyArr,
+      generationConfig: { temperature: 0.5, maxOutputTokens: 8192, candidateCount: 1 },
+    });
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-    const gRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: historyArr,
-          generationConfig: { temperature: 0.5, maxOutputTokens: 8192, candidateCount: 1 },
-        }),
+    // Retry once on transient overload/rate-limit (Google 503s often clear in seconds).
+    // Non-retryable statuses fail fast. Per-attempt abort keeps serverless budgets safe.
+    let gRes: any = null;
+    let errText = "";
+    let lastErr: any = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(()=> controller.abort(), 12000);
+      try {
+        gRes = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: payload,
+        });
+        clearTimeout(timeout);
+        if (gRes.ok) break;
+        errText = await gRes.text().catch(()=> "");
+        const retryable = gRes.status===503 || gRes.status===429;
+        if (!retryable || attempt===2) return res.status(502).json({ error: `Gemini ${gRes.status} (${hintFor(gRes.status)}): ${errText.slice(0, 200)}` });
+        await new Promise(r=> setTimeout(r, 2500));
+      } catch(e:any){
+        clearTimeout(timeout);
+        lastErr = e;
+        if (e?.name==="AbortError" && attempt<2) { errText = "timeout"; await new Promise(r=> setTimeout(r, 2500)); continue; }
+        throw e;
       }
-    );
-    clearTimeout(timeout);
-
-    if (!gRes.ok) {
-      const errText = await gRes.text().catch(()=> "");
-      return res.status(502).json({ error: `Gemini ${gRes.status}: ${errText.slice(0, 300)}` });
+    }
+    if (!gRes || !gRes.ok) {
+      const msg = lastErr?.name==="AbortError" ? "Gemini request timed out" : (lastErr?.message || "Gemini proxy error");
+      return res.status(500).json({ error: msg });
     }
     const gj = await gRes.json();
     const finishReason = gj?.candidates?.[0]?.finishReason || "";
@@ -2746,7 +2764,7 @@ ${JSON.stringify(snap, null, 1)}`;
 
     res.json({ reply, model: GEMINI_MODEL, truncated: finishReason === "MAX_TOKENS" });
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Gemini request timed out (20s)" : (e?.message || "Gemini proxy error");
+    const msg = e?.name === "AbortError" ? "Gemini request timed out" : (e?.message || "Gemini proxy error");
     res.status(500).json({ error: msg });
   }
 });

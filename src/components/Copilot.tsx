@@ -159,6 +159,7 @@ export default function Copilot(){
       let finalReply = reply;
       let source: "local" | "gemini" = "local";
       let geminiFailed = false;
+      let geminiDetail = "";
 
       if (needGemini) {
         try {
@@ -179,8 +180,9 @@ export default function Copilot(){
             },
           });
           if (resp?.reply) { finalReply = resp.reply; source = "gemini"; }
-        } catch {
+        } catch(e: any) {
           geminiFailed = true; // keep local fallback reply
+          geminiDetail = String(e?.message || "").slice(0, 160);
         }
       }
 
@@ -189,7 +191,8 @@ export default function Copilot(){
         suggestions: suggestFor(intentType), time: now(), source,
       }]);
       if (geminiFailed) {
-        setMsgs(m => [...m, { id: id(), role: "copilot", text: lang === "id" ? "ℹ️ Gemini tidak tersedia — jawaban lokal ditampilkan." : "ℹ️ Gemini unavailable — showing local answer.", time: now(), source: "local" }]);
+        const base = lang === "id" ? "ℹ️ Gemini tidak tersedia — jawaban lokal ditampilkan." : "ℹ️ Gemini unavailable — showing local answer.";
+        setMsgs(m => [...m, { id: id(), role: "copilot", text: geminiDetail ? `${base}\n(${geminiDetail})` : base, time: now(), source: "local" }]);
       }
     } catch (e: any) {
       setMsgs(m => [...m, { id: id(), role: "copilot", text: `⚠️ ${e?.message || "Error"}`, time: now() }]);
