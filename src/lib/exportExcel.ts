@@ -585,7 +585,8 @@ export async function exportLabels(outlet: string, boxes: Box[], master: any, op
       ws.mergeCells(rowOffset + 9, colOffset, rowOffset + 9, colOffset + 5);
       const cDate = ws.getCell(rowOffset + 9, colOffset);
       cDate.value = `Tgl Kirim: ${deliveryDate}\n⚠️ MOHON VIDEO UNBOXING SEBELUM DIBUKA — klaim tanpa video tidak dapat diverifikasi. Terima kasih.`;
-      cDate.font = { size: 8, bold: true, name: ARIA, color: { argb: "FF2C3E50" } };
+      cDate.font = { size: 8, bold: true, name: ARIA, color: { argb: "FFFFFFFF" } };
+      cDate.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF0000" } };
       cDate.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
       // Thick border around the entire label block
