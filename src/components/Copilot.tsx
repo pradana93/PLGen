@@ -14,8 +14,8 @@ function now() {
 }
 
 const WELCOME = {
-  en: `Hello! 👋 I'm PLGen Copilot — your local logistics assistant.\n\nI've studied this app's packing data, stock levels, and checker performance. Try asking:\n\n• "Today's summary"\n• "Weekly report"\n• "Any issues?"\n• "Check stock"`,
-  id: `Halo! 👋 Saya PLGen Copilot — asisten logistik lokal Anda.\n\nSaya sudah mempelajari data packing, stok, dan performa checker di aplikasi ini. Coba tanya:\n\n• "Ringkasan hari ini"\n• "Laporan mingguan"\n• "Ada masalah?"\n• "Cek stok"`,
+  en: `Hello! 👋 I'm PLGen Copilot — your local logistics assistant.\n\nI've studied this app's packing data, stock levels, and checker performance. Try asking:\n\n• "Today's summary"\n• "Weekly report"\n• "Any issues?"\n• "Check stock"\n• "Dus usage"\n• "Delivering tomorrow"`,
+  id: `Halo! 👋 Saya PLGen Copilot — asisten logistik lokal Anda.\n\nSaya sudah mempelajari data packing, stok, dan performa checker di aplikasi ini. Coba tanya:\n\n• "Ringkasan hari ini"\n• "Laporan mingguan"\n• "Ada masalah?"\n• "Cek stok"\n• "Pemakaian dus"\n• "Yang kirim besok"`,
 };
 
 const SUGGEST_MAP: Record<string, { en: string[]; id: string[] }> = {
@@ -28,6 +28,10 @@ const SUGGEST_MAP: Record<string, { en: string[]; id: string[] }> = {
   anomaly: { en: ["Today's summary","Weekly report"], id: ["Ringkasan hari ini","Laporan mingguan"] },
   team: { en: ["Weekly summary","Check stock"], id: ["Ringkasan mingguan","Cek stok"] },
   trend: { en: ["Weekly report","Leaderboard"], id: ["Laporan mingguan","Papan peringkat"] },
+  dus: { en: ["Dus usage","Today's summary"], id: ["Pemakaian dus","Ringkasan hari ini"] },
+  delivery: { en: ["Weekly report","Today's summary"], id: ["Laporan mingguan","Ringkasan hari ini"] },
+  review: { en: ["Today's summary","Any issues?"], id: ["Ringkasan hari ini","Ada masalah?"] },
+  audit: { en: ["Today's summary","Weekly report"], id: ["Ringkasan hari ini","Laporan mingguan"] },
   fallback: { en: ["Today's summary","Check stock"], id: ["Ringkasan hari ini","Cek stok"] },
 };
 
@@ -39,6 +43,8 @@ const QUICK_ACTIONS = {
     { label: "⚠️ Any Issues?", query: "any issues" },
     { label: "📦 Check Stock", query: "check stock" },
     { label: "🏅 Leaderboard", query: "team leaderboard" },
+    { label: "🚚 Delivering Tomorrow", query: "delivering tomorrow" },
+    { label: "📦 Dus Usage", query: "dus usage today" },
   ],
   id: [
     { label: "🌅 Brief Pagi", query: "ringkasan hari ini" },
@@ -47,6 +53,8 @@ const QUICK_ACTIONS = {
     { label: "⚠️ Ada Masalah?", query: "ada masalah" },
     { label: "📦 Cek Stok", query: "cek stok" },
     { label: "🏅 Papan Peringkat", query: "papan peringkat" },
+    { label: "🚚 Kirim Besok", query: "yang kirim besok" },
+    { label: "📦 Pemakaian Dus", query: "pemakaian dus hari ini" },
   ],
 };
 
@@ -57,18 +65,28 @@ export default function Copilot(){
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
+  type Provider = "auto" | "local" | "gemini";
+  const [provider, setProvider] = useState<Provider>(()=>{
+    try { return (localStorage.getItem("plgen-copilot-provider") as Provider) || "auto"; }
+    catch { return "auto"; }
+  });
+  const pickProvider = (p: Provider)=>{
+    setProvider(p);
+    try { localStorage.setItem("plgen-copilot-provider", p); } catch {}
+  };
   const ctxRef = useRef<CopilotContext | null>(null);
   const welcomeDone = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const buildCtx = async (): Promise<CopilotContext> => {
-    const [data, summary, ch, master, stock] = await Promise.all([
+    const [data, summary, ch, master, stock, revs] = await Promise.all([
       apiGet("/api/packing_status").catch(()=>[]),
       apiGet("/api/report/summary").catch(()=>null),
       apiGet("/api/checkers").catch(()=>({ checkers: [] })),
       apiGet("/api/master_data").catch(()=>null),
       apiGet("/api/current_stock").catch(()=>null),
+      apiGet("/api/digital_pl_history?limit=200").catch(()=>[]),
     ]);
     const ctx: CopilotContext = {
       lang,
@@ -80,6 +98,7 @@ export default function Copilot(){
       checkers: ch?.checkers || [],
       master,
       stock,
+      revisions: Array.isArray(revs) ? revs : [],
     };
     ctxRef.current = ctx;
     return ctx;
@@ -134,8 +153,9 @@ export default function Copilot(){
       const ctx = ctxRef.current && ctxRef.current.lang === lang ? ctxRef.current : await buildCtx();
       const { reply, intentType, confidence } = ask(text, ctx);
 
-      // v2 Hybrid: Local Brain handles confident intents; escalate fuzzy/complex queries to Gemini
-      const needGemini = intentType === "fallback" || confidence < 0.45;
+      // Provider modes: local = never Gemini; gemini = always Gemini (local reply as fallback);
+      // auto = hybrid (Local Brain when confident, Gemini for fuzzy/complex queries).
+      const needGemini = provider === "gemini" || (provider === "auto" && (intentType === "fallback" || confidence < 0.45));
       let finalReply = reply;
       let source: "local" | "gemini" = "local";
       let geminiFailed = false;
@@ -155,6 +175,7 @@ export default function Copilot(){
               summary: ctx.summary,
               checkers: ctx.checkers,
               stock: ctx.stock,
+              revisions: ctx.revisions,
             },
           });
           if (resp?.reply) { finalReply = resp.reply; source = "gemini"; }
@@ -247,9 +268,13 @@ export default function Copilot(){
                   <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-[#101c2c] animate-pulse" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-black text-[15px] tracking-tight">PLGen Copilot</span>
-                    <span className="text-[9px] font-black bg-emerald-400/15 text-emerald-300 border border-emerald-300/20 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Local AI</span>
+                    <div className="flex items-center rounded-full bg-white/[0.08] border border-white/10 p-0.5" title={lang === "id" ? "Lokal: di perangkat ini • Gemini: memakai kuota API" : "Local: stays on this device • Gemini: uses your API quota"}>
+                      {(["local", "auto", "gemini"] as const).map(p => (
+                        <button key={p} onClick={() => pickProvider(p)} className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${provider === p ? "bg-emerald-400 text-[#101c2c]" : "text-white/55 hover:text-white"}`}>{p === "local" ? (lang === "id" ? "Lokal" : "Local") : p === "gemini" ? "Gemini" : "Auto"}</button>
+                      ))}
+                    </div>
                   </div>
                   <div className="text-[10px] text-white/55 font-medium mt-0.5 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -268,6 +293,7 @@ export default function Copilot(){
                   </button>
                 ))}
               </div>
+              <div className="text-[9px] text-white/40 font-medium px-0.5 pt-1.5">{lang === "id" ? "Lokal di perangkat ini • Gemini memakai kuota API" : "Local stays on this device • Gemini uses your API quota"}</div>
             </div>
           </div>
 

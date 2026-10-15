@@ -3,6 +3,48 @@
 
 import type { CopilotLang, Timeframe } from "./types";
 
+// WIB wall clock — same idiom as the rest of the app (devices are WIB-local,
+// so this is a no-op there; it only corrects non-WIB devices at day boundaries).
+export function wibNow(): Date {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+}
+
+// Resolve an explicit delivery date from text → DD/MM/YYYY, or "".
+// Explicit DD/MM[/YYYY] and tomorrow/besok force delivery intent. Plain
+// today-words do NOT (they ride along with scores instead — otherwise every
+// "X hari ini" query would hijack into delivery).
+export function deliveryDateFromText(text: string, opts?: { todayOk?: boolean }): string {
+  const t = String(text || "");
+  const m = t.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (m) {
+    const dd = m[1].padStart(2, "0");
+    const mm = m[2].padStart(2, "0");
+    let yyyy = m[3] || String(wibNow().getFullYear());
+    if (yyyy.length === 2) yyyy = "20" + yyyy;
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  const w = wibNow();
+  const fmtW = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  const q = normalize(text);
+  if (/tomorrow|besok|bsk|tmr|esok/.test(q)) {
+    const tmr = new Date(w.getTime());
+    tmr.setDate(w.getDate() + 1);
+    return fmtW(tmr);
+  }
+  if (opts?.todayOk && /today|hari ini/.test(q)) return fmtW(w);
+  return "";
+}
+
+// Delivery date of a packing row — stored exact wins, else created-date proxy
+// (mirrors the Digital PL board so both agree).
+export function deliveryDateOf(e: { delivery_date?: string; created_at?: string }): string {
+  const stored = String(e.delivery_date || "").trim();
+  if (stored) return stored;
+  const m = String(e.created_at || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return "";
+}
+
 // ── App terminology (EN + ID) ──
 export const TERMINOLOGY: Record<CopilotLang, Record<string, string>> = {
   en: {
@@ -100,9 +142,38 @@ export const TREND_PATTERNS = [
   "week over week", "month over month", "moo", "wow", "latest trend",
 ];
 
+// ── Dus usage queries ──
+export const DUS_PATTERNS = [
+  "dus", "kardus", "karton", "carton", "box usage", "pemakaian dus", "penggunaan dus",
+  "dus besar", "dus medium", "dus m ", " dus m", "dus l ", " dus l", "dus s ", " dus s",
+  "berapa dus", "dus terpakai", "how many boxes", "stas", "doos",
+];
+
+// ── Delivery-day queries ──
+export const DELIVERY_PATTERNS = [
+  "delivery", "deliver", "delivering", "delivered", "kirim", "dikirim", "pengiriman",
+  "ship", "shipped", "tanggal kirim", "jadwal kirim", "kapan datang", "kapan sampai",
+  "do number", "nomor do", "yang berangkat", "berangkat kapan",
+];
+
+// ── Revision review queries ──
+export const REVIEW_PATTERNS = [
+  "revisi", "revision", "revisions", "review", "approve", "approved", "approval",
+  "reject", "rejected", "acknowledge", "disetujui", "ditolak", "setujui", "tolak",
+  "perlu direview", "need review", "needs review", "menunggu review", "shortage",
+  "kekurangan", "selisih", "koreksi",
+];
+
+// ── Audit sample queries ──
+export const AUDIT_PATTERNS = [
+  "audit", "auditing", "diaudit", "sample", "sampling", "spot check", "spotcheck",
+  "cek acak", "pemeriksaan", "diperiksa",
+];
+
 // ── Timeframe patterns (EN + ID) → Timeframe ──
 export const TIMEFRAME_PATTERNS: { pattern: RegExp; tf: Timeframe }[] = [
   { pattern: /today|hari ini|sekarang|saat ini|tdy|daily|harian/, tf: "today" },
+  { pattern: /tomorrow|besok|bsk|tmr|esok/, tf: "tomorrow" },
   { pattern: /yesterday|kemarin|kemaren/, tf: "yesterday" },
   { pattern: /this week|minggu ini|pekan ini|week so far|weekly|mingguan|pekanan|this week so far/, tf: "week" },
   { pattern: /last week|minggu lalu|pekan lalu|minggu kemarin/, tf: "last_week" },
@@ -125,6 +196,10 @@ export const DEFAULT_TIMEFRAME: Record<string, Timeframe> = {
   anomaly: "week",
   team: "all",
   trend: "all",
+  dus: "today",
+  delivery: "today",
+  review: "all",
+  audit: "today",
   fallback: "all",
 };
 

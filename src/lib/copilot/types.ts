@@ -4,6 +4,7 @@ export type CopilotLang = "en" | "id";
 
 export type Timeframe =
   | "today"
+  | "tomorrow"
   | "yesterday"
   | "week"
   | "last_week"
@@ -24,6 +25,10 @@ export type CopilotIntent =
   | { type: "anomaly" }
   | { type: "team" }
   | { type: "trend" }
+  | { type: "dus"; period: Timeframe }
+  | { type: "delivery"; date: string }
+  | { type: "review" }
+  | { type: "audit"; date: string }
   | { type: "fallback" };
 
 export interface PLEntry {
@@ -47,6 +52,7 @@ export interface CopilotContext {
   checkers: string[];
   master: any;
   stock: Record<string, number> | null;
+  revisions: any[];
 }
 
 export interface ChatMessage {

@@ -5,6 +5,8 @@ import type { CopilotContext, PLEntry, Timeframe } from "./types";
 import {
   byChecker, byOutlet, filterByPeriod, fmt, formatKg, L, parseDate, plStats, tfLabel, timeGreeting,
 } from "./brain";
+import { deliveryDateOf } from "./knowledge";
+import { isAuditSample } from "../audit";
 
 function b(ctx: CopilotContext, en: string, id: string): string {
   return ctx.lang === "id" ? id : en;
@@ -26,6 +28,10 @@ export function resolveIntent(intent: any, ctx: CopilotContext): string {
     case "anomaly": return anomalyReport(ctx);
     case "team": return teamReport(ctx);
     case "trend": return trendReport(ctx);
+    case "dus": return dusReport(ctx, intent.period);
+    case "delivery": return deliveryReport(ctx, intent.date);
+    case "review": return reviewReport(ctx);
+    case "audit": return auditReport(ctx, intent.date);
     default: return fallback(ctx);
   }
 }
@@ -60,6 +66,10 @@ export function help(ctx: CopilotContext): string {
     `⚠️ ${bold(b(ctx, "Issues:", "Masalah:"))} ${b(ctx, "\"any anomalies?\"", "\"ada anomali?\"")}`,
     `🏆 ${bold(b(ctx, "Team:", "Tim:"))} ${b(ctx, "\"checker leaderboard\"", "\"papan peringkat checker\"")}`,
     `📈 ${bold(b(ctx, "Trends:", "Tren:"))} ${b(ctx, "\"monthly trend\"", "\"tren bulanan\"")}`,
+    `📦 ${bold(b(ctx, "Dus:", "Dus:"))} ${b(ctx, "\"dus usage today\"", "\"pemakaian dus hari ini\"")}`,
+    `🚚 ${bold(b(ctx, "Delivery:", "Pengiriman:"))} ${b(ctx, "\"delivering tomorrow\"", "\"yang kirim besok\"")}`,
+    `✏️ ${bold(b(ctx, "Reviews:", "Review:"))} ${b(ctx, "\"pending revisions\"", "\"revisi pending\"")}`,
+    `🔍 ${bold(b(ctx, "Audit:", "Audit:"))} ${b(ctx, "\"audit sample\"", "\"sampel audit\"")}`,
   ].join("\n");
 }
 
@@ -274,6 +284,77 @@ export function fallback(ctx: CopilotContext): string {
     "",
     b(ctx, "Try rephrasing, or tap a suggestion below. 👇", "Coba tulis ulang, atau ketuk saran di bawah. 👇"),
   ].join("\n");
+}
+
+// ── Dus usage report ──
+export function dusReport(ctx: CopilotContext, tf: Timeframe): string {
+  const rows = filterByPeriod(ctx.data, tf);
+  let dusB = 0, dusM = 0, dusL = 0, dusS = 0, n = 0;
+  for (const r of rows) {
+    const bb = Number((r as any).dus_besar) || 0, mm = Number((r as any).dus_m) || 0;
+    const ll = Number((r as any).dus_l) || 0, ss = Number((r as any).dus_s) || 0;
+    if (bb + mm + ll + ss > 0) n++;
+    dusB += bb; dusM += mm; dusL += ll; dusS += ss;
+  }
+  const total = dusB + dusM + dusL + dusS;
+  const lines = [
+    bold(b(ctx, `📦 Dus Usage — ${tfLabel(tf, ctx)}`, `📦 Pemakaian Dus — ${tfLabel(tf, ctx)}`)),
+    "",
+    `📦 ${bold(fmt(total))} ${b(ctx, "boxes", "dus")} • ${b(ctx, "Besar", "Besar")} ${bold(fmt(dusB))} • M ${bold(fmt(dusM))} • L ${bold(fmt(dusL))} • S ${bold(fmt(dusS))}`,
+    `🧾 ${bold(fmt(n))} ${b(ctx, "PLs with dus recorded", "PL dengan dus tercatat")}`,
+  ];
+  if (total === 0) lines.push("", b(ctx, "No dus recorded in this period yet — dus is captured at Done Packed / Scan confirm.", "Belum ada dus tercatat di periode ini — dus dicatat saat Done Packed / konfirmasi Scan."));
+  return lines.join("\n");
+}
+
+// ── Delivery-day report ──
+export function deliveryReport(ctx: CopilotContext, date: string): string {
+  const rows = ctx.data.filter((r) => deliveryDateOf(r) === date);
+  const stats = plStats(rows);
+  const byO = byOutlet(rows);
+  const top = Object.entries(byO).sort((a, b) => b[1].length - a[1].length).slice(0, 5);
+  const lines = [
+    bold(b(ctx, `🚚 Delivering ${date}`, `🚚 Pengiriman ${date}`)),
+    "",
+    `📋 ${bold(fmt(stats.count))} ${L(ctx, "pl")}`,
+    `⚖️ ${bold(formatKg(stats.tonnage))} ${L(ctx, "tonnage")}`,
+    `✅ ${bold(fmt(stats.ready))} ${L(ctx, "ready")} / ${fmt(stats.count)}`,
+  ];
+  for (const [o, rs] of top) lines.push(`🏪 ${bold(String(o))} — ${fmt(rs.length)} ${L(ctx, "pl")}`);
+  if (!rows.length) lines.push("", b(ctx, "Nothing scheduled for delivery that day.", "Tidak ada pengiriman terjadwal hari itu."));
+  return lines.join("\n");
+}
+
+// ── Revision review status ──
+export function reviewReport(ctx: CopilotContext): string {
+  const revs = Array.isArray(ctx.revisions) ? ctx.revisions : [];
+  const pend = revs.filter((r: any) => (r.status || "pending") === "pending");
+  const appr = revs.filter((r: any) => r.status === "approved").length;
+  const rej = revs.filter((r: any) => r.status === "rejected").length;
+  const lines = [
+    bold(b(ctx, "✏️ Revision Review", "✏️ Review Revisi")),
+    "",
+    `⏳ ${bold(fmt(pend.length))} ${b(ctx, "pending", "menunggu")} • ✅ ${bold(fmt(appr))} approved • ↩️ ${bold(fmt(rej))} rejected`,
+  ];
+  for (const r of pend.slice(0, 5)) {
+    lines.push(`📝 ${bold(String(r.sku || "?"))} ${r.prevQty}→${r.qty} — ${String(r.delivery_no || "")} K${Number(r.koli_index) + 1} (${String(r.by || "?").split("@")[0]})`);
+  }
+  if (!revs.length) lines.push("", b(ctx, "No revisions recorded yet.", "Belum ada revisi tercatat."));
+  return lines.join("\n");
+}
+
+// ── Audit sample for a delivery date ──
+export function auditReport(ctx: CopilotContext, date: string): string {
+  const rows = ctx.data.filter((r) => deliveryDateOf(r) === date && isAuditSample(String(r.delivery_no || "")));
+  const lines = [
+    bold(b(ctx, `🔍 Audit Sample — delivering ${date}`, `🔍 Sampel Audit — kirim ${date}`)),
+    "",
+    `📋 ${bold(fmt(rows.length))} ${b(ctx, "audit PLs", "PL audit")}`,
+  ];
+  for (const r of rows.slice(0, 8)) lines.push(`• ${bold(String(r.delivery_no))} — ${String(r.outlet || "?")} (${String(r.checker || "?")})`);
+  if (rows.length > 8) lines.push(b(ctx, `…and ${rows.length - 8} more — open Digital PL to pick.`, `…dan ${rows.length - 8} lagi — buka Digital PL untuk memilih.`));
+  if (!rows.length) lines.push("", b(ctx, "No audit-sampled PLs delivering that day.", "Tidak ada PL sampel audit yang kirim hari itu."));
+  return lines.join("\n");
 }
 
 // Previous-period helper (for checker comparisons)

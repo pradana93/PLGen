@@ -3,9 +3,11 @@
 
 import type { CopilotContext, CopilotIntent, IntentMatch, PLEntry, Timeframe } from "./types";
 import {
-  ANOMALY_PATTERNS, CHECKER_PATTERNS, GREETING_PATTERNS, HELP_PATTERNS, OUTLET_PATTERNS,
+  ANOMALY_PATTERNS, AUDIT_PATTERNS, CHECKER_PATTERNS, DELIVERY_PATTERNS, DUS_PATTERNS,
+  GREETING_PATTERNS, HELP_PATTERNS, OUTLET_PATTERNS, REVIEW_PATTERNS,
   SKU_PATTERNS, STOCK_PATTERNS, SUMMARY_PATTERNS, TEAM_PATTERNS, TIMEFRAME_PATTERNS,
   TREND_PATTERNS, DEFAULT_TIMEFRAME, findChecker, findOutlet, findSku, normalize,
+  deliveryDateFromText,
 } from "./knowledge";
 
 // ── Timeframe helpers ──
@@ -18,6 +20,8 @@ export function timeframeFromText(text: string): Timeframe | null {
 }
 
 export function periodRange(tf: Timeframe, now: Date = new Date()): { start: Date; end: Date } {
+  // Anchor day boundaries to WIB wall clock (codebase idiom; no-op on WIB-local devices).
+  now = new Date(new Date(now.getTime()).toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
   const start = new Date(now);
   const end = new Date(now);
   const day = 24 * 60 * 60 * 1000;
@@ -25,6 +29,15 @@ export function periodRange(tf: Timeframe, now: Date = new Date()): { start: Dat
     case "today":
       start.setHours(0, 0, 0, 0);
       break;
+    case "tomorrow": {
+      const tmr = new Date(now.getTime() + day);
+      tmr.setHours(0, 0, 0, 0);
+      start.setTime(tmr.getTime());
+      const tmrEnd = new Date(tmr.getTime());
+      tmrEnd.setHours(23, 59, 59, 999);
+      end.setTime(tmrEnd.getTime());
+      break;
+    }
     case "yesterday":
       start.setTime(now.getTime() - day);
       start.setHours(0, 0, 0, 0);
@@ -115,7 +128,23 @@ export function classify(text: string, ctx: CopilotContext): IntentMatch {
     anomaly: score(ANOMALY_PATTERNS),
     team: score(TEAM_PATTERNS),
     trend: score(TREND_PATTERNS),
+    dus: score(DUS_PATTERNS),
+    delivery: score(DELIVERY_PATTERNS),
+    review: score(REVIEW_PATTERNS),
+    audit: score(AUDIT_PATTERNS),
   };
+  const explicitDate = deliveryDateFromText(text);
+
+  // Review / audit / explicit-date delivery win outright — specific beats general
+  if (s.review >= 1 && s.checker === 0) {
+    return { intent: { type: "review" }, confidence: 0.88 };
+  }
+  if (s.audit >= 1) {
+    return { intent: { type: "audit", date: explicitDate || deliveryDateFromText(text, { todayOk: true }) || deliveryDateFromText("tomorrow") }, confidence: 0.88 };
+  }
+  if (explicitDate) {
+    return { intent: { type: "delivery", date: explicitDate }, confidence: 0.88 };
+  }
 
   // Checker has entity → checker intent regardless of pattern score
   if (checker && s.checker + s.summary >= 1) {
@@ -133,12 +162,16 @@ export function classify(text: string, ctx: CopilotContext): IntentMatch {
     return { intent: { type: "sku" }, confidence: 0.8 };
   }
 
-  const max = Math.max(s.summary, s.checker, s.outlet, s.sku, s.stock, s.anomaly, s.team, s.trend);
+  const max = Math.max(s.summary, s.checker, s.outlet, s.sku, s.stock, s.anomaly, s.team, s.trend, s.dus, s.delivery, s.review, s.audit);
   if (max === 0) return { intent: { type: "fallback" }, confidence: 0.1 };
 
-  // Pick highest; tie-break order matters (summary before trends)
+  // Pick highest; tie-break order matters (specific new intents before general ones)
   const pick = (name: keyof typeof s, intent: CopilotIntent) => (s[name] === max ? { intent, confidence: 0.5 + s[name] * 0.15 } : null);
   return (
+    pick("review", { type: "review" }) ||
+    pick("audit", { type: "audit", date: explicitDate || deliveryDateFromText(text, { todayOk: true }) || deliveryDateFromText("tomorrow") }) ||
+    pick("dus", { type: "dus", period: tf || DEFAULT_TIMEFRAME.dus }) ||
+    pick("delivery", { type: "delivery", date: explicitDate || deliveryDateFromText(text, { todayOk: true }) || deliveryDateFromText("tomorrow") }) ||
     pick("anomaly", { type: "anomaly" }) ||
     pick("stock", { type: "stock" }) ||
     pick("team", { type: "team" }) ||
@@ -211,6 +244,7 @@ export function L(ctx: CopilotContext, key: string): string {
     period: { en: "Period", id: "Periode" },
     week: { en: "this week", id: "minggu ini" },
     today: { en: "today", id: "hari ini" },
+    tomorrow: { en: "tomorrow", id: "besok" },
     yesterday: { en: "yesterday", id: "kemarin" },
     month: { en: "this month", id: "bulan ini" },
     lastWeek: { en: "last week", id: "minggu lalu" },
@@ -227,6 +261,7 @@ export function L(ctx: CopilotContext, key: string): string {
 export function tfLabel(tf: Timeframe, ctx: CopilotContext): string {
   switch (tf) {
     case "today": return L(ctx, "today");
+    case "tomorrow": return L(ctx, "tomorrow");
     case "yesterday": return L(ctx, "yesterday");
     case "week": return L(ctx, "week");
     case "last_week": return L(ctx, "lastWeek");
