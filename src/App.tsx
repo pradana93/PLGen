@@ -16,6 +16,7 @@ import { LanguageProvider, useLanguage } from "./i18n";
 import Copilot from "./components/Copilot";
 import FeedbackModal from "./components/FeedbackModal";
 import BootstrapSplash from "./components/BootstrapSplash";
+import IdleLock, { LOCK_NOW_EVENT } from "./components/IdleLock";
 import RankBadge from "./components/RankBadge";
 import { getExportDest, setExportDest, driveStatus, driveConnect, driveDisconnect, type ExportDest } from "./lib/drive";
 import { expFetchMe, badgeForLevel, isExpEligible, type ExpMe } from "./lib/exp";
@@ -199,6 +200,7 @@ function Nav(){
                       )}
                     </div>
                     <button onClick={()=> { setProfileOpen(false); (window as any).__openFeedback?.(); }} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white text-xs font-extrabold hover:from-black hover:to-[#0f1e2e] transition flex items-center justify-center gap-1.5">💬 Send Feedback</button>
+                    <button onClick={()=> { setProfileOpen(false); window.dispatchEvent(new Event(LOCK_NOW_EVENT)); }} className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-extrabold hover:bg-slate-50 transition flex items-center justify-center gap-1.5">🔒 {t("idle.lockNow")}</button>
                     <div className="flex items-center gap-2 pt-1">
                       <Link to="/admin" onClick={()=> setProfileOpen(false)} className="flex-1 text-center px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-extrabold hover:bg-black transition">View Admin</Link>
                       <button onClick={()=> { setProfileOpen(false); signOut(); }} className="flex-1 px-3 py-2 rounded-xl bg-white border border-red-200 text-red-600 text-xs font-extrabold hover:bg-red-50 transition">{t("nav.logout")}</button>
@@ -260,6 +262,7 @@ function AppRoutes(){
     <>
       <Nav />
       <UpdateBanner />
+      <IdleLock />
       <Copilot />
       <FeedbackModal open={feedbackOpen} onClose={()=> setFeedbackOpen(false)} />
       {driveFlash && (
