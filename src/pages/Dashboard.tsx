@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePackingStore } from "../store/usePackingStore";
 import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
@@ -25,6 +25,9 @@ export default function Dashboard(){
   const [toast, setToast] = useState<string|null>(null);
   const [editingNote, setEditingNote] = useState<string|null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Enter-counter: dragleave fires when crossing onto child elements too —
+  // without this the active state strobes (the "shake"). File handling untouched.
+  const dragCount = useRef(0);
   const [shortage, setShortage] = useState<null | { shortages: {sku:string, req:number, avail:number, short:number}[], pending: typeof order, company: "BBB"|"BBT", fileName: string }>(null);
   const [outletGuard, setOutletGuard] = useState<null | { outlet: string, similar: string[], onConfirm: (final:string)=>void }>(null);
 
@@ -267,7 +270,7 @@ export default function Dashboard(){
   const handleFile = async (file: File)=> handleFiles([file]);
 
   const onDrop = (e: React.DragEvent)=>{
-    e.preventDefault(); setDragOver(false);
+    e.preventDefault(); dragCount.current = 0; setDragOver(false);
     const files = Array.from(e.dataTransfer.files || []);
     if(files.length===1) handleFile(files[0]);
     else if(files.length>1) handleFiles(files);
@@ -372,10 +375,11 @@ export default function Dashboard(){
               <button key={val} onClick={()=> setFilter(val)} className={`px-2 py-1 text-xs rounded-full font-bold border ${filter===val?"bg-[#2c3e50] text-white":"bg-white"}`}>{label}</button>
             ))}
           </div>
-          {/* Dropzone — drag-over plays the koli box drop-in (CSS only, handlers untouched) */}
+          {/* Dropzone — drag-over plays the koli box drop-in (CSS only, file handling untouched) */}
           <div
-            onDragOver={e=>{e.preventDefault(); setDragOver(true)}}
-            onDragLeave={()=> setDragOver(false)}
+            onDragEnter={e=>{e.preventDefault(); dragCount.current++; setDragOver(true);}}
+            onDragOver={e=>{e.preventDefault();}}
+            onDragLeave={()=>{ dragCount.current=Math.max(0,dragCount.current-1); if(dragCount.current===0) setDragOver(false); }}
             onDrop={onDrop}
             className={`border-2 rounded-xl p-4 text-center mb-3 min-h-[152px] flex flex-col items-center justify-center transition-colors duration-150 ${dragOver?"dz-active bg-green-50 border-solid border-green-500 scale-[1.02]":"bg-[#f9fafb] border-dashed border-gray-300"}`}
           >
