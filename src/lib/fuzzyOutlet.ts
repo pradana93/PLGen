@@ -13,6 +13,7 @@ export type OutletMatch = {
   score: number;               // 0..1
   confidence: OutletConfidence;
   candidates: OutletCandidate[];
+  learned?: boolean;           // came from a remembered mapping, not fuzzy similarity
 };
 
 // Word abbreviations seen on warehouse paperwork (left) → Master Data wording (right).
@@ -151,7 +152,7 @@ export function matchOutlet(raw: string, outletKeys: string[], aliases?: Record<
 
   const learned = aliases?.[normalized];
   if (learned && outletKeys.includes(learned)) {
-    return { raw, normalized, key: learned, score: 1, confidence: "high", candidates: [{ key: learned, score: 1 }] };
+    return { raw, normalized, key: learned, score: 1, confidence: "high", candidates: [{ key: learned, score: 1 }], learned: true };
   }
 
   const scored: OutletCandidate[] = normIndex
