@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPut } from "../lib/api";
 import { expFetchBoard, expMatch, badgeForLevel, isExpEligible, type ExpEntry } from "../lib/exp";
 import RankBadge from "../components/RankBadge";
@@ -12,6 +12,8 @@ import {
 } from "recharts";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
+import { buildZip } from "../lib/zip";
+import type { ZipEntry } from "../lib/zip";
 
 type Summary = {
   topSku: { sku: string; qty: number; kg: number; uom: string }[];
@@ -56,6 +58,17 @@ export default function LiveBoard(){
   const [checkers, setCheckers]=useState<string[]>([]);
   const [editingChecker, setEditingChecker]=useState<string|null>(null);
   const [editCheckerVal, setEditCheckerVal]=useState<string>("");
+  // ── Exported PL Archive: bulk selection ──
+  const [archSel, setArchSel]=useState<Set<string>>(new Set());
+  const [archPageSize, setArchPageSize]=useState<number>(200);
+  const [archPage, setArchPage]=useState(1);
+  const [fileStatus, setFileStatus]=useState<Record<string, {hasFile:boolean; fileCount:number}>>({});
+  const [zipBusy, setZipBusy]=useState<{done:number; total:number; label:string}|null>(null);
+  const [delBusy, setDelBusy]=useState<{done:number; total:number; label:string}|null>(null);
+  const [delConfirm, setDelConfirm]=useState(false);
+  const [bulkReport, setBulkReport]=useState<{title:string; head?:string[]; rows:{key:string; ok:boolean; note?:string}[]}|null>(null);
+  const archLastClickRef=useRef<number|null>(null);
+  const cancelRef=useRef(false);
   // EXP flex tags (Admin/Operator only) — best-effort alias match, miss renders nothing
   const [expBoard, setExpBoard]=useState<ExpEntry[]>([]);
   useEffect(()=>{
@@ -127,6 +140,136 @@ export default function LiveBoard(){
       alert(`Deleted ${deliveryNo} — ${j.deleted?.packing_status||0} PL, ${j.deleted?.item_usage||0} usage, ${j.deleted?.files||0} files`);
       fetchAll();
     }catch(e:any){ alert(`Delete failed: ${e.message||e}`); }
+  };
+
+  // ── Exported PL Archive: bulk actions ─────────────────────────────────────
+  // Both reuse the SAME per-row endpoints the single buttons use (download stream and the
+  // SuperAdmin cascade delete), paced 3 at a time with progress + cancel. No new delete
+  // semantics, no change to the existing single-row paths.
+  const archPace = async (list:any[], conc:number, fn:(item:any, i:number)=>Promise<void>)=>{
+    let i = 0;
+    const worker = async ()=>{
+      while (i < list.length && !cancelRef.current) {
+        const idx = i++;
+        await fn(list[idx], idx);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(conc, list.length) }, worker));
+  };
+  const archSafeName = (no:string, outlet:string, used:Set<string>)=>{
+    const base = `${no.replace(/[\\/:*?"<>|]/g,"-")}_${String(outlet||"").replace(/[\\/:*?"<>|]/g,"-")}`.replace(/\s+/g," ").trim();
+    let name = `${base}.xlsx`;
+    let n = 2;
+    while (used.has(name)) name = `${base} (${n++}).xlsx`;
+    used.add(name);
+    return name;
+  };
+
+  const bulkDownload = async ()=>{
+    const list = archSelectedRows;
+    if (!list.length) return;
+    const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+    const entries: ZipEntry[] = [];
+    const rows: {key:string; ok:boolean; note?:string}[] = [];
+    const used = new Set<string>();
+    let done = 0;
+    cancelRef.current = false;
+    setZipBusy({ done: 0, total: list.length, label: "" });
+    await archPace(list, 3, async (a:any)=>{
+      const no = String(a.delivery_no);
+      try {
+        const r = await fetch(`${base}/api/packing_lists/${encodeURIComponent(no)}/download`);
+        const ct = r.headers.get("Content-Type") || "";
+        if (!r.ok) {
+          let msg = `HTTP ${r.status}`;
+          if (ct.includes("application/json")) { const j = await r.json().catch(()=>({})) as any; msg = j?.error || msg; }
+          rows.push({ key: no, ok: false, note: r.status===404 ? "no file in archive" : msg });
+        } else if (ct.includes("application/json")) {
+          // Signed-URL fallback path — pull the bytes straight from Supabase Storage.
+          const j = await r.json().catch(()=>({})) as any;
+          if (!j?.url) rows.push({ key: no, ok: false, note: "no signed url" });
+          else {
+            const r2 = await fetch(j.url);
+            if (!r2.ok) rows.push({ key: no, ok: false, note: `storage HTTP ${r2.status}` });
+            else { entries.push({ name: archSafeName(no, a.outlet, used), data: new Uint8Array(await r2.arrayBuffer()) }); rows.push({ key: no, ok: true }); }
+          }
+        } else {
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          if (!bytes.length) rows.push({ key: no, ok: false, note: "empty file" });
+          else { entries.push({ name: archSafeName(no, a.outlet, used), data: bytes }); rows.push({ key: no, ok: true }); }
+        }
+      } catch (e:any) {
+        rows.push({ key: no, ok: false, note: e?.message || String(e) });
+      }
+      done++;
+      setZipBusy({ done, total: list.length, label: no });
+    });
+    setZipBusy(null);
+    const ok = rows.filter((r)=> r.ok).length;
+    const bad = rows.filter((r)=> !r.ok);
+    if (ok) {
+      const summary = [
+        "PLGen — Exported PL Archive bulk download",
+        `Generated : ${new Date().toISOString()}`,
+        `Selected  : ${list.length}`,
+        `Included  : ${ok}`,
+        `Skipped   : ${bad.length}${cancelRef.current ? " (cancelled early)" : ""}`,
+        "",
+        "Skipped entries:",
+        ...(bad.length ? bad.map((r)=> `  ${r.key} — ${r.note||"error"}`) : ["  (none)"]),
+        "",
+        "Files in this ZIP:",
+        ...entries.map((e)=> `  ${e.name}`),
+      ].join("\r\n");
+      entries.push({ name: "_SUMMARY.txt", data: new TextEncoder().encode(summary) });
+      const stamp = new Date().toISOString().slice(0,10);
+      saveAs(buildZip(entries), `PL_Archive_${stamp}_${ok}files.zip`);
+    }
+    setBulkReport({
+      title: ok ? `Bulk download — ${ok} file(s) packed into one ZIP` : "Bulk download — no files were packed",
+      head: [`selected ${list.length}`, `included ${ok}`, `skipped ${bad.length}${cancelRef.current ? " (cancelled)" : ""}`],
+      rows,
+    });
+  };
+
+  const bulkDelete = async ()=>{
+    if (!isSuperAdmin) return alert("Only SuperAdmin can delete.");
+    const list = archSelectedRows;
+    if (!list.length) return;
+    setDelConfirm(false);
+    const base = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:4000");
+    const { data } = await supabase.auth.getSession() as any;
+    const token = data?.session?.access_token;
+    const rows: {key:string; ok:boolean; note?:string}[] = [];
+    const tot = { packing: 0, usage: 0, files: 0 };
+    let done = 0;
+    cancelRef.current = false;
+    setDelBusy({ done: 0, total: list.length, label: "" });
+    await archPace(list, 3, async (a:any)=>{
+      const no = String(a.delivery_no);
+      try {
+        const r = await fetch(`${base}/api/packing_lists/${encodeURIComponent(no)}`, { method: "DELETE", headers: token ? { Authorization: `Bearer ${token}` } : {} as any });
+        const j = await r.json().catch(()=>({})) as any;
+        if (!r.ok) rows.push({ key: no, ok: false, note: j?.error || `HTTP ${r.status}` });
+        else {
+          tot.packing += j?.deleted?.packing_status || 0;
+          tot.usage += j?.deleted?.item_usage || 0;
+          tot.files += j?.deleted?.files || 0;
+          rows.push({ key: no, ok: true });
+        }
+      } catch (e:any) { rows.push({ key: no, ok: false, note: e?.message || String(e) }); }
+      done++;
+      setDelBusy({ done, total: list.length, label: no });
+    });
+    setDelBusy(null);
+    const ok = rows.filter((r)=> r.ok).length;
+    archClearSel();
+    await fetchAll();
+    setBulkReport({
+      title: `Bulk delete — ${ok} PL removed${cancelRef.current ? " (stopped early)" : ""}`,
+      head: [`packing_status rows ${tot.packing}`, `item_usage rows ${tot.usage}`, `storage files ${tot.files}`],
+      rows,
+    });
   };
 
   const handleCheckerUpdate = async (deliveryNo:string)=>{
@@ -284,10 +427,76 @@ export default function LiveBoard(){
   };
   const liveTotalPages = Math.max(1, Math.ceil(liveTotal / livePageSize));
   const livePaginated = filtered.slice((livePage-1)*livePageSize, livePage*livePageSize);
-  const filteredArchive = archive.filter((a:any)=>{
+  // Memoised so the archive selection memos below keep a stable identity.
+  // The filter expression itself is unchanged — only the memo wrapper is new.
+  const filteredArchive = useMemo(()=> archive.filter((a:any)=>{
     const hit = !archiveFilter || String(a.outlet||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.delivery_no||"").toLowerCase().includes(archiveFilter.toLowerCase()) || String(a.checker||"").toLowerCase().includes(archiveFilter.toLowerCase());
     return hit && inCalendarRange(String(a.created_at||""));
+  }), [archive, archiveFilter, dateFrom, dateTo]);
+
+  // ── Exported PL Archive: paging + bulk selection ──
+  // Replaces the old hard-coded slice(0,200) so every row a user selects can actually be seen.
+  const archPageCount = Math.max(1, Math.ceil(filteredArchive.length / archPageSize));
+  const archSafePage = Math.min(archPage, archPageCount);
+  const archVisible = filteredArchive.slice((archSafePage-1)*archPageSize, archSafePage*archPageSize);
+  const archVisibleNos = archVisible.map((a:any)=> String(a.delivery_no));
+  const archVisibleKey = archVisibleNos.join("|");
+  const archSelectedRows = filteredArchive.filter((a:any)=> archSel.has(String(a.delivery_no)));
+  const archSelCount = archSelectedRows.length;
+  const archHiddenSelected = archSelectedRows.filter((a:any)=> !archVisibleNos.includes(String(a.delivery_no))).length;
+  const archPageAllSelected = archVisibleNos.length>0 && archVisibleNos.every((n)=> archSel.has(n));
+  const archFilteredAllSelected = filteredArchive.length>0 && filteredArchive.every((a:any)=> archSel.has(String(a.delivery_no)));
+  const bulkBusy = delBusy || zipBusy;
+  // ✅ column: prefer the lazy per-page probe, fall back to whatever the list endpoint said.
+  const archHasFile = (a:any): boolean => fileStatus[String(a.delivery_no)]?.hasFile ?? !!a.hasFile;
+
+  useEffect(()=>{ setArchPage(1); },[archiveFilter, dateFrom, dateTo, archPageSize]);
+
+  // Bounded lazy file-presence check for the visible page only.
+  useEffect(()=>{
+    const nos = archVisibleKey ? archVisibleKey.split("|") : [];
+    if (!nos.length) return;
+    let cancelled = false;
+    const chunks: string[][] = [];
+    for (let i=0;i<nos.length;i+=250) chunks.push(nos.slice(i, i+250));
+    (async()=>{
+      for (const c of chunks) {
+        try {
+          const r:any = await apiGet(`/api/packing_lists/file_status?nos=${encodeURIComponent(c.join(","))}`);
+          if (cancelled) return;
+          if (r?.files) setFileStatus((prev)=> ({ ...prev, ...r.files }));
+        } catch {}
+      }
+    })();
+    return ()=>{ cancelled = true; };
+  }, [archVisibleKey]);
+
+  const archToggle = (no:string, idx:number, shift:boolean)=>{
+    setArchSel((prev)=>{
+      const nx = new Set(prev);
+      if (shift && archLastClickRef.current!==null) {
+        const from = Math.min(archLastClickRef.current, idx);
+        const to = Math.max(archLastClickRef.current, idx);
+        const target = !nx.has(no);
+        for (let k=from;k<=to;k++) {
+          const n = archVisibleNos[k];
+          if (!n) continue;
+          if (target) nx.add(n); else nx.delete(n);
+        }
+      } else if (nx.has(no)) nx.delete(no);
+      else nx.add(no);
+      return nx;
+    });
+    archLastClickRef.current = idx;
+  };
+  const archTogglePage = ()=> setArchSel((prev)=>{
+    const nx = new Set(prev);
+    if (archVisibleNos.every((n)=> nx.has(n))) archVisibleNos.forEach((n)=> nx.delete(n));
+    else archVisibleNos.forEach((n)=> nx.add(n));
+    return nx;
   });
+  const archSelectAllFiltered = ()=> setArchSel(new Set(filteredArchive.map((a:any)=> String(a.delivery_no))));
+  const archClearSel = ()=>{ setArchSel(new Set()); archLastClickRef.current = null; };
 
   const topSkuDisplay = useMemo(()=>{
     if(!summary) return [];
@@ -830,8 +1039,36 @@ export default function LiveBoard(){
                   <p className="text-[11px] text-slate-400 font-medium">{archive.length} files · Supabase Storage</p>
                 </div>
               </div>
-              <input value={archiveFilter} onChange={e=> setArchiveFilter(e.target.value)} placeholder="Filter outlet / DO..." className="border border-slate-200 rounded-xl px-4 py-2 text-xs font-medium w-52 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all bg-slate-50 placeholder:text-slate-300" />
+              <div className="flex items-center gap-2">
+                <select value={archPageSize} onChange={e=> setArchPageSize(Number(e.target.value))} className="border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-500 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20" title="Rows per page">
+                  <option value={100}>100 / page</option>
+                  <option value={200}>200 / page</option>
+                  <option value={500}>500 / page</option>
+                  <option value={99999}>All</option>
+                </select>
+                <input value={archiveFilter} onChange={e=> setArchiveFilter(e.target.value)} placeholder="Filter outlet / DO..." className="border border-slate-200 rounded-xl px-4 py-2 text-xs font-medium w-52 focus:outline-none focus:ring-2 focus:ring-[#2c3e50]/20 focus:border-[#2c3e50]/40 transition-all bg-slate-50 placeholder:text-slate-300" />
+              </div>
             </div>
+            {(archSelCount > 0) && (
+              <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2.5 rounded-xl bg-[#1a252f] text-white flex-wrap">
+                <div className="text-xs font-bold">
+                  {archSelCount} selected
+                  {archHiddenSelected>0 && <span className="font-medium text-slate-300"> · {archHiddenSelected} not on this page</span>}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={()=> void bulkDownload()} className="text-[11px] font-black px-3 py-1.5 rounded-lg bg-white text-[#1a252f] hover:bg-slate-100 transition active:scale-95">⬇ Download ZIP</button>
+                  {isSuperAdmin && <button onClick={()=> setDelConfirm(true)} className="text-[11px] font-black px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 transition active:scale-95">🗑 Delete</button>}
+                  <button onClick={ archClearSel } className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-white/10 text-slate-200 hover:bg-white/20 transition active:scale-95">Clear</button>
+                </div>
+              </div>
+            )}
+            {filteredArchive.length > archVisible.length && !archFilteredAllSelected && (
+              <div className="mb-3 text-[11px] text-slate-500 font-medium">
+                Showing {archVisible.length} of {filteredArchive.length} matching files —{" "}
+                <button onClick={ archSelectAllFiltered } className="font-bold text-[#3498db] hover:underline">select all {filteredArchive.length}</button>
+                {archSelCount>0 && <>{", "}<button onClick={ archClearSel } className="font-bold text-slate-500 hover:underline">clear selection</button></>}
+              </div>
+            )}
             {filteredArchive.length===0 ? (
               <div className="text-center py-12 text-slate-300">
                 <div className="text-3xl mb-2">📁</div>
@@ -842,6 +1079,9 @@ export default function LiveBoard(){
                 <table className="w-full text-xs">
                   <thead className="bg-gradient-to-r from-slate-50 to-slate-100/80 sticky top-0">
                     <tr>
+                      <th className="px-3 py-3 w-8">
+                        <input type="checkbox" checked={archPageAllSelected} onChange={ archTogglePage } title="Select this page" className="w-3.5 h-3.5 accent-[#1a252f] cursor-pointer" />
+                      </th>
                       <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Delivery No</th>
                       <th className="px-3 py-3 text-left font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Outlet</th>
                       <th className="px-3 py-3 font-extrabold text-[10px] tracking-widest text-slate-400 uppercase">Checker</th>
@@ -853,8 +1093,17 @@ export default function LiveBoard(){
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredArchive.slice(0,200).map((a:any)=>(
-                      <tr key={a.delivery_no} className="border-t border-slate-50 lb-row-hover">
+                    {archVisible.map((a:any, rowIdx:number)=>(
+                      <tr key={a.delivery_no} className={`border-t border-slate-50 lb-row-hover ${archSel.has(String(a.delivery_no)) ? "bg-slate-100/70" : ""}`}>
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={archSel.has(String(a.delivery_no))}
+                            onChange={(e)=> archToggle(String(a.delivery_no), rowIdx, (e.nativeEvent as any).shiftKey)}
+                            title="Shift-click to select a range"
+                            className="w-3.5 h-3.5 accent-[#1a252f] cursor-pointer"
+                          />
+                        </td>
                         <td className="px-3 py-2.5 font-mono font-bold text-[#1a252f]">{a.delivery_no}</td>
                         <td className="px-3 py-2.5 font-medium text-slate-600">{a.outlet}</td>
                         <td className="px-3 py-2.5 text-center">
@@ -875,7 +1124,7 @@ export default function LiveBoard(){
                           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${a.status==="READY"?"bg-emerald-100 text-emerald-700 border border-emerald-200":"bg-amber-100 text-amber-700 border border-amber-200"}`}>{a.status}</span>
                         </td>
                         <td className="px-3 py-2.5 text-[11px] text-slate-400 font-medium">{a.created_at||"—"}</td>
-                        <td className="px-3 py-2.5 text-center">{a.hasFile ? <span className="text-emerald-500">✅</span> : <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-center">{archHasFile(a) ? <span className="text-emerald-500">✅</span> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button onClick={()=> handleDownload(a.delivery_no)} className="w-7 h-7 rounded-lg bg-[#1a252f] text-white flex items-center justify-center text-xs font-bold hover:bg-[#2c3e50] transition-colors shadow-sm active:scale-95" title="Download">⬇</button>
@@ -888,7 +1137,14 @@ export default function LiveBoard(){
                 </table>
               </div>
             )}
-            <div className="text-[11px] text-slate-300 mt-3 px-1">Files stored in Supabase Storage bucket <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">packing-lists</code> per delivery folder — downloadable via signed URL (1h) or direct stream. Auto-upload on every Dashboard export.</div>
+            {archPageCount > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-3">
+                <button disabled={archSafePage<=1} onClick={()=> setArchPage(Math.max(1, archSafePage-1))} className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 disabled:opacity-40 hover:bg-slate-50 transition">‹ Prev</button>
+                <span className="text-[11px] font-bold text-slate-500">Page {archSafePage} / {archPageCount}</span>
+                <button disabled={archSafePage>=archPageCount} onClick={()=> setArchPage(Math.min(archPageCount, archSafePage+1))} className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 disabled:opacity-40 hover:bg-slate-50 transition disabled:cursor-not-allowed">Next ›</button>
+              </div>
+            )}
+            <div className="text-[11px] text-slate-300 mt-3 px-1">Files stored in Supabase Storage bucket <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-400">packing-lists</code> per delivery folder — downloadable via signed URL (1h) or direct stream. Auto-upload on every Dashboard export. Tick rows to download them as one ZIP{isSuperAdmin ? " or delete them in bulk (SuperAdmin only, also updates Data Report)" : " (delete is SuperAdmin only)"}.</div>
           </div>
         </div>
 
@@ -1130,6 +1386,69 @@ export default function LiveBoard(){
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Exported PL Archive: bulk progress / delete confirm / report ── */}
+      {bulkBusy && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5">
+            <div className="font-black text-[#1a252f] text-sm">{delBusy ? "🗑 Deleting PLs…" : "⬇ Packing ZIP…"}</div>
+            <div className="text-[11px] text-slate-500 mt-1">{bulkBusy.done}/{bulkBusy.total}{bulkBusy.label ? ` — ${bulkBusy.label}` : ""}</div>
+            <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className={`h-full transition-all ${delBusy ? "bg-red-500" : "bg-[#3498db]"}`} style={{ width: `${bulkBusy.total ? Math.round((bulkBusy.done/bulkBusy.total)*100) : 0}%` }} />
+            </div>
+            <button onClick={()=>{ cancelRef.current = true; }} className="mt-4 w-full bg-gray-200 rounded-lg py-2 font-bold text-xs text-slate-600 hover:bg-gray-300 transition">Stop after current file</button>
+          </div>
+        </div>
+      )}
+
+      {delConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]" onClick={()=> setDelConfirm(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden" onClick={e=> e.stopPropagation()}>
+            <div className="bg-red-50 border-b border-red-100 px-5 py-4">
+              <div className="font-black text-red-700 text-sm">🗑 Delete {archSelCount} PL permanently?</div>
+              <div className="text-[11px] text-red-600/80 mt-1">SuperAdmin only · for single PL deletion use the row 🗑 button.</div>
+            </div>
+            <div className="p-5 text-xs text-slate-600 space-y-3">
+              <div>Each PL is removed from <code className="bg-slate-100 px-1 rounded">packing_status</code>, <code className="bg-slate-100 px-1 rounded">item_usage</code> and the Storage files, with one audit entry per PL.</div>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Data Report (Top 25 SKU, Top 10 Outlets, Monthly Tonnage/PL) updates automatically and those numbers cannot be recovered.</div>
+              <div className="font-mono text-[11px] text-slate-500 max-h-24 overflow-auto rounded-lg bg-slate-50 border border-slate-100 p-2">
+                {archSelectedRows.slice(0,12).map((a:any)=> <div key={a.delivery_no}>{a.delivery_no} · {a.outlet}</div>)}
+                {archSelCount > 12 && <div>…and {archSelCount-12} more</div>}
+              </div>
+            </div>
+            <div className="p-4 border-t flex gap-2">
+              <button onClick={()=> setDelConfirm(false)} className="flex-1 bg-gray-200 rounded-lg py-2 font-bold text-xs text-slate-600 hover:bg-gray-300 transition">Cancel</button>
+              <button onClick={()=> void bulkDelete()} className="flex-1 bg-red-500 text-white rounded-lg py-2 font-black text-xs hover:bg-red-600 transition">Delete {archSelCount} PL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkReport && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-[60]" onClick={()=> setBulkReport(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-xl overflow-hidden" onClick={e=> e.stopPropagation()}>
+            <div className="bg-slate-50 p-4 border-b">
+              <div className="text-base font-extrabold text-[#1a252f]">{bulkReport.title}</div>
+              {bulkReport.head?.length ? <div className="text-[11px] text-slate-500 mt-1">{bulkReport.head.join(" · ")}</div> : null}
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+              {bulkReport.rows.map((r,i)=> (
+                <div key={i} className="px-4 py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-[#1a252f] truncate">{r.key}</div>
+                    {r.note && <div className="text-[10px] text-slate-400 truncate">{r.note}</div>}
+                  </div>
+                  <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-full border ${r.ok ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200"}`}>{r.ok ? "OK" : "SKIPPED"}</span>
+                </div>
+              ))}
+              {bulkReport.rows.length===0 && <div className="px-4 py-3 text-xs text-slate-400">—</div>}
+            </div>
+            <div className="p-4 border-t">
+              <button onClick={()=> setBulkReport(null)} className="w-full bg-gray-200 rounded-lg py-2 font-bold text-xs text-slate-600 hover:bg-gray-300 transition">Close</button>
             </div>
           </div>
         </div>

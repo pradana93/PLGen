@@ -1894,6 +1894,29 @@ app.get("/api/packing_lists/:delivery_no/download", async (req, res) => {
     return res.status(500).json({ error: e?.message || "Download error" });
   }
 });
+// Lazy per-page file presence check — additive companion to GET /api/packing_lists.
+// The list endpoint only probes its first 100 deliveries (deliberately left untouched so no
+// other consumer changes behaviour); the Exportar PL Archive asks for just the rows it is
+// showing, bounded to 250 ids per call, so a large archive cannot burst Supabase Storage.
+app.get("/api/packing_lists/file_status", async (req, res) => {
+  const raw = String((req.query as any).nos || "").trim();
+  if (!raw) return res.json({ status: "ok", checked: 0, files: {} });
+  const nos = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 250);
+  const files: Record<string, { hasFile: boolean; fileCount: number }> = {};
+  try {
+    const sb = await getSupabase();
+    if (!sb) return res.json({ status: "ok", checked: 0, files: {}, error: "Storage not configured" });
+    await Promise.all(nos.map(async (delivery: string) => {
+      try {
+        const { data } = await sb.storage.from("packing-lists").list(delivery, { limit: 5 } as any);
+        files[delivery] = { hasFile: !!(data && data.length), fileCount: (data || []).length };
+      } catch {
+        files[delivery] = { hasFile: false, fileCount: 0 };
+      }
+    }));
+  } catch {}
+  res.json({ status: "ok", checked: nos.length, files });
+});
 // Super Admin-only cascade delete — removes PL from packing_status, item_usage, and Storage (archive)
 // Rest of Data Report (Top SKU, Tonnage, Monthly) automatically reflects deletion because they read from those tables — non-breaking additive
 app.delete("/api/packing_lists/:delivery_no", requireSupabaseAdmin, async (req, res) => {
