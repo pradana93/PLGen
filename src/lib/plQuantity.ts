@@ -1,50 +1,41 @@
 // Dashboard v2 (Phase 3) — document quantity → packing quantity.
 //
-// Per the Phase 3 decisions:
-//   • multipliers follow Dashboard v1's scan logic (Beef Patty ×18,
-//     Thousand Island Mayonaise ×20, Butter ×40)
-//   • a "DUS-20" Satuan means the Kuantitas is expressed in dus of 20 → ×20
+// The rule below is Dashboard v1's, verified per SKU against delivered v1 packing
+// lists generated from the same documents (PL/BBB|BBT/16102026/001…006):
+//   • the multiplier table matches the resolved SKU name EXACTLY — the four plain
+//     names below. "(BBT)"-named SKUs (what the IT file resolves to by kode) keep
+//     the document quantity, exactly as v1 printed them.
+//   • "DUS-20" is a Satuan, not a multiplier — v1 applies no DUS-n conversion.
 //   • "Dus …" lines that are NOT Master Data SKUs are packaging material and are
 //     ignored, while a real SKU such as "Dus Hampers" is kept
 //
 // Pure functions only. NOT imported by Dashboard v1, scanner.ts, packing.ts or the
 // exporters — the core packing math is untouched.
 
-import { dusMultiplier } from "./groupScan";
 import type { GroupItem, MergedGroup } from "./groupScan";
 import type { Order } from "./packing";
 
-// Same products Dashboard v1 multiplies after a scan (packages → pieces).
+// Exactly the names Dashboard v1 multiplies after a scan (packages → pieces).
+// No "(BBT)" wording on purpose: v1's PLs leave every BBT line at ×1.
 const MULTIPLIERS: Record<string, number> = {
   "BEEF PATTY SMALL": 18,
   "BEEF PATTY LARGE": 18,
   "THOUSAND ISLAND MAYONAISE": 20,
   "BUTTER": 40,
-  // BBT wording of the same product — the IT file resolves kode 100008 to this SKU.
-  "THOUSAND ISLAND": 20,
 };
 
-export function baseSkuName(sku: string): string {
-  return String(sku || "")
-    .toUpperCase()
-    .replace(/\((BBT|FREE|FREE ITEM)\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function itemMultiplier(sku: string): number {
-  return MULTIPLIERS[baseSkuName(sku)] ?? 1;
+  return MULTIPLIERS[String(sku || "").trim().toUpperCase()] ?? 1;
 }
 
-export type QtyBreakdown = { sku: string; raw: number; packMult: number; dusMult: number; qty: number };
+export type QtyBreakdown = { sku: string; raw: number; packMult: number; qty: number };
 
 /** Effective packing quantity for one document line, or null when it has no SKU. */
 export function breakdownFor(it: GroupItem): QtyBreakdown | null {
   if (!it.sku) return null;
   const raw = it.qty ?? 0;
   const packMult = itemMultiplier(it.sku);
-  const dusMult = dusMultiplier(it.uom) ?? 1;
-  return { sku: it.sku, raw, packMult, dusMult, qty: raw * packMult * dusMult };
+  return { sku: it.sku, raw, packMult, qty: raw * packMult };
 }
 
 export type GroupPlan = {

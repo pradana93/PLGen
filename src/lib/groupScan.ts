@@ -127,13 +127,9 @@ export function parseQty(raw: unknown): number | null {
 const UOM_RE = /^(pck|pcs|pc|bks|pack|dus(?:[-\s]?\d+)?|jrg|jerigen|jerrycan|box|bal|rim|bag|karton|ctn|kg|gr|gram|liter|ltr|botol|sachet|sct|karung|krt|tray|lsn|lusin|set)$/i;
 const DUS_MULT_RE = /^dus[-\s]?(\d+)$/i;
 
+// A DUS-n Satuan is a label, not a multiplier: v1 applies no conversion (verified
+// against delivered PLs — "Burger Bun 5 DUS-20" prints as 5), so we only flag it.
 export function isDusUom(uom: string): boolean { return DUS_MULT_RE.test(String(uom || "").trim()); }
-export function dusMultiplier(uom: string): number | null {
-  const m = String(uom || "").trim().match(DUS_MULT_RE);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) && n > 1 ? n : null;
-}
 export function isPackagingName(name: string): boolean { return /^\s*dus\b/i.test(String(name || "")); }
 
 export function detectEntity(textUpper: string): Entity | null {
@@ -165,7 +161,7 @@ function entityFromKind(kind: DocKind | null): Entity | null {
 const HEADER_FIELDS: { field: string; re: RegExp }[] = [
   { field: "ref", re: /^no\.?\s*pemindahan/i },
   { field: "outlet", re: /^(gudang\s*tujuan\s*\/?\s*dari|gudang\s*tujuan|tujuan\s*\/?\s*dari|customer)/i },
-  { field: "kode", re: /^(kode\s*barang|kode|item\s*code|kode\s*item)/i },
+  { field: "kode", re: /^(kode\s*barang|kode\s*item|kode|item\s*code|code\s*#?|code)/i },
   { field: "name", re: /^(nama\s*barang|item\s*name|nama\s*item|item)/i },
   { field: "uom", re: /^(satuan|uom|unit)/i },
   { field: "qty", re: /^(kuantitas|quantity|qty|jumlah)/i },
@@ -194,10 +190,15 @@ function makeResolver(master: MasterDB): Resolver {
   const byKode = new Map<string, string>();
   for (const [k, v] of Object.entries(kodeMap)) byKode.set(String(k).trim().toLowerCase(), String(v));
   const byName = new Map<string, string>();
+  // Pass 1 — exact Master Data names. An exact name always wins: v1 resolves the
+  // DO's plain names to the plain SKUs (so they keep their multiplier), while the
+  // IT file resolves by kode to the "(BBT)" twins.
+  for (const sku of Object.keys(master.BOX_CAPACITY || {})) byName.set(normName(sku), sku);
+  // Pass 2 — fallback only, never overrides an exact name (a name printed without
+  // its variant marker still resolves).
   for (const sku of Object.keys(master.BOX_CAPACITY || {})) {
-    byName.set(normName(sku), sku);
-    // also index without a trailing variant marker so "(BBT)" lines still resolve
-    byName.set(normName(sku.replace(/\((BBT|FREE|FREE ITEM)\)/gi, "")), sku);
+    const stripped = normName(sku.replace(/\((BBT|FREE|FREE ITEM)\)/gi, ""));
+    if (stripped && !byName.has(stripped)) byName.set(stripped, sku);
   }
   const resolve = (kode: string, name: string): string | null => {
     const k = String(kode || "").trim().toLowerCase();

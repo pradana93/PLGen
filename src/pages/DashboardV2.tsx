@@ -19,7 +19,7 @@ import { usePackingStore } from "../store/usePackingStore";
 import { apiGet, apiPost } from "../lib/api";
 import { calculateBoxes } from "../lib/packing";
 import type { MasterDB, Order } from "../lib/packing";
-import { parseDocuments, mergeAndMatch, dusMultiplier, isDusUom } from "../lib/groupScan";
+import { parseDocuments, mergeAndMatch, isDusUom } from "../lib/groupScan";
 import type { FileParseResult, GroupItem, MergedGroup, UnknownSku } from "../lib/groupScan";
 import { normalizeOutletName } from "../lib/fuzzyOutlet";
 import { loadAliases, learnAliases, forgetAlias, clearAliases, flatAliases, learnedEntries } from "../lib/outletAliases";
@@ -267,14 +267,14 @@ export default function DashboardV2(){
       : "bg-red-50 text-red-700 border-red-200";
   const confLabel = (c: string)=> c === "high" ? t("v2.confHigh") : c === "review" ? t("v2.confReview") : t("v2.confLow");
   const itemFlag = (it: GroupItem): string | null => {
-    if (isDusUom(it.uom)) { const m = dusMultiplier(it.uom); return m ? t("v2.itemDusMult", { m }) : t("v2.flagSatuanDus"); }
+    if (isDusUom(it.uom)) return t("v2.flagSatuanDus");
     if (it.packaging) return t("v2.flagPackaging");
     return null;
   };
   const packQtyOf = (it: GroupItem): string => {
     const b = breakdownFor(it);
     if (!b) return "—";
-    const mult = b.packMult * b.dusMult;
+    const mult = b.packMult;
     return mult === 1 ? String(b.qty) : `${b.qty} (×${mult})`;
   };
 
