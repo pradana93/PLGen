@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
+import DashboardV2 from "./pages/DashboardV2";
 import DigitalPl from "./pages/DigitalPl";
 import LiveBoard from "./pages/LiveBoard";
 import Admin from "./pages/Admin";
@@ -84,6 +85,7 @@ function Nav(){
         {/* Nav pills — centered — role-gated flagship (Super Admin immortal full, Admin Dashboard/Digital PL/Live Board, Checker Digital PL only) */}
         <div className="hidden md:flex items-center gap-1.5 ml-4 bg-black/10 border border-white/10 rounded-full p-1">
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", t("nav.dashboard"))}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/dashboard-v2", t("nav.dashboardV2"))}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/digital-pl", t("nav.digitalPl"))}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", t("nav.live"))}
           {["Super Admin"].includes(profile?.role||"") && link("/admin", t("nav.admin"))}
@@ -92,6 +94,7 @@ function Nav(){
         {/* mobile nav */}
         <div className="flex md:hidden items-center gap-1 ml-2">
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/", "Dash")}
+          {["Super Admin","Admin"].includes(profile?.role||"") && link("/dashboard-v2", "v2")}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/digital-pl", "DigiPL")}
           {["Super Admin","Admin"].includes(profile?.role||"") && link("/live", "Report")}
           {["Super Admin"].includes(profile?.role||"") && link("/admin", "Admin")}
@@ -278,6 +281,8 @@ function AppRoutes(){
         <Route path="/login" element={<Login />} />
         {/* Admin: Dashboard + Digital PL + Live Board; Checker: Digital PL only; Super Admin: all */}
         <Route path="/" element={<Protected roles={["Super Admin","Admin"]}><Dashboard /></Protected>} />
+        {/* Dashboard v2 — multi-file DO + IT parser (additive; Dashboard v1 above is untouched) */}
+        <Route path="/dashboard-v2" element={<Protected roles={["Super Admin","Admin"]}><DashboardV2 /></Protected>} />
         <Route path="/digital-pl" element={<Protected roles={["Super Admin","Admin","Checker"]}><DigitalPl /></Protected>} />
         <Route path="/live" element={<Protected roles={["Super Admin","Admin"]}><LiveBoard /></Protected>} />
         <Route path="/manifests" element={<Protected roles={["Super Admin"]}><Manifests /></Protected>} />
