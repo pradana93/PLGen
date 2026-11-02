@@ -105,8 +105,21 @@ async function fetchSupabasePackingStatus(): Promise<any[] | null> {
   try {
     const sb = await getSupabase();
     if (!sb) return null;
-    const { data, error } = await sb.from("packing_status").select("*").order("created_at", { ascending: false }).limit(2000);
-    if (!error && data) return data;
+    let all: any[] = [];
+    let start = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await sb
+        .from("packing_status")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(start, start + pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < pageSize) break;
+      start += pageSize;
+    }
+    return all;
   } catch {}
   return null;
 }
@@ -121,8 +134,21 @@ async function fetchSupabaseItemUsage(): Promise<any[] | null> {
   try {
     const sb = await getSupabase();
     if (!sb) return null;
-    const { data, error } = await sb.from("item_usage").select("*").order("timestamp", { ascending: false }).limit(5000);
-    if (!error && data) return data.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, items: r.items, timestamp: r.timestamp }));
+    let all: any[] = [];
+    let start = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await sb
+        .from("item_usage")
+        .select("*")
+        .order("timestamp", { ascending: false })
+        .range(start, start + pageSize - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < pageSize) break;
+      start += pageSize;
+    }
+    return all.map((r:any)=> ({ delivery_no: r.delivery_no, outlet: r.outlet, items: r.items, timestamp: r.timestamp }));
   } catch {}
   return null;
 }
