@@ -4,6 +4,7 @@ import { calculateBoxes, getDeliveryDateWIB } from "../lib/packing";
 import { apiGet } from "../lib/api";
 import { exportLabels, exportPackingList } from "../lib/exportExcel";
 import { getExportDest, driveStatus, driveUpload } from "../lib/drive";
+import { getLabelTemplate } from "../lib/labelPrefs";
 import { expEarn } from "../lib/exp";
 import { smartScanPdf, smartScanExcel } from "../lib/scanner";
 import { useAuth } from "../context/AuthContext";
@@ -102,7 +103,7 @@ export default function Dashboard(){
         const st = await driveStatus().catch(()=> ({ connected: false }));
         if(!st.connected) return showToast(t("drive.notConnected"));
         const pl = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0], refCombined, { skipDownload: true });
-        const lb = await exportLabels(finalOutlet, boxes, master, { skipDownload: true });
+        const lb = await exportLabels(finalOutlet, boxes, master, { skipDownload: true, template: getLabelTemplate() });
         const dateFolder = getDeliveryDateWIB(1, master.HOLIDAYS||[]).replace(/\D/g, "");
         const up1 = await driveUpload({ company: companyCode, dateFolder, kind: "PL", filename: pl.filename, blob: pl.blob });
         const up2 = await driveUpload({ company: companyCode, dateFolder, kind: "Labels", filename: lb.filename, blob: lb.blob });
@@ -118,7 +119,7 @@ export default function Dashboard(){
     }
     try {
       const { deliveryNo } = await exportPackingList(finalOutlet, boxes, order, { ...master, companyCode } as any, clusterText, profile?.alias || profile?.email?.split("@")[0], refCombined);
-      await exportLabels(finalOutlet, boxes, master);
+      await exportLabels(finalOutlet, boxes, master, { template: getLabelTemplate() });
       const hist = JSON.parse(localStorage.getItem("outlet_history")||"[]");
       if(!hist.includes(finalOutlet.toUpperCase())){ hist.push(finalOutlet.toUpperCase()); localStorage.setItem("outlet_history", JSON.stringify(hist)); }
       // If outlet was auto-registered, also push to backend like Python validate_or_register_outlet does

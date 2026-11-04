@@ -20,6 +20,7 @@ import BootstrapSplash from "./components/BootstrapSplash";
 import IdleLock, { LOCK_NOW_EVENT } from "./components/IdleLock";
 import RankBadge from "./components/RankBadge";
 import { getExportDest, setExportDest, driveStatus, driveConnect, driveDisconnect, type ExportDest } from "./lib/drive";
+import { getLabelTemplate, setLabelTemplate, LABEL_TEMPLATE_OPTIONS, type LabelTemplate } from "./lib/labelPrefs";
 import { expFetchMe, badgeForLevel, isExpEligible, type ExpMe } from "./lib/exp";
 import UpdateBanner from "./components/UpdateBanner";
 import { APP_VERSION, CHANGELOGS } from "./lib/changelogs";
@@ -39,6 +40,9 @@ function Nav(){
   const [profileOpen, setProfileOpen] = useState(false);
   // Export destination (Local | Google Drive) — per browser, Local default. Drive needs per-user connect.
   const [exportDest, setExportDestState] = useState<ExportDest>("local");
+  // Label size template — per browser, "standard" (original 6-up) default.
+  const [labelTpl, setLabelTplState] = useState<LabelTemplate>("standard");
+  const pickLabelTpl = (t: LabelTemplate)=> { setLabelTplState(t); setLabelTemplate(t); };
   const [driveConn, setDriveConn] = useState<boolean | null>(null);
   const refreshDrive = async ()=>{
     try { const s = await driveStatus(); setDriveConn(!!s.connected); }
@@ -64,6 +68,7 @@ function Nav(){
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onEsc);
     try { setExportDestState(getExportDest()); } catch {}
+    try { setLabelTplState(getLabelTemplate()); } catch {}
     return ()=> { document.removeEventListener("mousedown", onClick); document.removeEventListener("keydown", onEsc); };
   },[]);
   useEffect(()=>{ if(profileOpen) refreshDrive(); },[profileOpen]);
@@ -201,6 +206,16 @@ function Nav(){
                           <div className="mt-1.5 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700">⚠️ {t("drive.unverifiedNote")}</div>
                         </div>
                       )}
+                    </div>
+                    {/* Label size — additive; "Standard" keeps the original 6-per-A4 output untouched */}
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+                      <div className="text-[10px] font-black tracking-widest text-slate-400">{t("labels.title")}</div>
+                      <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                        {LABEL_TEMPLATE_OPTIONS.map(opt=> (
+                          <button key={opt.id} onClick={()=> pickLabelTpl(opt.id)} className={`px-1.5 py-1.5 rounded-lg text-[10px] font-black transition ${labelTpl===opt.id ? "bg-[#0f1e2e] text-white shadow" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-100"}`}>{t(`labels.${opt.id}`)}</button>
+                        ))}
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400">{t("labels.perPage", { n: String(LABEL_TEMPLATE_OPTIONS.find(o=>o.id===labelTpl)?.perPage ?? 6) })}</div>
                     </div>
                     <button onClick={()=> { setProfileOpen(false); (window as any).__openFeedback?.(); }} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-[#0f1e2e] to-[#1a2f4a] text-white text-xs font-extrabold hover:from-black hover:to-[#0f1e2e] transition flex items-center justify-center gap-1.5">💬 Send Feedback</button>
                     <button onClick={()=> { setProfileOpen(false); window.dispatchEvent(new Event(LOCK_NOW_EVENT)); }} className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-extrabold hover:bg-slate-50 transition flex items-center justify-center gap-1.5">🔒 {t("idle.lockNow")}</button>
