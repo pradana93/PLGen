@@ -25,6 +25,7 @@ import { normalizeOutletName } from "../lib/fuzzyOutlet";
 import { loadAliases, learnAliases, forgetAlias, clearAliases, flatAliases, learnedEntries } from "../lib/outletAliases";
 import type { AliasMap } from "../lib/outletAliases";
 import { exportPackingList, exportLabels } from "../lib/exportExcel";
+import { getLabelTemplate } from "../lib/labelPrefs";
 import { planForGroup, blockerFor, breakdownFor } from "../lib/plQuantity";
 import type { Blocker, GroupPlan } from "../lib/plQuantity";
 import { buildZip, blobToBytes } from "../lib/zip";
@@ -200,7 +201,7 @@ export default function DashboardV2(){
     const companyCode = g.entities.includes("BBB") ? "BBB" : "BBT";
     const boxes = calculateBoxes(plan.order, master);
     const pl = await exportPackingList(key, boxes, plan.order, { ...master, companyCode } as any, checkerDisplay(), preparedBy, g.refs.join(" / "), { skipDownload });
-    const labels = await exportLabels(key, boxes, master, { skipDownload });
+    const labels = await exportLabels(key, boxes, master, { skipDownload, template: getLabelTemplate() });
     return { pl, labels };
   };
 

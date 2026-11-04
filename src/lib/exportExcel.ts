@@ -4,6 +4,8 @@ import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import QRCode from "qrcode";
 import { Box, Order, getNextDeliveryNumber, getDeliveryDateWIB, buildDisplayRows, getOutletPalette } from "./packing";
+import { exportSizedLabels } from "./labelSheets";
+import type { LabelTemplate } from "./labelPrefs";
 
 const ARIA = "Arial";
 const ARIA_BLACK = "Arial Black";
@@ -464,8 +466,13 @@ export async function exportPackingList(outlet: string, boxes: Box[], order: Ord
 
 // Label sheets export — mirrors addons.py generate_labels (6 labels/sheet, 2 cols x 3 rows, A4 portrait)
 // opts.skipDownload: build the blob without triggering a local download (Google Drive mode).
+// opts.template: opt-in size switch (see lib/labelSheets.ts). Omitted or "standard" runs the
+// original 6-per-A4 path below completely unchanged — byte-identical output.
 // Default path (no opts) is byte-identical to before — Local flow untouched.
-export async function exportLabels(outlet: string, boxes: Box[], master: any, opts?: { skipDownload?: boolean }) {
+export async function exportLabels(outlet: string, boxes: Box[], master: any, opts?: { skipDownload?: boolean; template?: LabelTemplate }) {
+  if (opts?.template === "medium" || opts?.template === "large") {
+    return exportSizedLabels(outlet, boxes, master, opts.template, { skipDownload: opts?.skipDownload });
+  }
   const outName = outlet.toUpperCase();
   const outletData = (master?.OUTLET_INFO || {})[outName] || {};
   const receiverName = outletData.name || outName;
