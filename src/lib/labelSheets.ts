@@ -48,10 +48,10 @@ const CFG: Record<SizedLabelTemplate, LabelCfg> = {
     marginColWidth: 2,
     spacerColWidth: 2,
     labelSpan: 2,
-    heights: [30, 30, 30, 32, 32, 36, 36, 36, 36, 34, 26],
+    heights: [30, 30, 24, 30, 30, 40, 40, 40, 40, 24, 46],
     gapRows: 1,
     startRow: 2,
-    font: { outlet: 22, koli: 16, addr: 13, cap: 13, value: 15, banner: 15, detail: 10 },
+    font: { outlet: 22, koli: 16, addr: 13, cap: 13, value: 12.5, banner: 15, detail: 10 },
     margin: { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35 },
     suffix: "MEDIUM_",
   },
@@ -65,10 +65,10 @@ const CFG: Record<SizedLabelTemplate, LabelCfg> = {
     marginColWidth: 1,
     spacerColWidth: 2,
     labelSpan: 2,
-    heights: [44, 44, 40, 40, 40, 48, 48, 48, 48, 52, 34],
+    heights: [44, 44, 30, 40, 40, 48, 48, 48, 48, 42, 56],
     gapRows: 0,
     startRow: 2,
-    font: { outlet: 28, koli: 20, addr: 16, cap: 16, value: 19, banner: 20, detail: 12 },
+    font: { outlet: 24, koli: 20, addr: 16, cap: 16, value: 19, banner: 20, detail: 12 },
     margin: { left: 0.25, right: 0.25, top: 0.3, bottom: 0.3 },
     suffix: "LARGE_",
   },
@@ -77,6 +77,70 @@ const CFG: Record<SizedLabelTemplate, LabelCfg> = {
 const WARNING_BANNER = "⚠️ WAJIB VIDEO UNBOXING";
 const WARNING_DETAIL =
   "Rekam video saat paket dibuka. Klaim barang rusak/kurang tanpa video TIDAK dapat diproses.";
+
+// --- text metrics -------------------------------------------------------------
+// Excel row heights are in points and merged cells never auto-grow, so a block
+// that wraps to more lines than its rows can hold spills over its neighbours.
+// Sizes below are therefore derived from the text each label actually carries
+// instead of being tuned for one sample address.
+const CHAR_UNIT_PX = 7; // width of one column unit in pixels (default 11pt font)
+const CHAR_UNIT_PAD_PX = 5;
+const PX_TO_PT = 0.75;
+
+/** Width in points of a column given in Excel character units. */
+const colWidthPt = (chars: number) =>
+  (chars * CHAR_UNIT_PX + CHAR_UNIT_PAD_PX) * PX_TO_PT;
+
+/** Conservative advance width of one character, in em units. */
+function charEm(ch: string, black: boolean): number {
+  if (ch === " ") return 0.28;
+  if (ch >= "0" && ch <= "9") return black ? 0.66 : 0.56;
+  if (ch >= "A" && ch <= "Z") return black ? 0.82 : 0.7;
+  if (".,:'!|".includes(ch)) return 0.28;
+  if ("-/_()".includes(ch)) return 0.36;
+  return black ? 0.66 : 0.53;
+}
+
+function textWidthPt(text: string, sizePt: number, black: boolean): number {
+  let em = 0;
+  for (const ch of text) em += charEm(ch, black);
+  return em * sizePt;
+}
+
+/** Number of wrapped lines a string needs inside `widthPt` (honours \n). */
+function wrappedLines(text: string, widthPt: number, sizePt: number, black = false): number {
+  let total = 0;
+  for (const para of String(text).split("\n")) {
+    const words = para.split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      total += 1;
+      continue;
+    }
+    let lines = 1;
+    let cur = 0;
+    const space = charEm(" ", black) * sizePt;
+    for (const w of words) {
+      const ww = textWidthPt(w, sizePt, black);
+      if (cur === 0) cur = ww;
+      else if (cur + space + ww <= widthPt) cur += space + ww;
+      else {
+        lines += 1;
+        cur = ww;
+      }
+      while (cur > widthPt) {
+        lines += 1;
+        cur -= widthPt;
+      }
+    }
+    total += lines;
+  }
+  return Math.max(1, total);
+}
+
+/** Point height needed for `lines` lines of `sizePt` text, plus breathing room. */
+function blockHeightPt(lines: number, sizePt: number): number {
+  return Math.ceil(lines * sizePt * 1.32) + 5;
+}
 
 function stamp(): string {
   const d = new Date();
@@ -125,6 +189,54 @@ export async function exportSizedLabels(
   const wb = new ExcelJS.Workbook();
   const perSheet = cfg.colsPerPage * cfg.rowsPerPage;
 
+  // Derived row heights: every label on a sheet carries the same outlet/address,
+  // so one set of heights fits both columns and every koli.
+  // Merged cells span `labelCols` columns of `colWidth` character units, so the
+  // usable width is (labelCols * colWidth) characters, not labelCols characters.
+  const labelWidthPt = colWidthPt(cfg.labelCols * cfg.colWidth) - 8;
+  const valueWidthPt = colWidthPt((cfg.labelCols - cfg.labelSpan) * cfg.colWidth) - 6;
+  const outletTotal = Math.max(
+    cfg.heights[0] + cfg.heights[1],
+    blockHeightPt(wrappedLines(outName, labelWidthPt, cfg.font.outlet, true), cfg.font.outlet)
+  );
+  const addrTotal = Math.max(
+    cfg.heights[3] + cfg.heights[4],
+    blockHeightPt(wrappedLines(receiverAddr, labelWidthPt, cfg.font.addr), cfg.font.addr)
+  );
+  const pairHeight = Math.max(
+    cfg.heights[5],
+    blockHeightPt(wrappedLines(receiverName, valueWidthPt, cfg.font.value, true), cfg.font.value),
+    blockHeightPt(wrappedLines("BURGER BANGOR", valueWidthPt, cfg.font.value, true), cfg.font.value)
+  );
+  const heights = [
+    Math.max(cfg.heights[0], Math.ceil(outletTotal / 2)),
+    Math.max(cfg.heights[1], Math.ceil(outletTotal / 2)),
+    Math.max(
+      cfg.heights[2],
+      blockHeightPt(
+        wrappedLines(`KOLI  ${totalKoli} / ${totalKoli}`, labelWidthPt, cfg.font.koli, true),
+        cfg.font.koli
+      )
+    ),
+    Math.max(cfg.heights[3], Math.ceil(addrTotal / 2)),
+    Math.max(cfg.heights[4], Math.ceil(addrTotal / 2)),
+    pairHeight,
+    pairHeight,
+    pairHeight,
+    pairHeight,
+    Math.max(
+      cfg.heights[9],
+      blockHeightPt(wrappedLines(WARNING_BANNER, labelWidthPt, cfg.font.banner, true), cfg.font.banner)
+    ),
+    Math.max(
+      cfg.heights[10],
+      blockHeightPt(
+        wrappedLines(`${WARNING_DETAIL}\nTgl Kirim: ${deliveryDate}`, labelWidthPt, cfg.font.detail, true),
+        cfg.font.detail
+      )
+    ),
+  ];
+
   const setupSheet = (ws: ExcelJS.Worksheet) => {
     (ws.pageSetup as any).paperSize = 9; // A4
     ws.pageSetup.orientation = cfg.orientation;
@@ -172,7 +284,7 @@ export async function exportSizedLabels(
     const cOutlet = ws.getCell(r0, c0);
     cOutlet.value = outName;
     cOutlet.font = { name: ARIA_BLACK, size: cfg.font.outlet, bold: true };
-    cOutlet.alignment = { horizontal: "center", vertical: "middle" };
+    cOutlet.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
     // row 2 — KOLI NUMBER (actual number, not a blank line)
     ws.mergeCells(r0 + 2, c0, r0 + 2, c1);
@@ -228,8 +340,8 @@ export async function exportSizedLabels(
 
     borderBox(ws, r0, c0, r0 + 10, c1);
 
-    for (let i = 0; i < cfg.heights.length; i++) {
-      ws.getRow(r0 + i).height = cfg.heights[i];
+    for (let i = 0; i < heights.length; i++) {
+      ws.getRow(r0 + i).height = heights[i];
     }
   };
 
