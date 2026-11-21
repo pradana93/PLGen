@@ -15,6 +15,7 @@ PT Bangor Berani Terukur).
 - ExcelJS builds the Packing List (PL) and label sheets
 - Supabase for auth + persistence, with a local JSON file fallback in `data/`
 - Deployed on Vercel from `main`
+- **Warehouse Operations (Additive):** Warehouse Map, Receive Stock, Picking List Generator (FIFO with stock deduction)
 
 ---
 
@@ -26,6 +27,9 @@ PT Bangor Berani Terukur).
 | `docs/ARCHITECTURE.md` | Finding where something lives |
 | `docs/DECISIONS.md` | Before reversing or "cleaning up" an existing design |
 | `docs/LABELS.md` | Before touching `src/lib/labelSheets.ts` or the 6-up label path |
+| `docs/WAREHOUSE_PICKING_DESIGN.md` | Supabase schema for warehouse locations, stock batches, movements |
+| `docs/WAREHOUSE_PICKING_API.md` | API endpoint specifications for warehouse operations |
+| `docs/WAREHOUSE_PICKING_UI.md` | Wireframes and component specs for warehouse pages |
 
 If you learn something non-obvious, write it into the matching doc in the same change.
 Docs are part of the deliverable, not an afterthought.
@@ -38,20 +42,24 @@ Docs are part of the deliverable, not an afterthought.
    `src/lib/packing.ts` (`calculateBoxes`, `toPackedQty`/`fromPackedQty`,
    `getNextDeliveryNumber`, `getDeliveryDateWIB`) is a 1:1 port of `core.py`.
    Box counts, PL numbers, delivery dates and quantities must never change as a
-   side effect of UI, export or label work.
+   side effect of UI, export, label, or warehouse work.
 2. **Standard labels are frozen.**
    `exportLabels(...)` with no `template` (or `template: "standard"`) must stay
    byte-identical to the original 6-per-A4 output. The original body in
    `src/lib/exportExcel.ts` is not to be edited. New sizes are additive only.
 3. **New label sizes live in `src/lib/labelSheets.ts` only.**
-4. **Every user-facing string goes into both `en` and `id` in `src/i18n.tsx`.**
+4. **Warehouse Operations are additive only.**
+   Warehouse Map, Receive Stock, and Picking List live in new pages/components and
+   call new `/api/warehouse/*` endpoints. They do not touch `packing.ts`,
+   `exportExcel.ts`, or the existing Dashboard/Digital PL flows.
+5. **Every user-facing string goes into both `en` and `id` in `src/i18n.tsx`.**
    Never hard-code Indonesian or English copy inside a component.
-5. **Never commit** `.env`, `.env.local`, `data/` (except the tracked
+6. **Never commit** `.env`, `.env.local`, `data/` (except the tracked
    `data/master_data.json`), `pdf files/`, `Labels/`, logs, or `dist/`.
-6. **Never force-push `main`.** Roll back with a revert commit, or use the
+7. **Never force-push `main`.** Roll back with a revert commit, or use the
    documented `--force-with-lease` recipe in `docs/STATE.md` only when the user
    explicitly asks for it.
-7. **Stay in scope.** No speculative refactors, renames or new dependencies.
+8. **Stay in scope.** No speculative refactors, renames or new dependencies.
    Match the surrounding style. Comments explain *why*, not *what*.
 
 ---

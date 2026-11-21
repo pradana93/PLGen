@@ -21,20 +21,23 @@ session**: bump the date, adjust the shipped/open lists, add one row to the log.
 
 ## In flight
 
-- Nothing. Working tree clean except untracked `pdf files/` (local proofs, ignored).
+- **Design Phase: Warehouse Operations & Picking List Generator**
+  - Supabase schema drafted (`docs/WAREHOUSE_PICKING_DESIGN.md`)
+  - API endpoints specified (`docs/WAREHOUSE_PICKING_API.md`)
+  - UI wireframes & flow specified (`docs/WAREHOUSE_PICKING_UI.md`)
+  - Architectural decisions recorded (D-009, D-010 in `docs/DECISIONS.md`)
+  - Waiting for user approval on design docs before implementation.
 
 ## Next up (not started)
 
-1. **Backfill the in-app changelog.** `src/lib/changelogs.ts` stops at
-   2026-09-20 (`fa9e219`). Everything since — Dashboard v2 phases, idle
-   auto-lock, uncapped Live Board paging, label size templates, the label
-   geometry fix — is missing from the footer. Either backfill from `git log` or
-   reset the baseline at `a9825ee` and note it.
-2. **Fix the README structure section.** It still describes `frontend/` +
-   `backend/`; the repo is flat. Point it at `docs/ARCHITECTURE.md`.
-3. **Test/CI decision.** There is no harness. Either accept it explicitly
-   (`docs/DECISIONS.md` D-008) or add a minimal vitest suite around
-   `packing.ts` as a regression guard for the frozen maths.
+1. **Supabase migration execution:** Run `docs/WAREHOUSE_PICKING_DESIGN.md` in Supabase SQL editor (or migrate script).
+2. **Backend API implementation:** Add `/api/warehouse/*` endpoints in `api/index.ts`.
+3. **Frontend UI pages:**
+   - `/warehouse-map` (Grid view, inline editing, auto-status)
+   - `/receive-stock` (PO-based receive, fuzzy SKU search, batch creation)
+   - `/picking-list` (Cluster name, RO file parser, FIFO allocation preview, Excel export + stock deduction)
+   - `/stock-history` (Audit log of all movements)
+4. **Fix the README structure section:** Points to `docs/ARCHITECTURE.md`.
 
 No product work is pending approval — wait for the owner's direction.
 
