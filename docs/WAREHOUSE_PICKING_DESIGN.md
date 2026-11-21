@@ -11,8 +11,7 @@ create table if not exists warehouse_locations (
   warehouse text not null,                    -- 'C11', 'C12'
   zone_type text not null,                    -- 'Racking', 'Container', 'Floor'
   level_rack text not null,                   -- 'Level A / Bay 1', 'Left', 'Floor / Front'
-  max_capacity_pcs int not null default 0,    -- Max boxes/pcs that fit
-  in_pack int not null default 1,             -- Conversion: pcs per pack (UOM)
+  max_capacity int not null default 0,        -- Max capacity in master_data.ITEM_UOM
   assigned_sku text,                          -- SKU name from master_data (nullable)
   status text not null default 'Available',   -- 'Available', 'Occupied', 'Reserved', 'Maintenance'
   created_at timestamptz not null default now(),
@@ -187,18 +186,20 @@ order by sb.sku, sb.exp_date asc nulls last, sb.received_at asc;
 
 /*
 -- Example inserts (run after cleaning your Excel data):
-insert into warehouse_locations (pallet_code, warehouse, zone_type, level_rack, max_capacity_pcs, in_pack, assigned_sku, status) values
-('C11-RC-A1-01', 'C11', 'Racking', 'Level A / Bay 1', 50, 1000, 'Thousand Island', 'Occupied'),
-('C11-RC-A1-02', 'C11', 'Racking', 'Level A / Bay 1', 50, 1000, 'Thousand Island', 'Occupied'),
+insert into warehouse_locations (pallet_code, warehouse, zone_type, level_rack, max_capacity, assigned_sku) values
+('C11-RC-A1-01', 'C11', 'Racking', 'Level A / Bay 1', 50, 'Thousand Island'),
+('C11-RC-A1-02', 'C11', 'Racking', 'Level A / Bay 1', 50, 'Thousand Island'),
 -- ... all 70+ rows from your Excel
 on conflict (pallet_code) do update set
   warehouse = excluded.warehouse,
   zone_type = excluded.zone_type,
   level_rack = excluded.level_rack,
-  max_capacity_pcs = excluded.max_capacity_pcs,
-  in_pack = excluded.in_pack,
+  max_capacity = excluded.max_capacity,
   assigned_sku = excluded.assigned_sku,
-  status = excluded.status,
+  status = case
+    when excluded.assigned_sku is null or excluded.assigned_sku = '' then 'Available'
+    else 'Occupied'
+  end,
   updated_at = now();
 */
 

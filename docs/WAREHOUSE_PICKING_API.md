@@ -46,13 +46,12 @@ Create new location. **Admin only.**
   "warehouse": "C11",
   "zone_type": "Racking",
   "level_rack": "Level A / Bay 1",
-  "max_capacity_pcs": 50,
-  "in_pack": 1000,
+  "max_capacity": 50,
   "assigned_sku": "Thousand Island",
   "status": "Available"
 }
 ```
-`pallet_code` must be unique. `status` auto-set if omitted.
+`pallet_code` must be unique. `status` auto-set if omitted. `max_capacity` is in the SKU's UOM (from `master_data.ITEM_UOM`).
 
 **Response:** Created `WarehouseLocation` (201)
 
@@ -258,13 +257,15 @@ Generate Excel + **deduct stock** + log movements. **Admin only.**
 4. Build Excel with columns:
    - Nomor Rak (pallet_code)
    - Nama Barang (sku)
-   - Qty Setiap Pallet/Rak (from warehouse_locations: `max_capacity_pcs` / `in_pack` logic)
+   - Qty Setiap Pallet/Rak — **current on-hand stock at that rack before deduction** (sum of `stock_batches.qty_packs` for that SKU at that `pallet_code`), never blank (show `0`)
    - Exp Date (exp_date)
    - Item Diminta (sku)
-   - Qty Diminta (allocated per batch)
+   - Qty Diminta (allocated per batch — split allocation if multiple exp dates/racks)
    - Status (Cukup / Stok Kurang)
-   - Sisa Qty (qty_packs - allocated)
-3. Return `{ blob, filename }`
+   - Sisa Qty (qty_packs - allocated after deduction)
+5. Return `{ blob, filename }`
+
+**Important:** The exported document reflects `Qty Setiap Pallet/Rak` as the **before-picking on-hand quantity**. Stock is deducted at export time. These two numbers appear on the same row.
 
 **Filename:** `${cluster_name}_PICKING_${date}.xlsx` (suffix `_PICKING_`)
 
@@ -301,8 +302,7 @@ interface WarehouseLocation {
   warehouse: string;
   zone_type: 'Racking' | 'Container' | 'Floor';
   level_rack: string;
-  max_capacity_pcs: number;
-  in_pack: number;
+  max_capacity: number;
   assigned_sku: string | null;
   status: 'Available' | 'Occupied' | 'Reserved' | 'Maintenance';
   created_at: string;
