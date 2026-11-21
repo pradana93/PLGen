@@ -41,3 +41,9 @@ Thumbs.db
 logs/
 Labels/
 recovery.dat
+
+# Local label proofs / exported PDFs (generated during visual verification)
+pdf files/
+
+.vercel
+.env*

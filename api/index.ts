@@ -5,6 +5,10 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
@@ -3147,7 +3151,7 @@ app.use((req,res)=> res.status(404).json({ error:"Not found", path:req.path }));
 
 // Export for Vercel serverless, listen only when run directly
 export default app;
-if (!IS_VERCEL && require.main === module) {
+if (!IS_VERCEL && import.meta.main) {
   app.listen(PORT, ()=> {
     console.log(`✅ PLGen Backend 2.0.0 running on http://localhost:${PORT}`);
     console.log(`   WIB Time: ${wibNowStr()} | CORS: ${CORS_ORIGIN} | Vercel:${IS_VERCEL} | Supabase:${isSupabaseConfigured}`);
