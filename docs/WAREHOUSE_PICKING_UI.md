@@ -39,12 +39,12 @@ const navItems = [
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Filters: [Warehouse ▼] [Zone Type ▼] [Status ▼] [Search...        ]      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  ┌────┬──────────┬────┬────────────┬────────┬──────┬──────────┬────────┬───┐│
-│  │ No │Pallet Code│Whs │ Zone       │ Level  │Cap.  │In Pack   │SKU     │Sts││
-│  ├────┼──────────┼────┼────────────┼────────┼──────┼──────────┼────────┼───┤│
-│  │ 1  │C11-RC-A1-01│C11│ Racking    │Lvl A/1 │  50  │  1000    │Thousand│Occ││
-│  │ 2  │C11-RC-A1-02│C11│ Racking    │Lvl A/1 │  50  │  1000    │Island  │Occ││
-│  │ 3  │C11-RC-A2-03│C11│ Racking    │Lvl A/2 │  40  │  800     │-       │Avl││
+│  ┌────┬──────────┬────┬────────────┬────────┬──────────────────┬────────┬───┐│
+│  │ No │Pallet Code│Whs │ Zone       │ Level  │Max Cap (UOM)     │SKU     │Sts││
+│  ├────┼──────────┼────┼────────────┼────────┼──────────────────┼────────┼───┤│
+│  │ 1  │C11-RC-A1-01│C11│ Racking    │Lvl A/1 │ 50 Pack          │Thousand│Occ││
+│  │ 2  │C11-RC-A1-02│C11│ Racking    │Lvl A/1 │ 50 Pack          │Island  │Occ││
+│  │ 3  │C11-RC-A2-03│C11│ Racking    │Lvl A/2 │ 40 Pack          │-       │Avl││
 │  │    │           │    │            │        │      │          │        │   ││
 │  │    │  [inline edit on click]                              [🗑]      │   ││
 │  └────┴──────────┴────┴────────────┴────────┴──────┴──────────┴────────┴───┘│
@@ -70,8 +70,7 @@ const navItems = [
 | Warehouse | `warehouse` | ✅ | Select: C11, C12 |
 | Zone Type | `zone_type` | ✅ | Select: Racking, Container, Floor |
 | Level / Rack | `level_rack` | ✅ | Free text |
-| Max Capacity | `max_capacity_pcs` | ✅ | Number |
-| In Pack | `in_pack` | ✅ | Number (conversion) |
+| Max Capacity | `max_capacity` | ✅ | Number (shows UOM label auto-fetched from `master_data.ITEM_UOM` when SKU is assigned) |
 | Assigned SKU | `assigned_sku` | ✅ | Fuzzy search dropdown |
 | Status | `status` | ✅* | Auto if SKU set; manual override allowed |
 
@@ -149,19 +148,19 @@ const navItems = [
 │  ⚠️  Warnings: Beef Patty Large: 5 packs short (Stok Kurang)              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Thousand Island (BBBJD008) — Qty Diminta: 50  ✅ Cukup                    │
-│  ┌────┬──────────────┬──────────┬──────────┬────────┬────────┬─────────┐  │
-│  │ #  │ Nomor Rak    │ Exp Date │ Alloc.   │ Status │ Sisa   │ In Pack │  │
-│  ├────┼──────────────┼──────────┼──────────┼────────┼────────┼─────────┤  │
-│  │ 1  │ C11-RC-A1-01 │ 2026-12-15│   30    │ Cukup  │  20    │  1000   │  │
-│  │ 2  │ C11-RC-A1-02 │ 2026-12-20│   20    │ Cukup  │  80    │  1000   │  │
-│  └────┴──────────────┴──────────┴──────────┴────────┴────────┴─────────┘  │
+│  ┌────┬──────────────┬──────────┬───────────────────┬────────┬────────┬────────┐  │
+│  │ #  │ Nomor Rak    │ Exp Date │ Qty Setiap Pallet │ Alloc. │ Status │ Sisa   │  │
+│  ├────┼──────────────┼──────────┼───────────────────┼────────┼────────┼────────┤  │
+│  │ 1  │ C11-RC-A1-01 │ 2026-12-15│ 30                │  30   │ Cukup  │  0     │  │
+│  │ 2  │ C11-RC-A1-02 │ 2026-12-20│ 80                │  20   │ Cukup  │  60    │  │
+│  └────┴──────────────┴──────────┴───────────────────┴────────┴────────┴────────┘  │
 │                                                                             │
 │  Beef Patty Large (BBBJD001) — Qty Diminta: 20  ❌ Stok Kurang             │
-│  ┌────┬──────────────┬──────────┬──────────┬────────┬────────┬─────────┐  │
-│  │ #  │ Nomor Rak    │ Exp Date │ Alloc.   │ Status │ Sisa   │ In Pack │  │
-│  ├────┼──────────────┼──────────┼──────────┼────────┼────────┼─────────┤  │
-│  │ 1  │ C11-C40-04   │ 2026-11-30│   15    │StokKrg │  5     │  560    │  │
-│  └────┴──────────────┴──────────┴──────────┴────────┴────────┴─────────┘  │
+│  ┌────┬──────────────┬──────────┬───────────────────┬────────┬────────┬────────┐  │
+│  │ #  │ Nomor Rak    │ Exp Date │ Qty Setiap Pallet │ Alloc. │ Status │ Sisa   │  │
+│  ├────┼──────────────┼──────────┼───────────────────┼────────┼────────┼────────┤  │
+│  │ 1  │ C11-C40-04   │ 2026-11-30│ 15                │  15   │StokKrg │  0     │  │
+│  └────┴──────────────┴──────────┴───────────────────┴────────┴────────┴────────┘  │
 │  (Only 15 available — 5 short)                                             │
 │                                                                             │
 │  [← Back to Upload]                                      [Export Picking List]│
@@ -221,12 +220,12 @@ Row 4+: Data rows (one per batch allocation)
 |-----|--------|--------|--------|
 | A | Nomor Rak | `pallet_code` | Text |
 | B | Nama Barang | `sku` | Text |
-| C | Qty Setiap Pallet/Rak | `max_capacity_pcs` / `in_pack` logic | Number |
+| C | Qty Setiap Pallet/Rak | **Current on-hand stock at this rack before deduction** (sum of `stock_batches.qty_packs` for this SKU at this `pallet_code`) | Number (show `0` if none) |
 | D | Exp Date | `exp_date` | Date (dd/mm/yyyy) |
 | E | Item Diminta | `sku` | Text |
-| F | Qty Diminta | `allocated` | Number |
+| F | Qty Diminta | `allocated` (split allocation per batch/rack) | Number |
 | G | Status | `Cukup` / `Stok Kurang` | Badge style (green/red fill) |
-| H | Sisa Qty | `sisa_qty` | Number |
+| H | Sisa Qty | `sisa_qty` (after deduction) | Number |
 
 ### Styling (match PL look)
 - Header row: navy background `#2C3E50`, white text
@@ -235,6 +234,8 @@ Row 4+: Data rows (one per batch allocation)
 - Status column: conditional formatting (green fill for Cukup, red fill for Stok Kurang)
 - Freeze header row
 - Print on A4 landscape, fit to page
+
+**Note:** The exported `Qty Setiap Pallet/Rak` shows the **before-picking on-hand quantity**. Stock deduction happens simultaneously at export time. The `Sisa Qty` column shows the remaining quantity after deduction.
 
 ---
 
