@@ -4,6 +4,16 @@
 
 Ported 1:1 from the original Python desktop app (Tkinter + Flask + Streamlit). All packing logic is preserved.
 
+## 📑 Working Docs
+
+| File | Purpose |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Operating contract: hard rules, git workflow, commands, definition of done |
+| `docs/ARCHITECTURE.md` | Repo map, routes/roles, data flow (this overrides the structure section below) |
+| `docs/STATE.md` | Living snapshot: what is live, known gaps, rollback runbook |
+| `docs/DECISIONS.md` | Why things are built the way they are (append-only) |
+| `docs/LABELS.md` | Label templates, geometry model, visual verification recipe |
+
 ## 🚀 What Is PLGen?
 
 Warehouse logistics for **Burger Bangor** (PT Bangor Berkembang Bersama / PT Bangor Berani Terukur):

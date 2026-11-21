@@ -5,6 +5,7 @@ venv/
 .venv/
 logs/
 Labels/
+pdf files/
 *.log
 *.tmp
 data/
