@@ -76,3 +76,25 @@ checks of the affected flow (label PDFs for label work).
 layout/print output, which unit tests model poorly.
 **Consequence:** when touching anything risky, verify the real artifact. If a
 test harness is ever added, update this entry instead of silently relying on it.
+
+## D-009 · Warehouse Operations (Map + Picking List) is completely additive
+**Date:** 2026-11-22
+**Decision:** Warehouse Maps, Receive Stock, and Picking List Generator live in
+new pages (`/warehouse-map`, `/receive-stock`, `/picking-list`, `/stock-history`),
+new API endpoints (`/api/warehouse/*`), and new tables (`warehouse_locations`,
+`stock_batches`, `stock_movements`). Packing List core logic (`packing.ts`,
+`exportExcel.ts`, `Dashboard.tsx`, `usePackingStore.ts`) is completely untouched.
+**Why:** User requirement: Stock Keepers need FIFO/FEFO picking from RO per
+cluster with stock deduction, while Packing List remains purely an outbound
+shipping document without stock deduction.
+**Consequence:** Zero regression risk to packing math or label exports.
+
+## D-010 · Stock deduction occurs ONLY on Picking List export, not Packing List
+**Date:** 2026-11-22
+**Decision:** Inventory (`stock_batches`) is deducted only when the user clicks
+"Export Picking List". Packing List export never touches inventory. Preview is
+read-only.
+**Why:** Picking List = inventory movement (stock physically leaves shelves).
+Packing List = shipping document. Deducting in both would double-deduct.
+**Consequence:** Export failure rolls back or prevents deduction. Each deduction
+logs to append-only `stock_movements`.
